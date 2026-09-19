@@ -10,6 +10,8 @@ from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.runner import RunError, Runner
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+artifact_app = typer.Typer(add_completion=False, no_args_is_help=True)
+app.add_typer(artifact_app, name="artifact")
 
 
 def version_callback(value: bool) -> None:
@@ -100,9 +102,10 @@ def decide(
     request_id: Annotated[str, typer.Argument()],
     package: Annotated[Path, typer.Argument(exists=False, file_okay=False)],
     binding: Annotated[Path, typer.Option("--binding", exists=True, dir_okay=False)],
-    choice: Annotated[str, typer.Option("--choice")],
     subject_digest: Annotated[str, typer.Option("--subject-digest")],
     expected_version: Annotated[int, typer.Option("--expected-version")],
+    choice: Annotated[str | None, typer.Option("--choice")] = None,
+    decision_file: Annotated[Path | None, typer.Option("--decision-file")] = None,
     db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
     comment: Annotated[str, typer.Option("--comment")] = "",
     actor: Annotated[str, typer.Option("--actor")] = "example-reviewer",
@@ -111,10 +114,16 @@ def decide(
 ) -> None:
     """Submit one authorized human decision and resume its run."""
     try:
+        if choice is not None and decision_file is not None:
+            raise RunError("use either --choice or --decision-file, not both")
+        decision: object | None = None
+        if decision_file is not None:
+            decision = json.loads(decision_file.read_text(encoding="utf-8"))
         runner = Runner(package, binding_path=binding, database_path=db)
         record = runner.decide(
             request_id,
             choice=choice,
+            decision=decision,
             comment=comment,
             actor=actor,
             subject_digest=subject_digest,
@@ -124,12 +133,44 @@ def decide(
     except LedgerConflict as exc:
         _emit_error(str(exc), as_json)
         raise typer.Exit(code=3) from exc
-    except (OSError, RunError, KeyError) as exc:
+    except (OSError, json.JSONDecodeError, RunError, KeyError) as exc:
         _emit_error(str(exc), as_json)
         raise typer.Exit(code=2) from exc
     _emit_record(record, as_json)
     if record["status"] == "failed":
         raise typer.Exit(code=1)
+
+
+@artifact_app.command("register")
+def register_artifact(
+    run_id: Annotated[str, typer.Argument()],
+    file: Annotated[Path, typer.Option("--file", exists=True, dir_okay=False)],
+    name: Annotated[str | None, typer.Option("--name")] = None,
+    media_type: Annotated[str, typer.Option("--media-type")] = "application/octet-stream",
+    request_id: Annotated[str | None, typer.Option("--request-id")] = None,
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Register a completed local file as an immutable ArtifactRef."""
+    ledger = Ledger(db)
+    try:
+        invocation_id = None
+        if request_id is not None:
+            request = ledger.get_human_request(request_id)
+            if request is None or request["run_id"] != run_id:
+                raise LedgerConflict("request is not part of run")
+            invocation_id = request["invocation_id"]
+        artifact = ledger.register_artifact(
+            run_id=run_id,
+            source_path=file,
+            name=name or file.name,
+            media_type=media_type,
+            invocation_id=invocation_id,
+        )
+    except (OSError, KeyError, LedgerConflict) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+    _emit_record(artifact, as_json)
 
 
 def _emit_record(record: dict[str, object], as_json: bool) -> None:

@@ -1,0 +1,10 @@
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: manual-input
+  version: 0.1.0
+spec:
+  workflows:
+    manual: workflows/manual.yaml
+  entrypoints: [manual]
+  requiredFeatures: [core.call, core.human]

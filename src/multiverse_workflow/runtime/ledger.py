@@ -19,6 +19,8 @@ class Ledger:
     def __init__(self, database_path: Path) -> None:
         database_path = database_path.expanduser().resolve()
         database_path.parent.mkdir(parents=True, exist_ok=True)
+        self._artifact_root = database_path.parent / "artifacts"
+        self._artifact_root.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(database_path)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
@@ -473,6 +475,85 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
+    def register_artifact(
+        self,
+        *,
+        run_id: str,
+        source_path: Path,
+        name: str,
+        media_type: str,
+        invocation_id: str | None = None,
+    ) -> dict[str, Any]:
+        source = source_path.expanduser().resolve()
+        if not source.is_file():
+            raise LedgerConflict(f"artifact source is not a file: {source_path}")
+        run = self.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if invocation_id is not None:
+            invocation = self.get_invocation(invocation_id)
+            if invocation is None or invocation["run_id"] != run_id:
+                raise LedgerConflict("artifact invocation is not part of run")
+        content = source.read_bytes()
+        digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+        artifact_id = _new_id("artifact")
+        destination = self._artifact_root / artifact_id
+        destination.write_bytes(content)
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            connection.execute(
+                """
+                INSERT INTO artifacts (
+                    id, namespace, run_id, invocation_id, name, media_type,
+                    size_bytes, digest, storage_ref, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?)
+                """,
+                (
+                    artifact_id,
+                    run["namespace"],
+                    run_id,
+                    invocation_id,
+                    name,
+                    media_type,
+                    len(content),
+                    digest,
+                    str(destination),
+                    _now(),
+                ),
+            )
+            self._event(
+                connection,
+                run_id,
+                "artifact.created",
+                {"artifactId": artifact_id, "digest": digest, "status": "ready"},
+                invocation_id=invocation_id,
+            )
+        return self.get_artifact(artifact_id)  # type: ignore[return-value]
+
+    def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+        ).fetchone()
+        return _row(row)
+
+    def validate_artifact_refs(self, run_id: str, artifact_refs: list[str]) -> None:
+        run = self.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        for artifact_id in artifact_refs:
+            artifact = self.get_artifact(artifact_id)
+            if artifact is None or artifact["status"] != "ready":
+                raise LedgerConflict(f"artifact is not ready: {artifact_id}")
+            if artifact["run_id"] != run_id or artifact["namespace"] != run["namespace"]:
+                raise LedgerConflict(f"artifact is not authorized for run: {artifact_id}")
+            storage_ref = Path(artifact["storage_ref"])
+            if not storage_ref.is_file():
+                raise LedgerConflict(f"artifact content is unavailable: {artifact_id}")
+            content = storage_ref.read_bytes()
+            digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+            if digest != artifact["digest"]:
+                raise LedgerConflict(f"artifact digest mismatch: {artifact_id}")
+
     def record_event(
         self,
         run_id: str,
@@ -499,8 +580,9 @@ class Ledger:
         self,
         request_id: str,
         *,
-        choice: str,
-        comment: str,
+        choice: str | None = None,
+        decision: Any | None = None,
+        comment: str = "",
         expected_version: int,
         subject_digest: str,
         actor: str,
@@ -528,8 +610,15 @@ class Ledger:
                 raise LedgerConflict("human request subject conflict")
             if actor not in json.loads(request["authorized_subjects_json"]):
                 raise LedgerConflict("actor is not authorized")
-            if choice not in json.loads(request["choices_json"]):
-                raise LedgerConflict("choice is not allowed")
+            if request["request_type"] in {"approval", "review"}:
+                if choice not in json.loads(request["choices_json"]):
+                    raise LedgerConflict("choice is not allowed")
+                stored_decision = {"decision": choice, "comment": comment}
+            else:
+                if decision is None:
+                    raise LedgerConflict("input request requires a structured decision")
+                choice = ""
+                stored_decision = decision
             if request["expires_at"] <= _now():
                 raise LedgerConflict("human request is expired")
 
@@ -538,9 +627,9 @@ class Ledger:
             connection.execute(
                 """
                 INSERT INTO human_decisions (
-                    id, request_id, request_version, choice, comment, actor,
-                    subject_digest, idempotency_key, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, request_id, request_version, choice, comment, decision_json,
+                    actor, subject_digest, idempotency_key, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     decision_id,
@@ -548,6 +637,7 @@ class Ledger:
                     version,
                     choice,
                     comment,
+                    _json(stored_decision),
                     actor,
                     subject_digest,
                     idempotency_key,
@@ -670,6 +760,7 @@ class Ledger:
                 request_version INTEGER NOT NULL,
                 choice TEXT NOT NULL,
                 comment TEXT NOT NULL,
+                decision_json TEXT NOT NULL DEFAULT '{}',
                 actor TEXT NOT NULL,
                 subject_digest TEXT NOT NULL,
                 idempotency_key TEXT NOT NULL UNIQUE,
@@ -687,8 +778,29 @@ class Ledger:
                 occurred_at TEXT NOT NULL,
                 UNIQUE(run_id, seq)
             );
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                invocation_id TEXT REFERENCES invocations(id),
+                name TEXT NOT NULL,
+                media_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                digest TEXT NOT NULL,
+                storage_ref TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
+        columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(human_decisions)").fetchall()
+        }
+        if "decision_json" not in columns:
+            self._connection.execute(
+                "ALTER TABLE human_decisions ADD COLUMN decision_json TEXT NOT NULL DEFAULT '{}'"
+            )
         self._connection.commit()
 
     @contextmanager

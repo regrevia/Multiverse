@@ -78,4 +78,23 @@ def execute_builtin(
             )
         )
 
+    if executor_ref == "builtin.human-input.v1":
+        authorized_subjects = config.get("authorizedSubjects", ["example-editor"])
+        if not (
+            isinstance(authorized_subjects, list)
+            and all(isinstance(subject, str) for subject in authorized_subjects)
+        ):
+            raise ExecutorError("human input authorizedSubjects must be a string array")
+        return ExecutionResult(
+            human_request=HumanRequestSpec(
+                request_type="input",
+                title=str(config.get("title", "Human input")),
+                instructions=str(
+                    config.get("instructions", "Complete the task and submit the result.")
+                ),
+                choices=[],
+                authorized_subjects=authorized_subjects,
+            )
+        )
+
     raise ExecutorError(f"unsupported builtin executor: {executor_ref}")

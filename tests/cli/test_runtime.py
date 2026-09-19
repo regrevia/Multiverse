@@ -79,3 +79,136 @@ def test_run_inspect_and_decide_commands_drive_local_runtime(tmp_path: Path) -> 
 
     assert decide_result.exit_code == 0, decide_result.stdout
     assert json.loads(decide_result.stdout)["status"] == "succeeded"
+
+
+def test_cli_submits_a_structured_human_decision_file(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    request_input = tmp_path / "request.json"
+    request_input.write_text(json.dumps({"goal": "ship the release"}), encoding="utf-8")
+    run_result = CLI.invoke(
+        app,
+        [
+            "run",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--input",
+            str(request_input),
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    assert run_result.exit_code == 4, run_result.stdout
+    waiting = json.loads(run_result.stdout)
+    request = Ledger(database).list_human_requests(status="pending")[0]
+    decision_file = tmp_path / "decision.json"
+    decision_file.write_text(
+        json.dumps({"decision": "approve", "comment": "Approved."}),
+        encoding="utf-8",
+    )
+
+    result = CLI.invoke(
+        app,
+        [
+            "decide",
+            request["id"],
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--db",
+            str(database),
+            "--decision-file",
+            str(decision_file),
+            "--subject-digest",
+            request["subject_digest"],
+            "--expected-version",
+            str(request["version"]),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["id"] == waiting["id"]
+
+
+def test_cli_runs_manual_input_artifact_trial_end_to_end(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    request_input = tmp_path / "request.json"
+    request_input.write_text(json.dumps({"goal": "prepare a release"}), encoding="utf-8")
+    run_result = CLI.invoke(
+        app,
+        [
+            "run",
+            str(ROOT / "presets/manual-input"),
+            "--binding",
+            str(ROOT / "examples/bindings/manual-input-local.yaml"),
+            "--input",
+            str(request_input),
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    assert run_result.exit_code == 4, run_result.stdout
+    waiting = json.loads(run_result.stdout)
+    request = Ledger(database).list_human_requests(status="pending")[0]
+
+    deliverable = tmp_path / "release.md"
+    deliverable.write_text("# Release\n", encoding="utf-8")
+    artifact_result = CLI.invoke(
+        app,
+        [
+            "artifact",
+            "register",
+            waiting["id"],
+            "--file",
+            str(deliverable),
+            "--request-id",
+            request["id"],
+            "--media-type",
+            "text/markdown",
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    assert artifact_result.exit_code == 0, artifact_result.stdout
+    artifact = json.loads(artifact_result.stdout)
+
+    decision_file = tmp_path / "decision.json"
+    decision_file.write_text(
+        json.dumps(
+            {
+                "artifact_refs": [artifact["id"]],
+                "change_summary": "Prepared the release document.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    decide_result = CLI.invoke(
+        app,
+        [
+            "decide",
+            request["id"],
+            str(ROOT / "presets/manual-input"),
+            "--binding",
+            str(ROOT / "examples/bindings/manual-input-local.yaml"),
+            "--db",
+            str(database),
+            "--decision-file",
+            str(decision_file),
+            "--subject-digest",
+            request["subject_digest"],
+            "--expected-version",
+            str(request["version"]),
+            "--actor",
+            "example-editor",
+            "--json",
+        ],
+    )
+
+    assert decide_result.exit_code == 0, decide_result.stdout
+    finished = json.loads(decide_result.stdout)
+    assert finished["status"] == "succeeded"
+    assert json.loads(finished["output_json"])["artifact_refs"] == [artifact["id"]]

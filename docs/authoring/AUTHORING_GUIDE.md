@@ -21,12 +21,15 @@ The checked-in preview currently supports:
 - builtin local executors
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
+- `input` human requests with direct output-schema JSON submissions
+- local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
+- machine-readable `artifact register` command
 
 The preview does not claim support for HTTP Job execution, Local Process
 registration, LangGraph persistence, parallel/repeat execution, deployment or
-import, production HTTP APIs, Artifact upload/registration, input-type human
-submissions, UI forms, or Latent Handoff.
+import, production HTTP APIs, remote Artifact upload/registration, UI forms, or
+Latent Handoff.
 
 ## Authoring Loop
 
@@ -91,6 +94,32 @@ uv run mverse decide <request-id> presets/content-delivery \
 The `run` command exits with code `4` while a human request is pending.
 `decide` resumes the same persisted run. Reusing the same idempotency key
 returns the original result instead of replaying downstream nodes.
+
+For an `input` request, first register a completed local file:
+
+```bash
+uv run mverse artifact register <run-id> \
+  --request-id <request-id> \
+  --file ./release.md \
+  --media-type text/markdown \
+  --db .multiverse/runtime.db \
+  --json
+```
+
+Then submit a JSON file whose root value directly satisfies the node's
+`outputSchema`:
+
+```json
+{
+  "artifact_refs": ["artifact_..."],
+  "change_summary": "Prepared the release document."
+}
+```
+
+The registration command copies the file into the local Artifact store,
+records a content digest, and does not complete the HumanRequest. The final
+decision still checks request version, subject digest, actor authorization,
+output Schema, Artifact existence, run ownership, and content digest.
 
 ## Package Rules
 

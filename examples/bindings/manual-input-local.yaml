@@ -1,0 +1,18 @@
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: manual-input-local
+  version: 0.1.0
+spec:
+  slots:
+    editor:
+      adapter: human
+      executorRef: builtin.human-input.v1
+      config:
+        requestType: input
+        choices: []
+        authorizedSubjects: [example-editor]
+      secretRefs: {}
+      grants:
+        - action: artifact.submit
+          resource: namespace:local

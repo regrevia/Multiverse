@@ -82,7 +82,8 @@ class Runner:
         self,
         request_id: str,
         *,
-        choice: str,
+        choice: str | None = None,
+        decision: Any | None = None,
         comment: str,
         actor: str,
         subject_digest: str,
@@ -101,26 +102,55 @@ class Runner:
                 if run is None:
                     raise RunError("human request run is missing")
                 return run
+        request_type = request["request_type"]
+        invocation = self.ledger.get_invocation(request["invocation_id"])
+        if invocation is None:
+            raise RunError("human request invocation is missing")
+        workflow_id = self.ledger.get_run(request["run_id"])["workflow_id"]  # type: ignore[index]
+        node = self._plan(workflow_id).nodes[invocation["node_id"]]
+        if request_type in {"approval", "review"}:
+            if choice is None and isinstance(decision, dict):
+                raw_choice = decision.get("decision")
+                if isinstance(raw_choice, str):
+                    choice = raw_choice
+                    if comment == "" and isinstance(decision.get("comment"), str):
+                        comment = decision["comment"]
+            if choice is None:
+                raise LedgerConflict("review request requires --choice")
+            output = {"decision": choice, "comment": comment}
+        else:
+            if decision is None:
+                raise LedgerConflict("input request requires a structured decision")
+            output = decision
+        self._validate_schema(output, node["definition"]["outputSchema"])
+        self._validate_artifact_refs(request["run_id"], output)
+        binding = self._binding.spec.slots[node["definition"]["slot"]]
+        required_comment_choices = binding.config.get("requireCommentFor", [])
+        if (
+            request_type in {"approval", "review"}
+            and isinstance(required_comment_choices, list)
+            and choice in required_comment_choices
+            and not comment.strip()
+        ):
+            raise LedgerConflict("comment is required for this decision")
         self.ledger.decide_human_request(
             request_id,
             choice=choice,
+            decision=decision,
             comment=comment,
             expected_version=expected_version,
             subject_digest=subject_digest,
             actor=actor,
             idempotency_key=idempotency_key or f"decision-{uuid.uuid4().hex}",
         )
-        invocation = self.ledger.get_invocation(request["invocation_id"])
-        if invocation is None:
-            raise RunError("human request invocation is missing")
         attempt = self.ledger.latest_attempt(invocation["id"])
         decision = self.ledger.get_human_decision(request_id)
         if attempt is None or decision is None:
             raise RunError("human decision ledger records are incomplete")
-        output = {"decision": decision["choice"], "comment": decision["comment"]}
-        workflow_id = self.ledger.get_run(request["run_id"])["workflow_id"]  # type: ignore[index]
-        node = self._plan(workflow_id).nodes[invocation["node_id"]]
-        self._validate_schema(output, node["definition"]["outputSchema"])
+        if request_type in {"approval", "review"}:
+            output = {"decision": decision["choice"], "comment": decision["comment"]}
+        else:
+            output = json.loads(decision["decision_json"])
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
         next_node = node["definition"]["next"]
@@ -275,11 +305,7 @@ class Runner:
                 input_value=input_value,
                 subject_digest=subject_digest,
                 choices=request_spec.choices,
-                decision_schema={
-                    "type": "object",
-                    "required": ["decision", "comment"],
-                    "properties": {"decision": {"enum": request_spec.choices}},
-                },
+                decision_schema=self._load_schema(definition["outputSchema"]),
                 authorized_subjects=request_spec.authorized_subjects,
                 expires_at=_timestamp(
                     datetime.now(UTC)
@@ -297,6 +323,34 @@ class Runner:
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
         return output
+
+    def _load_schema(self, relative_path: str) -> dict[str, Any]:
+        path = (self.package_dir / relative_path).resolve()
+        schema, diagnostic = validate_schema_file(path, self.package_dir)
+        if diagnostic is not None or schema is None:
+            raise RunError(f"schema invalid: {relative_path}")
+        return schema
+
+    def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
+        refs: list[str] = []
+
+        def visit(current: Any) -> None:
+            if isinstance(current, dict):
+                for key, child in current.items():
+                    if key in {"artifact_refs", "artifactRefs"}:
+                        if not isinstance(child, list) or not all(
+                            isinstance(item, str) for item in child
+                        ):
+                            raise LedgerConflict("artifact_refs must be a string array")
+                        refs.extend(child)
+                    else:
+                        visit(child)
+            elif isinstance(current, list):
+                for child in current:
+                    visit(child)
+
+        visit(value)
+        self.ledger.validate_artifact_refs(run_id, refs)
 
     def _outputs(self, run_id: str) -> dict[str, Any]:
         outputs: dict[str, Any] = {}

@@ -1,0 +1,29 @@
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: manual
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/final-output.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      title: Complete the manual delivery
+      slot: editor
+      inputSchema: schemas/request.json
+      outputSchema: schemas/output.json
+      input:
+        ref: input#
+      requires:
+        capabilities: [human.input@1]
+      effects:
+        class: write
+        actions: [artifact.submit]
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.work.output#

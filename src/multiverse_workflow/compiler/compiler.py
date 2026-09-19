@@ -49,6 +49,7 @@ _EXECUTOR_CAPABILITIES = {
     "example.remote-content.v1": {"content.produce@1"},
     "builtin.nonempty-deliverable.v1": {"data.validate@1"},
     "builtin.human-review.v1": {"human.review@1"},
+    "builtin.human-input.v1": {"human.input@1"},
 }
 
 _EXECUTOR_DESCRIPTORS: dict[str, dict[str, Any]] = {
@@ -88,6 +89,17 @@ _EXECUTOR_DESCRIPTORS: dict[str, dict[str, Any]] = {
     "builtin.human-review.v1": {
         "adapter": "human",
         "capabilities": {"human.review@1"},
+        "contractVersion": "multiverse/v0.1",
+        "executorVersion": "1.0.0",
+        "supportsCancel": True,
+        "supportsIdempotency": True,
+        "supportsRecoveryQuery": True,
+        "observabilityLevel": "structured",
+        "permissionLevel": "enforced",
+    },
+    "builtin.human-input.v1": {
+        "adapter": "human",
+        "capabilities": {"human.input@1"},
         "contractVersion": "multiverse/v0.1",
         "executorVersion": "1.0.0",
         "supportsCancel": True,

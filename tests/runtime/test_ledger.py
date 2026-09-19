@@ -152,3 +152,33 @@ def test_ledger_rejects_an_unauthorized_human_subject(tmp_path: Path) -> None:
             actor="unknown",
             idempotency_key="decision-1",
         )
+
+
+def test_ledger_registers_an_immutable_local_artifact(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2026-09-20T00:00:00Z",
+    )
+    source = tmp_path / "deliverable.txt"
+    source.write_text("approved content", encoding="utf-8")
+
+    artifact = ledger.register_artifact(
+        run_id=run["id"],
+        source_path=source,
+        name="deliverable.txt",
+        media_type="text/plain",
+    )
+
+    assert artifact["status"] == "ready"
+    assert artifact["size_bytes"] == len(b"approved content")
+    assert artifact["digest"].startswith("sha256:")
+    stored = Path(artifact["storage_ref"])
+    assert stored.is_file()
+    assert stored.read_text(encoding="utf-8") == "approved content"
+    assert ledger.get_artifact(artifact["id"])["id"] == artifact["id"]
