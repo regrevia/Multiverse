@@ -60,6 +60,17 @@ uv run mverse validate presets/content-delivery \
   --json
 ```
 
+List the local machine-readable capability catalog:
+
+```bash
+uv run mverse capabilities --json
+```
+
+The catalog reports `declared`, `installed`, `available`, and `verified`
+separately. In the current preview the builtin and human fixtures are
+available; the example HTTP executor is declared for validation examples but
+is not available for local execution.
+
 Start a local run:
 
 ```bash

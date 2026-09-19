@@ -110,6 +110,40 @@ _EXECUTOR_DESCRIPTORS: dict[str, dict[str, Any]] = {
     },
 }
 
+_VERIFIED_EXECUTORS = {
+    "example.content-fixture.v1",
+    "builtin.nonempty-deliverable.v1",
+    "builtin.human-review.v1",
+    "builtin.human-input.v1",
+}
+
+
+def executor_capabilities() -> list[dict[str, Any]]:
+    """Return a safe, machine-readable local capability catalog."""
+    catalog: list[dict[str, Any]] = []
+    for executor_ref, descriptor in sorted(_EXECUTOR_DESCRIPTORS.items()):
+        installed = descriptor["adapter"] in {"builtin", "human"}
+        available = installed and executor_ref != "example.remote-content.v1"
+        catalog.append(
+            {
+                "executorRef": executor_ref,
+                "adapter": descriptor["adapter"],
+                "capabilities": sorted(descriptor["capabilities"]),
+                "contractVersion": descriptor["contractVersion"],
+                "executorVersion": descriptor["executorVersion"],
+                "supportsCancel": descriptor["supportsCancel"],
+                "supportsIdempotency": descriptor["supportsIdempotency"],
+                "supportsRecoveryQuery": descriptor["supportsRecoveryQuery"],
+                "observabilityLevel": descriptor["observabilityLevel"],
+                "permissionLevel": descriptor["permissionLevel"],
+                "declared": True,
+                "installed": installed,
+                "available": available,
+                "verified": executor_ref in _VERIFIED_EXECUTORS,
+            }
+        )
+    return catalog
+
 
 @dataclass(frozen=True)
 class ExecutionPlan:

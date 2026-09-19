@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 
 from multiverse_workflow import __version__
-from multiverse_workflow.compiler import compile_package
+from multiverse_workflow.compiler import compile_package, executor_capabilities
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.runner import RunError, Runner
 
@@ -57,6 +57,27 @@ def validate(
             )
     if not result.ok:
         raise typer.Exit(code=2)
+
+
+@app.command()
+def capabilities(
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List local executor capabilities and their support states."""
+    payload = {
+        "protocolVersion": "multiverse/v0.1",
+        "scope": "local",
+        "executors": executor_capabilities(),
+    }
+    if as_json:
+        typer.echo(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return
+    for executor in executor_capabilities():
+        status = ", ".join(
+            f"{key}={str(executor[key]).lower()}"
+            for key in ("declared", "installed", "available", "verified")
+        )
+        typer.echo(f"{executor['executorRef']}: {status}")
 
 
 @app.command("run")
