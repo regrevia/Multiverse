@@ -22,6 +22,8 @@ from multiverse_workflow.protocol.models import (
     ValueExpr,
 )
 
+SchemaSource = Path | dict[str, Any]
+
 
 def validate_schema_file(
     path: Path,
@@ -36,11 +38,12 @@ def validate_schema_file(
 
     root = (package_root or path.parent).resolve()
     visited: set[Path] = set()
+    schemas: dict[Path, dict[str, Any]] = {}
 
     def visit(schema_path: Path) -> tuple[dict[str, Any] | None, Diagnostic | None]:
         resolved = schema_path.resolve()
         if resolved in visited:
-            return None, None
+            return schemas[resolved], None
         visited.add(resolved)
         try:
             document = load_document(resolved)
@@ -59,7 +62,15 @@ def validate_schema_file(
                 resolved,
                 "Schema 必须声明 Draft 2020-12。",
             )
+        schemas[resolved] = schema
         for reference in _schema_refs(schema):
+            path_part, fragment = urldefrag(reference)
+            if fragment and not fragment.startswith("/"):
+                return None, _schema_diagnostic(
+                    "SCHEMA_REF_FORBIDDEN",
+                    resolved,
+                    f"Schema fragment 必须是 JSON Pointer：{reference}。",
+                )
             reference_path, reference_diagnostic = _resolve_schema_reference(
                 resolved,
                 reference,
@@ -67,10 +78,16 @@ def validate_schema_file(
             )
             if reference_diagnostic is not None:
                 return None, reference_diagnostic
-            if reference_path is not None:
-                _, child_diagnostic = visit(reference_path)
-                if child_diagnostic is not None:
-                    return None, child_diagnostic
+            target_path = reference_path or resolved
+            target_schema, child_diagnostic = visit(target_path)
+            if child_diagnostic is not None:
+                return None, child_diagnostic
+            if target_schema is None or not _json_pointer_exists(target_schema, unquote(fragment)):
+                return None, _schema_diagnostic(
+                    "SCHEMA_REF_NOT_FOUND",
+                    resolved,
+                    f"Schema 引用 fragment 不存在：{reference}。",
+                )
         return schema, None
 
     return visit(path)
@@ -115,7 +132,10 @@ def validate_value_expr_references(
     file: str,
     pointer: str,
     allow_iteration: bool = False,
-    node_output_schemas: dict[str, Path] | None = None,
+    node_output_schemas: dict[str, SchemaSource] | None = None,
+    input_schema: SchemaSource | None = None,
+    package_root: Path | None = None,
+    error_output_nodes: set[str] | None = None,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
@@ -128,17 +148,38 @@ def validate_value_expr_references(
                 allow_iteration=allow_iteration,
                 file=file,
                 pointer=value_pointer + "/ref",
+                error_output_nodes=error_output_nodes or set(),
             )
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
                 return
             parsed = _parse_reference(value.ref)
-            if parsed is None or parsed[0] != "node":
+            if parsed is None:
                 return
-            node_id, json_pointer = parsed[1], parsed[2]
-            schema_path = (node_output_schemas or {}).get(node_id)
-            if schema_path is not None:
-                schema, schema_diagnostic = validate_schema_file(schema_path)
+            kind, node_id, json_pointer = parsed
+            if kind == "input":
+                schema_source = input_schema
+            else:
+                if node_id in (error_output_nodes or set()):
+                    if json_pointer and not (
+                        json_pointer == "/error" or json_pointer.startswith("/error/")
+                    ):
+                        diagnostics.append(
+                            Diagnostic(
+                                code="ERROR_OUTPUT_REFERENCE_INVALID",
+                                file=file,
+                                pointer=value_pointer + "/ref",
+                                message=f"错误路径只能读取 ErrorEnvelope：{value.ref}。",
+                                suggestion=(
+                                    "使用 nodes.<node_id>.output# 或 "
+                                    "nodes.<node_id>.output#/error。"
+                                ),
+                            )
+                        )
+                    return
+                schema_source = (node_output_schemas or {}).get(node_id)
+            if schema_source is not None:
+                schema, schema_diagnostic = _load_schema_source(schema_source, package_root)
                 if schema_diagnostic is not None:
                     diagnostics.append(schema_diagnostic)
                 elif schema is not None and not _schema_pointer_exists(schema, json_pointer):
@@ -173,7 +214,10 @@ def validate_predicate_references(
     file: str,
     pointer: str,
     allow_iteration: bool = False,
-    node_output_schemas: dict[str, Path] | None = None,
+    node_output_schemas: dict[str, SchemaSource] | None = None,
+    input_schema: SchemaSource | None = None,
+    package_root: Path | None = None,
+    error_output_nodes: set[str] | None = None,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
@@ -187,6 +231,9 @@ def validate_predicate_references(
                 pointer=pointer + "/left",
                 allow_iteration=allow_iteration,
                 node_output_schemas=node_output_schemas,
+                input_schema=input_schema,
+                package_root=package_root,
+                error_output_nodes=error_output_nodes,
             )
         )
         diagnostics.extend(
@@ -198,6 +245,9 @@ def validate_predicate_references(
                 pointer=pointer + "/right",
                 allow_iteration=allow_iteration,
                 node_output_schemas=node_output_schemas,
+                input_schema=input_schema,
+                package_root=package_root,
+                error_output_nodes=error_output_nodes,
             )
         )
         if predicate.op == "in" and isinstance(predicate.right, LiteralExpr):
@@ -222,6 +272,9 @@ def validate_predicate_references(
                     pointer=f"{pointer}/all/{index}",
                     allow_iteration=allow_iteration,
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_nodes,
                 )
             )
     elif isinstance(predicate, AnyPredicate):
@@ -235,6 +288,9 @@ def validate_predicate_references(
                     pointer=f"{pointer}/any/{index}",
                     allow_iteration=allow_iteration,
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_nodes,
                 )
             )
     elif isinstance(predicate, NotPredicate):
@@ -247,6 +303,9 @@ def validate_predicate_references(
                 pointer=pointer + "/not",
                 allow_iteration=allow_iteration,
                 node_output_schemas=node_output_schemas,
+                input_schema=input_schema,
+                package_root=package_root,
+                error_output_nodes=error_output_nodes,
             )
         )
     return diagnostics
@@ -260,6 +319,7 @@ def _validate_ref(
     allow_iteration: bool,
     file: str,
     pointer: str,
+    error_output_nodes: set[str],
 ) -> Diagnostic | None:
     parsed = _parse_reference(reference)
     if parsed is None:
@@ -396,10 +456,32 @@ def _schema_pointer_exists(schema: dict[str, Any], pointer: str) -> bool:
             if isinstance(properties, dict) and token in properties:
                 current = properties[token]
                 continue
-            if current.get("additionalProperties") is not False:
-                return True
         return False
     return True
+
+
+def _json_pointer_exists(value: Any, pointer: str) -> bool:
+    if not pointer:
+        return True
+    current = value
+    for token in pointer.lstrip("/").split("/"):
+        token = token.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict) and token in current:
+            current = current[token]
+        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
+            current = current[int(token)]
+        else:
+            return False
+    return True
+
+
+def _load_schema_source(
+    source: SchemaSource,
+    package_root: Path | None,
+) -> tuple[dict[str, Any] | None, Diagnostic | None]:
+    if isinstance(source, dict):
+        return source, None
+    return validate_schema_file(source, package_root)
 
 
 def _schema_diagnostic(code: str, path: Path, message: str) -> Diagnostic:

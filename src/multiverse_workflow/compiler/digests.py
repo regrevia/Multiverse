@@ -22,6 +22,10 @@ def sha256_digest(value: bytes | str) -> str:
 
 
 def package_digest(package_root: Path) -> str:
+    return sha256_digest(canonical_json(package_file_manifest(package_root)))
+
+
+def package_file_manifest(package_root: Path) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
     for path in sorted(package_root.rglob("*")):
         if not path.is_file() or _excluded_package_path(path, package_root):
@@ -35,7 +39,7 @@ def package_digest(package_root: Path) -> str:
                 "sha256": hashlib.sha256(content).hexdigest(),
             }
         )
-    return sha256_digest(canonical_json(files))
+    return files
 
 
 def binding_digest(binding: Any) -> str:

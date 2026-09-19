@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SEMVER_PATTERN = (
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -138,6 +138,12 @@ class SwitchNode(NodeCommon):
             raise ValueError("switch case IDs must be unique")
         return self
 
+    @model_validator(mode="after")
+    def reject_error_handler(self) -> SwitchNode:
+        if self.on_error is not None:
+            raise ValueError("switch nodes cannot define onError")
+        return self
+
 
 class WorkflowNode(NodeCommon):
     type: Literal["workflow"]
@@ -188,6 +194,8 @@ class EndNode(NodeCommon):
 
     @model_validator(mode="after")
     def validate_outcome(self) -> EndNode:
+        if self.on_error is not None:
+            raise ValueError("end nodes cannot define onError")
         if self.outcome == "succeeded" and (self.output is None or self.error is not None):
             raise ValueError("successful end requires output and cannot contain error")
         if self.outcome == "failed" and (self.error is None or self.output is not None):
@@ -222,11 +230,18 @@ class Workflow(ResourceBase):
     spec: WorkflowSpec
 
 
+class AssetSpec(ProtocolModel):
+    path: str = Field(min_length=1)
+    kind: Literal["prompt", "skill", "policy"]
+    format: str = Field(min_length=1)
+    version: str = Field(pattern=SEMVER_PATTERN)
+
+
 class WorkflowPackageSpec(ProtocolModel):
     workflows: dict[str, str] = Field(min_length=1)
     entrypoints: list[str] = Field(min_length=1, alias="entrypoints")
     required_features: list[str] = Field(default_factory=list, alias="requiredFeatures")
-    assets: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    assets: dict[str, AssetSpec] = Field(default_factory=dict)
     eval_suites: list[str] = Field(default_factory=list, alias="evalSuites")
     extensions: dict[str, Any] = Field(default_factory=dict)
 
@@ -247,6 +262,14 @@ class SlotBinding(ProtocolModel):
     config: dict[str, Any] = Field(default_factory=dict)
     secret_refs: dict[str, str] = Field(default_factory=dict, alias="secretRefs")
     grants: list[Grant] = Field(default_factory=list)
+
+    @field_validator("secret_refs")
+    @classmethod
+    def validate_secret_refs(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, reference in value.items():
+            if not reference.startswith("secret://") or len(reference) <= len("secret://"):
+                raise ValueError(f"secretRefs.{key} must use secret:// references")
+        return value
 
 
 class BindingSetSpec(ProtocolModel):

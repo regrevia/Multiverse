@@ -166,3 +166,39 @@ def test_workflow_and_binding_resources_validate() -> None:
         }
     )
     assert binding.spec.slots["producer"].adapter == "builtin"
+
+
+def test_end_cannot_define_an_error_handler() -> None:
+    node_adapter = TypeAdapter(Node)
+
+    with pytest.raises(ValidationError):
+        node_adapter.validate_python(
+            {
+                "type": "end",
+                "onError": "fallback",
+                "outcome": "failed",
+                "error": {"code": "FAILED", "message": "failed"},
+            }
+        )
+
+
+def test_secret_refs_must_be_secret_provider_references() -> None:
+    with pytest.raises(ValidationError):
+        BindingSet.model_validate(
+            {
+                "apiVersion": "multiverse/v0.1",
+                "kind": "BindingSet",
+                "metadata": {"name": "invalid", "version": "0.1.0"},
+                "spec": {
+                    "slots": {
+                        "worker": {
+                            "adapter": "builtin",
+                            "executorRef": "builtin.nonempty-deliverable.v1",
+                            "config": {},
+                            "secretRefs": {"token": "plain-secret"},
+                            "grants": [],
+                        }
+                    }
+                },
+            }
+        )

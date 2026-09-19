@@ -10,10 +10,12 @@ from multiverse_workflow.compiler.digests import (
     binding_digest,
     canonical_json,
     package_digest,
+    package_file_manifest,
     sha256_digest,
 )
 from multiverse_workflow.compiler.graph import validate_graph
 from multiverse_workflow.compiler.references import (
+    SchemaSource,
     schema_validator,
     validate_predicate_references,
     validate_schema_file,
@@ -49,6 +51,53 @@ _EXECUTOR_CAPABILITIES = {
     "builtin.human-review.v1": {"human.review@1"},
 }
 
+_EXECUTOR_DESCRIPTORS: dict[str, dict[str, Any]] = {
+    "example.content-fixture.v1": {
+        "adapter": "builtin",
+        "capabilities": {"content.produce@1"},
+        "contractVersion": "multiverse/v0.1",
+        "executorVersion": "1.0.0",
+        "supportsCancel": True,
+        "supportsIdempotency": True,
+        "supportsRecoveryQuery": True,
+        "observabilityLevel": "structured",
+        "permissionLevel": "enforced",
+    },
+    "example.remote-content.v1": {
+        "adapter": "http_job",
+        "capabilities": {"content.produce@1"},
+        "contractVersion": "multiverse/v0.1",
+        "executorVersion": "1.0.0",
+        "supportsCancel": True,
+        "supportsIdempotency": True,
+        "supportsRecoveryQuery": True,
+        "observabilityLevel": "external",
+        "permissionLevel": "enforced",
+    },
+    "builtin.nonempty-deliverable.v1": {
+        "adapter": "builtin",
+        "capabilities": {"data.validate@1"},
+        "contractVersion": "multiverse/v0.1",
+        "executorVersion": "1.0.0",
+        "supportsCancel": True,
+        "supportsIdempotency": True,
+        "supportsRecoveryQuery": True,
+        "observabilityLevel": "structured",
+        "permissionLevel": "enforced",
+    },
+    "builtin.human-review.v1": {
+        "adapter": "human",
+        "capabilities": {"human.review@1"},
+        "contractVersion": "multiverse/v0.1",
+        "executorVersion": "1.0.0",
+        "supportsCancel": True,
+        "supportsIdempotency": True,
+        "supportsRecoveryQuery": True,
+        "observabilityLevel": "structured",
+        "permissionLevel": "enforced",
+    },
+}
+
 
 @dataclass(frozen=True)
 class ExecutionPlan:
@@ -56,6 +105,7 @@ class ExecutionPlan:
     package_digest: str
     binding_digest: str | None
     workflow_id: str
+    defaults: dict[str, int]
     input_schema_digest: str
     output_schema_digest: str
     nodes: dict[str, dict[str, Any]]
@@ -70,6 +120,7 @@ class ExecutionPlan:
             "packageDigest": self.package_digest,
             "bindingDigest": self.binding_digest,
             "workflowId": self.workflow_id,
+            "defaults": self.defaults,
             "inputSchemaDigest": self.input_schema_digest,
             "outputSchemaDigest": self.output_schema_digest,
             "nodes": self.nodes,
@@ -150,6 +201,24 @@ def compile_package(
     nested_diagnostic = _validate_nested_workflows(package, workflows)
     if nested_diagnostic is not None:
         return CompileResult({}, [nested_diagnostic])
+    resource_diagnostics = _validate_package_resources(package, root)
+    if resource_diagnostics:
+        return CompileResult({}, resource_diagnostics)
+    lock_diagnostics = _validate_package_lock(root)
+    if lock_diagnostics:
+        return CompileResult({}, lock_diagnostics)
+
+    workflow_output_schemas: dict[str, Path] = {}
+    for workflow_id, (workflow_path, workflow) in workflows.items():
+        schema_path, path_diagnostic = _resolve_package_path(root, workflow.spec.output_schema)
+        if path_diagnostic is not None:
+            return CompileResult({}, [path_diagnostic])
+        if schema_path is None:
+            return CompileResult(
+                {},
+                [_diagnostic("FILE_NOT_FOUND", workflow_path, "Workflow 输出 Schema 无法解析。")],
+            )
+        workflow_output_schemas[workflow_id] = schema_path
 
     package_hash = package_digest(root)
     binding_model: BindingSet | None = None
@@ -179,6 +248,7 @@ def compile_package(
             package_hash,
             binding_hash,
             binding_file,
+            workflow_output_schemas,
         )
         if isinstance(workflow_result, Diagnostic):
             return CompileResult({}, [workflow_result])
@@ -201,11 +271,26 @@ def _compile_workflow(
     package_hash: str,
     binding_hash: str | None,
     binding_file: str | None,
+    workflow_output_schemas: dict[str, Path],
 ) -> tuple[ExecutionPlan | None, list[Diagnostic]] | Diagnostic:
     file = str(workflow_path)
     diagnostics = validate_graph(workflow.spec.nodes, workflow.spec.entry, file)
     if diagnostics:
         return None, diagnostics
+
+    workflow_input_schema, input_path_diagnostic = _resolve_package_path(
+        root, workflow.spec.input_schema
+    )
+    if input_path_diagnostic is not None:
+        return None, [input_path_diagnostic]
+    if workflow_input_schema is None:
+        return None, [
+            _diagnostic(
+                "FILE_NOT_FOUND",
+                workflow_path,
+                "Workflow 输入 Schema 无法解析。",
+            )
+        ]
 
     for relative_schema, pointer in (
         (workflow.spec.input_schema, "/spec/inputSchema"),
@@ -215,7 +300,7 @@ def _compile_workflow(
         if schema_diagnostic is not None:
             return None, [schema_diagnostic]
 
-    node_output_schemas: dict[str, Path] = {}
+    node_output_schemas: dict[str, SchemaSource] = {}
     for node_id, node in workflow.spec.nodes.items():
         if isinstance(node, CallNode):
             for schema_name, relative_schema in (
@@ -231,6 +316,12 @@ def _compile_workflow(
                     return None, [schema_diagnostic]
                 if schema_name == "outputSchema" and schema_path is not None:
                     node_output_schemas[node_id] = schema_path
+        elif isinstance(node, (WorkflowNode, RepeatNode)):
+            child_schema = workflow_output_schemas.get(node.workflow)
+            if child_schema is not None:
+                node_output_schemas[node_id] = child_schema
+        elif isinstance(node, ParallelNode):
+            node_output_schemas[node_id] = _parallel_output_schema(node, workflow_output_schemas)
 
     diagnostics = _validate_workflow_references(
         root,
@@ -238,6 +329,9 @@ def _compile_workflow(
         workflow,
         set(package.spec.workflows),
         node_output_schemas,
+        workflow_input_schema,
+        _error_output_sources(workflow),
+        root,
     )
     if diagnostics:
         return None, diagnostics
@@ -253,6 +347,8 @@ def _compile_workflow(
         deadline = workflow.spec.defaults.call_deadline_seconds
         if isinstance(node, CallNode):
             retry = _dump_model(node.retry)
+            if not {"max_attempts", "maxAttempts"} & node.retry.model_fields_set:
+                retry["maxAttempts"] = workflow.spec.defaults.max_attempts
             deadline = node.deadline_seconds or workflow.spec.defaults.call_deadline_seconds
         elif node.deadline_seconds is not None:
             deadline = node.deadline_seconds
@@ -262,6 +358,10 @@ def _compile_workflow(
             "definition": dumped,
             "defaults": {"deadlineSeconds": deadline, "retry": retry},
         }
+        if isinstance(node, ParallelNode):
+            nodes[node_id]["defaults"]["maxConcurrency"] = (
+                node.max_concurrency or workflow.spec.defaults.max_concurrency
+            )
         source_map[node_id] = {
             "file": file,
             "pointer": f"/spec/nodes/{_escape(node_id)}",
@@ -287,6 +387,7 @@ def _compile_workflow(
         "packageDigest": package_hash,
         "bindingDigest": binding_hash,
         "workflowId": workflow_id,
+        "defaults": _dump_model(workflow.spec.defaults),
         "inputSchemaDigest": sha256_digest(input_schema.read_bytes()),
         "outputSchemaDigest": sha256_digest(output_schema.read_bytes()),
         "nodes": nodes,
@@ -301,6 +402,7 @@ def _compile_workflow(
             package_digest=package_hash,
             binding_digest=binding_hash,
             workflow_id=workflow_id,
+            defaults=_dump_model(workflow.spec.defaults),
             input_schema_digest=base_plan["inputSchemaDigest"],
             output_schema_digest=base_plan["outputSchemaDigest"],
             nodes=nodes,
@@ -318,7 +420,10 @@ def _validate_workflow_references(
     workflow_path: Path,
     workflow: Workflow,
     workflow_ids: set[str],
-    node_output_schemas: dict[str, Path],
+    node_output_schemas: dict[str, SchemaSource],
+    input_schema: Path,
+    error_output_sources: dict[str, set[str]],
+    package_root: Path,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     completed_nodes = _definitely_prior_nodes(workflow)
@@ -333,6 +438,9 @@ def _validate_workflow_references(
                     file=str(workflow_path),
                     pointer=f"{pointer}/input",
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_sources.get(node_id, set()),
                 )
             )
         elif isinstance(node, (WorkflowNode, RepeatNode)):
@@ -345,6 +453,9 @@ def _validate_workflow_references(
                     pointer=f"{pointer}/input",
                     allow_iteration=False,
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_sources.get(node_id, set()),
                 )
             )
             if node.workflow not in workflow_ids:
@@ -367,6 +478,9 @@ def _validate_workflow_references(
                         file=str(workflow_path),
                         pointer=f"{pointer}/branches/{_escape(branch_id)}/input",
                         node_output_schemas=node_output_schemas,
+                        input_schema=input_schema,
+                        package_root=package_root,
+                        error_output_nodes=error_output_sources.get(node_id, set()),
                     )
                 )
                 if branch.workflow not in workflow_ids:
@@ -389,6 +503,9 @@ def _validate_workflow_references(
                         file=str(workflow_path),
                         pointer=f"{pointer}/cases/{index}/when",
                         node_output_schemas=node_output_schemas,
+                        input_schema=input_schema,
+                        package_root=package_root,
+                        error_output_nodes=error_output_sources.get(node_id, set()),
                     )
                 )
         if isinstance(node, EndNode) and node.output is not None:
@@ -400,6 +517,9 @@ def _validate_workflow_references(
                     file=str(workflow_path),
                     pointer=f"{pointer}/output",
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_sources.get(node_id, set()),
                 )
             )
         if node.type == "repeat":
@@ -412,6 +532,9 @@ def _validate_workflow_references(
                     pointer=f"{pointer}/until",
                     allow_iteration=True,
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_sources.get(node_id, set()),
                 )
             )
             diagnostics.extend(
@@ -423,6 +546,9 @@ def _validate_workflow_references(
                     pointer=f"{pointer}/feedback",
                     allow_iteration=True,
                     node_output_schemas=node_output_schemas,
+                    input_schema=input_schema,
+                    package_root=package_root,
+                    error_output_nodes=error_output_sources.get(node_id, set()),
                 )
             )
     return diagnostics
@@ -453,8 +579,8 @@ def _validate_binding(
             )
             continue
         slot = binding.spec.slots[node.slot]
-        capabilities = _EXECUTOR_CAPABILITIES.get(slot.executor_ref)
-        if capabilities is None:
+        descriptor = _EXECUTOR_DESCRIPTORS.get(slot.executor_ref)
+        if descriptor is None:
             diagnostics.append(
                 Diagnostic(
                     code="EXECUTOR_UNRESOLVED",
@@ -465,6 +591,21 @@ def _validate_binding(
                 )
             )
             continue
+        if slot.adapter != descriptor["adapter"]:
+            diagnostics.append(
+                Diagnostic(
+                    code="EXECUTOR_ADAPTER_MISMATCH",
+                    file=file,
+                    pointer=f"/spec/slots/{_escape(node.slot)}/adapter",
+                    message=(
+                        f"执行器 {slot.executor_ref} 要求 adapter "
+                        f"{descriptor['adapter']}，实际为 {slot.adapter}。"
+                    ),
+                    suggestion="使用 ExecutorDescriptor 声明的 adapter。",
+                )
+            )
+            continue
+        capabilities = descriptor["capabilities"]
         for capability in node.requires.capabilities:
             if capability not in capabilities:
                 diagnostics.append(
@@ -476,6 +617,140 @@ def _validate_binding(
                     )
                 )
     return diagnostics
+
+
+def _validate_package_resources(
+    package: WorkflowPackage,
+    root: Path,
+) -> list[Diagnostic]:
+    for index, relative_path in enumerate(package.spec.eval_suites):
+        _, diagnostic = _resolve_package_path(root, relative_path)
+        if diagnostic is not None:
+            diagnostic = Diagnostic(
+                code=diagnostic.code,
+                file=diagnostic.file,
+                pointer=f"/spec/evalSuites/{index}",
+                message=diagnostic.message,
+                severity=diagnostic.severity,
+                suggestion=diagnostic.suggestion,
+                details=diagnostic.details,
+            )
+            return [diagnostic]
+    for asset_id, asset in package.spec.assets.items():
+        _, diagnostic = _resolve_package_path(root, asset.path)
+        if diagnostic is not None:
+            diagnostic = Diagnostic(
+                code=diagnostic.code,
+                file=diagnostic.file,
+                pointer=f"/spec/assets/{_escape(asset_id)}/path",
+                message=diagnostic.message,
+                severity=diagnostic.severity,
+                suggestion=diagnostic.suggestion,
+                details=diagnostic.details,
+            )
+            return [diagnostic]
+    return []
+
+
+def _validate_package_lock(root: Path) -> list[Diagnostic]:
+    lock_path = root / "package.lock.json"
+    if not lock_path.is_file():
+        return []
+    try:
+        document = load_document(lock_path)
+    except DiagnosticError as exc:
+        return [exc.diagnostic]
+    value = document.value
+    if not isinstance(value, dict):
+        return [
+            _diagnostic(
+                "PACKAGE_LOCK_INVALID",
+                lock_path,
+                "package.lock.json 根值必须是对象。",
+            )
+        ]
+    files = value.get("files")
+    digest = value.get("packageDigest")
+    if not isinstance(files, list) or not isinstance(digest, str):
+        return [
+            _diagnostic(
+                "PACKAGE_LOCK_INVALID",
+                lock_path,
+                "package.lock.json 必须包含 files 数组和 packageDigest。",
+            )
+        ]
+    actual_files = package_file_manifest(root)
+    if files != actual_files:
+        return [
+            _diagnostic(
+                "PACKAGE_LOCK_MISMATCH",
+                lock_path,
+                "package.lock.json 的文件清单与包实际文件不一致。",
+            )
+        ]
+    if digest != package_digest(root):
+        return [
+            _diagnostic(
+                "PACKAGE_LOCK_MISMATCH",
+                lock_path,
+                "package.lock.json 的 packageDigest 与包实际摘要不一致。",
+            )
+        ]
+    return []
+
+
+def _parallel_output_schema(
+    node: ParallelNode,
+    workflow_output_schemas: dict[str, Path],
+) -> dict[str, Any]:
+    branches: dict[str, Any] = {}
+    for branch_id, branch in node.branches.items():
+        schema_path = workflow_output_schemas.get(branch.workflow)
+        if schema_path is None:
+            branches[branch_id] = {}
+            continue
+        try:
+            document = load_document(schema_path)
+            branches[branch_id] = document.value if isinstance(document.value, dict) else {}
+        except DiagnosticError:
+            branches[branch_id] = {}
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["branches"],
+        "properties": {
+            "branches": {
+                "type": "object",
+                "required": sorted(branches),
+                "properties": branches,
+                "additionalProperties": False,
+            }
+        },
+        "additionalProperties": False,
+    }
+
+
+def _error_output_sources(workflow: Workflow) -> dict[str, set[str]]:
+    adjacency = {node_id: _targets(node) for node_id, node in workflow.spec.nodes.items()}
+    result: dict[str, set[str]] = {node_id: set() for node_id in workflow.spec.nodes}
+    for source, node in workflow.spec.nodes.items():
+        if node.on_error is None:
+            continue
+        for consumer in _reachable_nodes(adjacency, node.on_error):
+            result[consumer].add(source)
+    return result
+
+
+def _reachable_nodes(adjacency: dict[str, list[str]], entry: str) -> set[str]:
+    reachable: set[str] = set()
+    stack = [entry]
+    while stack:
+        node_id = stack.pop()
+        if node_id in reachable:
+            continue
+        reachable.add(node_id)
+        stack.extend(adjacency.get(node_id, []))
+    return reachable
 
 
 def _validate_nested_workflows(

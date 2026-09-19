@@ -21,6 +21,12 @@ def test_content_delivery_compiles_to_serializable_deterministic_plans() -> None
     assert plan.nodes["produce"]["defaults"]["retry"]["maxAttempts"] == 1
     assert any(edge["from"] == "produce" and edge["to"] == "verify" for edge in plan.edges)
     assert plan.compiled_plan_digest == second.plans["delivery"].compiled_plan_digest
+    assert plan.as_dict()["defaults"] == {
+        "runDeadlineSeconds": 604800,
+        "callDeadlineSeconds": 3600,
+        "maxAttempts": 1,
+        "maxConcurrency": 4,
+    }
     json.dumps(plan.as_dict(), sort_keys=True)
 
 
@@ -50,6 +56,62 @@ def test_compiler_reports_an_unknown_executor_in_the_binding_file(tmp_path: Path
     assert not result.ok
     assert result.diagnostics[0].code == "EXECUTOR_UNRESOLVED"
     assert result.diagnostics[0].file == str(binding.resolve())
+
+
+def test_compiler_rejects_an_executor_adapter_mismatch(tmp_path: Path) -> None:
+    binding = tmp_path / "binding.yaml"
+    binding.write_text(
+        (ROOT / "examples/bindings/content-local.yaml")
+        .read_text(encoding="utf-8")
+        .replace("adapter: builtin", "adapter: human", 1),
+        encoding="utf-8",
+    )
+
+    result = compile_package(ROOT / "presets/content-delivery", binding_path=binding)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "EXECUTOR_ADAPTER_MISMATCH"
+
+
+def test_compiler_inherits_workflow_retry_defaults_into_the_plan(tmp_path: Path) -> None:
+    package_root = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: work
+  defaults:
+    maxAttempts: 2
+  nodes:
+    work:
+      type: call
+      slot: worker
+      inputSchema: schemas/value.json
+      outputSchema: schemas/value.json
+      input: {ref: input#}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+    )
+
+    result = compile_package(package_root)
+
+    assert result.ok
+    assert result.plans["main"].nodes["work"]["defaults"]["retry"]["maxAttempts"] == 2
 
 
 def test_compiler_allows_a_failed_call_to_feed_its_on_error_handler(tmp_path: Path) -> None:
@@ -425,6 +487,280 @@ spec:
 
     assert not result.ok
     assert result.diagnostics[0].code == "DATA_REFERENCE_UNAVAILABLE"
+
+
+def test_compiler_rejects_a_missing_input_pointer(tmp_path: Path) -> None:
+    package_root = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      slot: worker
+      inputSchema: schemas/value.json
+      outputSchema: schemas/value.json
+      input: {ref: input#/missing}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+    )
+
+    result = compile_package(package_root)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "DATA_REFERENCE_MISSING"
+
+
+def test_compiler_rejects_a_missing_nested_workflow_output_pointer(tmp_path: Path) -> None:
+    package_root = tmp_path / "package"
+    (package_root / "workflows").mkdir(parents=True)
+    (package_root / "schemas").mkdir()
+    (package_root / "manifest.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: nested-output
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+    child: workflows/child.yaml
+  entrypoints: [main]
+  requiredFeatures: [core.nested]
+""",
+        encoding="utf-8",
+    )
+    (package_root / "schemas/value.json").write_text(
+        """\
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {"value": {"type": "string"}}
+}
+""",
+        encoding="utf-8",
+    )
+    (package_root / "workflows/child.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: child
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: done
+  nodes:
+    done:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+        encoding="utf-8",
+    )
+    (package_root / "workflows/main.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: child
+  nodes:
+    child:
+      type: workflow
+      workflow: child
+      input: {ref: input#}
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.child.output#/missing}
+""",
+        encoding="utf-8",
+    )
+
+    result = compile_package(package_root)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "DATA_REFERENCE_MISSING"
+
+
+def test_compiler_rejects_a_business_field_on_an_error_path(tmp_path: Path) -> None:
+    package_root = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      slot: worker
+      inputSchema: schemas/value.json
+      outputSchema: schemas/value.json
+      input: {ref: input#}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      onError: handle-error
+      next: complete
+    handle-error:
+      type: call
+      slot: worker
+      inputSchema: schemas/value.json
+      outputSchema: schemas/value.json
+      input: {ref: nodes.work.output#/value}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      next: failure
+    failure:
+      type: end
+      outcome: failed
+      error:
+        code: FAILED
+        message: failed
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.work.output#/value}
+""",
+    )
+
+    result = compile_package(package_root)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "ERROR_OUTPUT_REFERENCE_INVALID"
+
+
+def test_compiler_rejects_an_adapter_mismatch_and_plain_secret_reference(tmp_path: Path) -> None:
+    binding = tmp_path / "binding.yaml"
+    binding.write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: invalid
+  version: 0.1.0
+spec:
+  slots:
+    producer:
+      adapter: human
+      executorRef: example.content-fixture.v1
+      config: {}
+      secretRefs:
+        token: plain-secret
+      grants: []
+""",
+        encoding="utf-8",
+    )
+
+    result = compile_package(ROOT / "presets/content-delivery", binding_path=binding)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "INVALID_SPEC"
+
+
+def test_compiler_rejects_missing_declared_package_resources(tmp_path: Path) -> None:
+    package_root = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: done
+  nodes:
+    done:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+    )
+    manifest = (package_root / "manifest.yaml").read_text(encoding="utf-8")
+    (package_root / "manifest.yaml").write_text(
+        manifest.replace(
+            "requiredFeatures: [core.nested, core.call]",
+            """requiredFeatures: [core.nested, core.call]
+  evalSuites: [evals/missing.yaml]
+  assets:
+    prompt: {path: prompts/missing.md, kind: prompt, format: markdown, version: 1.0.0}""",
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_package(package_root)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "FILE_NOT_FOUND"
+
+
+def test_compiler_rejects_a_stale_package_lock(tmp_path: Path) -> None:
+    package_root = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: done
+  nodes:
+    done:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+    )
+    (package_root / "package.lock.json").write_text(
+        '{"files":[],"packageDigest":"sha256:stale"}',
+        encoding="utf-8",
+    )
+
+    result = compile_package(package_root)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "PACKAGE_LOCK_MISMATCH"
 
 
 def _write_minimal_package(tmp_path: Path, *, workflow_text: str) -> Path:
