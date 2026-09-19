@@ -242,24 +242,26 @@ class Runner:
             error = {"code": "EXECUTOR_UNSUPPORTED", "message": "HTTP Job runtime is not enabled."}
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            return self.ledger.update_run(
+            self.ledger.update_run(
                 run_id,
                 status="failed",
                 current_node_id=node_id,
                 error=error,
             )
+            return None
         try:
             result = execute_builtin(binding.executor_ref, input_value, binding.config)
         except ExecutorError as exc:
             error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            return self.ledger.update_run(
+            self.ledger.update_run(
                 run_id,
                 status="failed",
                 current_node_id=node_id,
                 error=error,
             )
+            return None
         if result.human_request is not None:
             request_spec = result.human_request
             subject_digest = _digest_json(input_value)

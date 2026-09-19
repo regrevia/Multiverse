@@ -89,3 +89,16 @@ def test_repeated_decision_command_does_not_replay_downstream_nodes(tmp_path: Pa
     assert repeated["id"] == first["id"]
     assert repeated["status"] == "succeeded"
     assert len(runner.ledger.list_events(first["id"])) == event_count
+
+
+def test_unsupported_adapter_failure_stops_the_run(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-remote.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    run = runner.start({"goal": "remote execution is intentionally unsupported"})
+
+    assert run["status"] == "failed"
+    assert json.loads(run["error_json"])["code"] == "EXECUTOR_UNSUPPORTED"
