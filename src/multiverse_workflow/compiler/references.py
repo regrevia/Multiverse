@@ -114,14 +114,18 @@ def schema_validator(
             raise LookupError(str(exc)) from exc
         if not isinstance(document.value, dict):
             raise LookupError(f"schema is not an object: {candidate}")
-        return Resource.from_contents(document.value)
+        contents = dict(document.value)
+        contents.setdefault("$id", candidate.as_uri())
+        return Resource.from_contents(contents)
 
     registry = Registry(retrieve=retrieve)  # type: ignore[call-arg]
+    root_schema = dict(schema)
+    root_schema.setdefault("$id", base_path.as_uri())
     registry = registry.with_resource(
         base_path.as_uri(),
-        Resource.from_contents(schema),
+        Resource.from_contents(root_schema),
     )
-    return Draft202012Validator(schema, registry=registry)
+    return Draft202012Validator(root_schema, registry=registry)
 
 
 def validate_value_expr_references(

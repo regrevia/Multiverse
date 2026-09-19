@@ -216,6 +216,23 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
+    def get_invocation_for_node(self, scope_id: str, node_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM invocations
+            WHERE scope_id = ? AND node_id = ?
+            """,
+            (scope_id, node_id),
+        ).fetchone()
+        return _row(row)
+
+    def list_invocations(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT * FROM invocations WHERE run_id = ? ORDER BY created_at",
+            (run_id,),
+        ).fetchall()
+        return [invocation for row in rows if (invocation := _row(row)) is not None]
+
     def finish_invocation(
         self,
         invocation_id: str,
@@ -307,6 +324,18 @@ class Ledger:
     def get_attempt(self, attempt_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
             "SELECT * FROM attempts WHERE id = ?", (attempt_id,)
+        ).fetchone()
+        return _row(row)
+
+    def latest_attempt(self, invocation_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM attempts
+            WHERE invocation_id = ?
+            ORDER BY attempt_no DESC
+            LIMIT 1
+            """,
+            (invocation_id,),
         ).fetchone()
         return _row(row)
 
@@ -410,6 +439,52 @@ class Ledger:
             "SELECT * FROM human_requests WHERE id = ?", (request_id,)
         ).fetchone()
         return _row(row)
+
+    def list_human_requests(
+        self,
+        *,
+        run_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM human_requests WHERE 1 = 1"
+        parameters: list[str] = []
+        if run_id is not None:
+            query += " AND run_id = ?"
+            parameters.append(run_id)
+        if status is not None:
+            query += " AND status = ?"
+            parameters.append(status)
+        query += " ORDER BY created_at"
+        rows = self._connection.execute(query, parameters).fetchall()
+        return [request for row in rows if (request := _row(row)) is not None]
+
+    def get_human_decision(self, request_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM human_decisions WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        return _row(row)
+
+    def record_event(
+        self,
+        run_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        scope_id: str | None = None,
+        invocation_id: str | None = None,
+        attempt_id: str | None = None,
+    ) -> None:
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            self._event(
+                connection,
+                run_id,
+                event_type,
+                payload,
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+            )
 
     def decide_human_request(
         self,
