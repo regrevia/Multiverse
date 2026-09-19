@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Multiverse ValueExpr v0.1",
+  "$ref": "#/$defs/value",
+  "$defs": {
+    "value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["literal"],
+          "properties": {"literal": {}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["ref"],
+          "properties": {"ref": {"type": "string", "minLength": 1}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["object"],
+          "properties": {
+            "object": {
+              "type": "object",
+              "additionalProperties": {"$ref": "#/$defs/value"}
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["array"],
+          "properties": {
+            "array": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/value"}
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

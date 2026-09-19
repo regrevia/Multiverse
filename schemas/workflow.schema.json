@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Multiverse Workflow v0.1",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "multiverse/v0.1"},
+    "kind": {"const": "Workflow"},
+    "metadata": {"$ref": "workflow-package.schema.json#/$defs/metadata"},
+    "spec": {
+      "type": "object",
+      "required": ["inputSchema", "outputSchema", "entry", "nodes"],
+      "properties": {
+        "inputSchema": {"type": "string", "minLength": 1},
+        "outputSchema": {"type": "string", "minLength": 1},
+        "entry": {"type": "string", "minLength": 1},
+        "nodes": {"type": "object", "minProperties": 1, "maxProperties": 200},
+        "defaults": {"type": "object"},
+        "extensions": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

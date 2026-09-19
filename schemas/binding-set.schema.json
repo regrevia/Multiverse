@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Multiverse BindingSet v0.1",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "multiverse/v0.1"},
+    "kind": {"const": "BindingSet"},
+    "metadata": {"$ref": "workflow-package.schema.json#/$defs/metadata"},
+    "spec": {
+      "type": "object",
+      "required": ["slots"],
+      "properties": {
+        "slots": {"type": "object", "minProperties": 1},
+        "limits": {"type": "object"},
+        "extensions": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
