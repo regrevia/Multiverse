@@ -13,7 +13,7 @@ from multiverse_workflow.compiler.references import schema_validator, validate_s
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
 from multiverse_workflow.runtime.executors import ExecutorError, execute_builtin
-from multiverse_workflow.runtime.ledger import Ledger
+from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 
 
 class RunError(RuntimeError):
@@ -92,6 +92,15 @@ class Runner:
         request = self.ledger.get_human_request(request_id)
         if request is None:
             raise KeyError(f"human request not found: {request_id}")
+        if idempotency_key is not None:
+            previous = self.ledger.get_human_decision_by_idempotency_key(idempotency_key)
+            if previous is not None:
+                if previous["request_id"] != request_id:
+                    raise LedgerConflict("idempotency key belongs to another request")
+                run = self.ledger.get_run(request["run_id"])
+                if run is None:
+                    raise RunError("human request run is missing")
+                return run
         self.ledger.decide_human_request(
             request_id,
             choice=choice,

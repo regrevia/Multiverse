@@ -464,6 +464,15 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
+    def get_human_decision_by_idempotency_key(
+        self, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM human_decisions WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        return _row(row)
+
     def record_event(
         self,
         run_id: str,
