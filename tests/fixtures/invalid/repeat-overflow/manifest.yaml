@@ -1,0 +1,10 @@
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: repeat-overflow
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+  entrypoints: [main]
+  requiredFeatures: [core.repeat]

@@ -1,0 +1,14 @@
+version: 1
+workflow: delivery
+dataset: evals/cases.jsonl
+evaluators:
+  - id: builtin.output-schema.v1
+    config: {}
+  - id: builtin.field-equals.v1
+    config:
+      outputPointer: /review/decision
+      expectedPointer: /review_decision
+gate:
+  requiredPassRate: 1.0
+  maxUnknown: 0
+  allowMissingCost: true

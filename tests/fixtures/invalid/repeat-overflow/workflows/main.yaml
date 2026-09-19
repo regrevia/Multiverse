@@ -1,0 +1,25 @@
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/output.json
+  entry: loop
+  nodes:
+    loop:
+      type: repeat
+      workflow: child
+      input: {ref: input#}
+      until:
+        op: eq
+        left: {ref: input#}
+        right: {literal: true}
+      feedback: {ref: iteration.output#}
+      maxIterations: 21
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: iteration.output#}

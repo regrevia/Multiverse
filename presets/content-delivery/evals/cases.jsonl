@@ -1,0 +1,2 @@
+{"case_id":"basic-delivery","input":{"goal":"Generate a short explanation of workflow input, execution, and acceptance."},"expected":{"review_decision":"approve"},"tags":["smoke"]}
+{"case_id":"alternative-topic","input":{"goal":"Generate a short data quality check explanation."},"expected":{"review_decision":"approve"},"tags":["portability"]}

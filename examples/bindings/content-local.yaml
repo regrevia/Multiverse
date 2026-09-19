@@ -1,0 +1,31 @@
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: content-local
+  version: 0.1.0
+spec:
+  slots:
+    producer:
+      adapter: builtin
+      executorRef: example.content-fixture.v1
+      config: {}
+      secretRefs: {}
+      grants:
+        - action: content.produce
+          resource: namespace:demo
+    verifier:
+      adapter: builtin
+      executorRef: builtin.nonempty-deliverable.v1
+      config: {}
+      secretRefs: {}
+      grants: []
+    reviewer:
+      adapter: human
+      executorRef: builtin.human-review.v1
+      config:
+        requestType: review
+        choices: [approve, reject]
+        authorizedSubjects: [example-reviewer]
+        requireCommentFor: [reject]
+      secretRefs: {}
+      grants: []

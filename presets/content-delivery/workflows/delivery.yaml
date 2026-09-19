@@ -1,0 +1,108 @@
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: delivery
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/final-output.json
+  entry: produce
+  defaults:
+    runDeadlineSeconds: 604800
+    callDeadlineSeconds: 3600
+    maxAttempts: 1
+    maxConcurrency: 4
+  nodes:
+    produce:
+      type: call
+      title: Produce deliverable
+      slot: producer
+      inputSchema: schemas/request.json
+      outputSchema: schemas/deliverable.json
+      input:
+        ref: input#
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: write
+        actions: [content.produce]
+      retry:
+        maxAttempts: 1
+      next: verify
+
+    verify:
+      type: call
+      title: Validate deliverable contract
+      slot: verifier
+      inputSchema: schemas/deliverable.json
+      outputSchema: schemas/verification.json
+      input:
+        ref: nodes.produce.output#
+      requires:
+        capabilities: [data.validate@1]
+      effects:
+        class: none
+        actions: []
+      next: verify-route
+
+    verify-route:
+      type: switch
+      cases:
+        - id: valid
+          when:
+            op: eq
+            left: {ref: "nodes.verify.output#/valid"}
+            right: {literal: true}
+          next: review
+      default: invalid
+
+    review:
+      type: call
+      title: Human review
+      slot: reviewer
+      deadlineSeconds: 259200
+      inputSchema: schemas/review-input.json
+      outputSchema: schemas/review-output.json
+      input:
+        object:
+          deliverable: {ref: "nodes.produce.output#"}
+          verification: {ref: "nodes.verify.output#"}
+      requires:
+        capabilities: [human.review@1]
+      effects:
+        class: none
+        actions: []
+      next: review-route
+
+    review-route:
+      type: switch
+      cases:
+        - id: approved
+          when:
+            op: eq
+            left: {ref: "nodes.review.output#/decision"}
+            right: {literal: approve}
+          next: complete
+      default: rejected
+
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        object:
+          deliverable: {ref: "nodes.produce.output#"}
+          review: {ref: "nodes.review.output#"}
+
+    invalid:
+      type: end
+      outcome: failed
+      error:
+        code: DELIVERABLE_INVALID
+        message: Deliverable did not pass workflow validation.
+
+    rejected:
+      type: end
+      outcome: failed
+      error:
+        code: DELIVERABLE_REJECTED
+        message: Reviewer rejected the current deliverable version.

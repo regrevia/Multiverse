@@ -1,0 +1,22 @@
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/output.json
+  entry: start
+  nodes:
+    start:
+      type: call
+      slot: worker
+      inputSchema: schemas/request.json
+      outputSchema: schemas/output.json
+      input: {ref: input#}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      next: missing

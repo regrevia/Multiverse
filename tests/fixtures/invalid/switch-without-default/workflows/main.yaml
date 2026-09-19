@@ -1,0 +1,23 @@
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/output.json
+  entry: route
+  nodes:
+    route:
+      type: switch
+      cases:
+        - id: yes
+          when:
+            op: eq
+            left: {ref: input#}
+            right: {literal: true}
+          next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}

@@ -1,0 +1,10 @@
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: secret-material
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+  entrypoints: [main]
+  requiredFeatures: []

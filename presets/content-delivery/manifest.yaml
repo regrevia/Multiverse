@@ -1,0 +1,16 @@
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: content-delivery
+  version: 0.1.0
+  description: Produce, verify, and review a deliverable.
+spec:
+  workflows:
+    delivery: workflows/delivery.yaml
+  entrypoints: [delivery]
+  requiredFeatures:
+    - core.call
+    - core.switch
+    - core.human
+  evalSuites:
+    - evals/suite.yaml
