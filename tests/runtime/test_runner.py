@@ -401,6 +401,69 @@ def test_reconciled_success_respects_a_paused_run_control_intent(tmp_path: Path)
     assert runner.ledger.get_run(waiting["id"])["status"] == "paused"
 
 
+def test_resume_reconciled_attempt_rechecks_the_frozen_definition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, _invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    runner.ledger.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://provider/failed"],
+        reason="Provider confirmed the failure.",
+        actor="example-reviewer",
+    )
+    def reject_resume(run_record: dict[str, object], plan: object) -> None:
+        raise RunError("frozen deployment is no longer available")
+
+    monkeypatch.setattr(runner, "_require_matching_definition", reject_resume)
+    with pytest.raises(RunError, match="frozen deployment"):
+        runner.resume_reconciled_attempt(unknown["id"])
+    assert runner.ledger.get_run(waiting["id"])["status"] == "running"
+
+
+def test_reconciled_success_does_not_drive_a_different_current_node_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, _invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    runner.ledger.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_succeeded",
+        evidence_refs=["evidence://provider/succeeded"],
+        reason="The provider returned the durable output.",
+        actor="example-reviewer",
+        output={"text": "Recovered deliverable.", "artifact_refs": []},
+    )
+    runner.ledger.update_run(
+        waiting["id"],
+        status="running",
+        current_node_id="review",
+    )
+    driven: list[tuple[str, str, str]] = []
+
+    def record_drive(run_id: str, scope_id: str, node_id: str) -> dict[str, object]:
+        driven.append((run_id, scope_id, node_id))
+        return runner.ledger.get_run(run_id)  # type: ignore[return-value]
+
+    monkeypatch.setattr(runner, "_drive", record_drive)
+    runner.resume_reconciled_attempt(unknown["id"])
+
+    assert driven == []
+
+
 def test_reconciled_not_started_retries_same_invocation_with_new_dispatch_key(
     tmp_path: Path,
 ) -> None:

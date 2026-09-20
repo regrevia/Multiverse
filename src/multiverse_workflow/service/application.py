@@ -111,6 +111,7 @@ class RuntimeApplication:
                 request.input,
                 workflow_id=request.workflow_id,
                 run_id=run_id,
+                command_id=command_id,
             )
         except (KeyError, RunError, LedgerConflict) as exc:
             self.runner.ledger.finish_command(
@@ -358,30 +359,26 @@ class RuntimeApplication:
                     return self._receipt_from_command(previous)
                 command_id = str(previous["id"])
         try:
-            run = self._already_applied_control(
-                run_id,
-                operation,
-                request.expected_version,
-            )
-            if run is not None:
-                pass
-            elif operation == "resume":
+            if operation == "resume":
                 run = self.runner.resume(
                     run_id,
                     expected_version=request.expected_version,
                     reason=request.reason,
+                    command_id=command_id,
                 )
             elif operation == "pause":
                 run = self.runner.pause(
                     run_id,
                     expected_version=request.expected_version,
                     reason=request.reason,
+                    command_id=command_id,
                 )
             else:
                 run = self.runner.cancel(
                     run_id,
                     expected_version=request.expected_version,
                     reason=request.reason,
+                    command_id=command_id,
                 )
         except (KeyError, LedgerConflict, RunError) as exc:
             self.runner.ledger.finish_command(
@@ -586,30 +583,6 @@ class RuntimeApplication:
             operation=command["operation"],
             resourceVersion=command["resource_version"],
         )
-
-    def _already_applied_control(
-        self,
-        run_id: str,
-        operation: Literal["pause", "resume", "cancel"],
-        expected_version: int,
-    ) -> dict[str, Any] | None:
-        run = self.runner.ledger.get_run(run_id)
-        if run is None or int(run["version"]) <= expected_version:
-            return None
-        if operation == "pause" and (
-            run["status"] == "paused" and run["control_mode"] == "pause"
-        ):
-            return run
-        if operation == "resume" and (
-            run["control_mode"] == "run" and run["status"] != "paused"
-        ):
-            return run
-        if operation == "cancel" and (
-            run["control_mode"] == "cancel"
-            and run["status"] in {"stopping", "cancelled"}
-        ):
-            return run
-        return None
 
     def _attempt_conflict_details(
         self,

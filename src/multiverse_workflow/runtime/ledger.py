@@ -50,6 +50,7 @@ class Ledger:
         run_id: str | None = None,
         rerun_of: str | None = None,
         rerun_reason: str | None = None,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         run_id = run_id or _new_id("run")
         now = _now()
@@ -87,6 +88,17 @@ class Ledger:
                 "run.created",
                 {"status": "queued", "workflowId": workflow_id},
             )
+            if command_id is not None:
+                updated = connection.execute(
+                    """
+                    UPDATE commands
+                    SET after_version = 1, transition = 'run.created', updated_at = ?
+                    WHERE id = ? AND status = 'accepted'
+                    """,
+                    (_now(), command_id),
+                )
+                if updated.rowcount != 1:
+                    raise LedgerConflict("run creation command is not accepted")
         return self.get_run(run_id)  # type: ignore[return-value]
 
     def create_command(
@@ -220,11 +232,25 @@ class Ledger:
         operation: Literal["pause", "resume", "cancel"],
         expected_version: int,
         reason: str,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         if not reason.strip():
             raise LedgerConflict("control reason must not be empty")
         with self._transaction() as connection:
             run = self._require_run(connection, run_id)
+            if command_id is not None:
+                command = connection.execute(
+                    "SELECT * FROM commands WHERE id = ?", (command_id,)
+                ).fetchone()
+                if command is None:
+                    raise LedgerConflict(f"command not found: {command_id}")
+                if self._command_applied_for_control(
+                    command,
+                    run_id=run_id,
+                    operation=operation,
+                    expected_version=expected_version,
+                ):
+                    return self.get_run(run_id)  # type: ignore[return-value]
             if int(run["version"]) != expected_version:
                 raise LedgerConflict("run version conflict")
             if operation == "pause":
@@ -316,7 +342,42 @@ class Ledger:
                     "version": version,
                 },
             )
+            if command_id is not None:
+                updated = connection.execute(
+                    """
+                    UPDATE commands
+                    SET before_version = ?, after_version = ?, transition = ?, updated_at = ?
+                    WHERE id = ? AND status = 'accepted'
+                    """,
+                    (expected_version, version, event_type, _now(), command_id),
+                )
+                if updated.rowcount != 1:
+                    raise LedgerConflict("control command is not accepted")
         return self.get_run(run_id)  # type: ignore[return-value]
+
+    @staticmethod
+    def _command_applied_for_control(
+        command: sqlite3.Row,
+        *,
+        run_id: str,
+        operation: Literal["pause", "resume", "cancel"],
+        expected_version: int,
+    ) -> bool:
+        transitions = (
+            {"run.cancel_requested", "run.cancelled"}
+            if operation == "cancel"
+            else {f"run.{operation}d"}
+        )
+        return (
+            str(command["resource_id"]) == run_id
+            and str(command["operation"]) == f"run.{operation}"
+            and command["status"] == "accepted"
+            and command["before_version"] is not None
+            and int(command["before_version"]) == expected_version
+            and command["after_version"] is not None
+            and int(command["after_version"]) > expected_version
+            and str(command["transition"]) in transitions
+        )
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         row = self._connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -1356,6 +1417,9 @@ class Ledger:
                 resource_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 resource_version INTEGER,
+                before_version INTEGER,
+                after_version INTEGER,
+                transition TEXT,
                 error_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -1501,29 +1565,46 @@ class Ledger:
                     resource_id TEXT NOT NULL,
                     status TEXT NOT NULL,
                     resource_version INTEGER,
+                    before_version INTEGER,
+                    after_version INTEGER,
+                    transition TEXT,
                     error_json TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
                 INSERT INTO commands_migrated (
                     id, idempotency_key, fingerprint, operation, namespace,
-                    subject, resource_id, status, resource_version, error_json,
-                    created_at, updated_at
+                    subject, resource_id, status, resource_version, before_version,
+                    after_version, transition, error_json, created_at, updated_at
                 )
                 SELECT id, idempotency_key, fingerprint, operation, namespace,
                        COALESCE(subject, 'local-user'), resource_id, status,
-                       resource_version, error_json, created_at, updated_at
+                       resource_version, NULL, NULL, NULL, error_json,
+                       created_at, updated_at
                 FROM commands;
                 DROP TABLE commands;
                 ALTER TABLE commands_migrated RENAME TO commands;
                 """
             )
+            command_columns = {
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(commands)").fetchall()
+            }
         self._connection.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS commands_scope_key
             ON commands(namespace, subject, operation, idempotency_key)
             """
         )
+        for column, definition in (
+            ("before_version", "INTEGER"),
+            ("after_version", "INTEGER"),
+            ("transition", "TEXT"),
+        ):
+            if column not in command_columns:
+                self._connection.execute(
+                    f"ALTER TABLE commands ADD COLUMN {column} {definition}"
+                )
         if "decision_json" not in human_decision_columns:
             self._connection.execute(
                 "ALTER TABLE human_decisions ADD COLUMN decision_json TEXT NOT NULL DEFAULT '{}'"

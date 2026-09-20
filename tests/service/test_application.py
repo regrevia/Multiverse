@@ -118,6 +118,95 @@ def test_control_rejects_a_stale_run_version(tmp_path: Path) -> None:
     assert error.value.code == "STATE_CONFLICT"
 
 
+def test_new_control_key_cannot_reuse_a_version_already_consumed_by_another_command(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    current = application.get_run("local", created.resource_id)
+
+    application.control_run(
+        "local",
+        created.resource_id,
+        "pause",
+        RunControlRequest(
+            expectedVersion=current["version"],
+            reason="Pause for review.",
+        ),
+        idempotency_key="pause-original",
+    )
+
+    with pytest.raises(ServiceError) as error:
+        application.control_run(
+            "local",
+            created.resource_id,
+            "pause",
+            RunControlRequest(
+                expectedVersion=current["version"],
+                reason="A stale duplicate with a new key.",
+            ),
+            idempotency_key="pause-new-key",
+        )
+
+    assert error.value.code == "STATE_CONFLICT"
+
+
+def test_control_replay_uses_the_original_transition_record(tmp_path: Path) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    current = application.get_run("local", created.resource_id)
+    request = RunControlRequest(
+        expectedVersion=current["version"],
+        reason="Pause before the release window.",
+    )
+    original_finish_command = application.runner.ledger.finish_command
+
+    def interrupt_before_receipt(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated process interruption")
+
+    application.runner.ledger.finish_command = interrupt_before_receipt  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="interruption"):
+        application.control_run(
+            "local",
+            created.resource_id,
+            "pause",
+            request,
+            idempotency_key="pause-recover",
+        )
+    application.runner.ledger.finish_command = original_finish_command  # type: ignore[method-assign]
+    application.close()
+
+    restarted = _application(tmp_path)
+    receipt = restarted.control_run(
+        "local",
+        created.resource_id,
+        "pause",
+        request,
+        idempotency_key="pause-recover",
+    )
+
+    assert receipt.status == "completed"
+    command = restarted.runner.ledger.get_command(receipt.request_id)
+    assert command is not None
+    assert command["before_version"] == current["version"]
+    assert command["after_version"] == current["version"] + 1
+    assert command["transition"] == "run.paused"
+
+
+def test_run_create_command_records_the_created_resource_transition(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path)
+
+    receipt = application.create_run(_create_request(), idempotency_key="create-1")
+
+    command = application.runner.ledger.get_command(receipt.request_id)
+    assert command is not None
+    assert command["before_version"] is None
+    assert command["after_version"] == 1
+    assert command["transition"] == "run.created"
+
+
 def test_accepted_pause_command_is_resumed_after_process_interruption(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
