@@ -1,15 +1,9 @@
 # Multiverse Authoring Kit
 
 This guide is the offline authoring entry point for the current local preview.
-The normative documents are:
-
-1. `docs/spec/MULTIVERSE_SPEC.md`
-2. `docs/spec/MULTIVERSE_APPEND_SPEC.md`
-3. `docs/spec/MULTIVERSE_RUNTIME_INTEGRATION_DELIVERY_SPEC.md`
-4. The JSON Schemas in `schemas/` and each package's `schemas/` directory
-
-The supplement is additional specification content. It does not grant runtime,
-approval, deployment, network, or latent permissions.
+The only normative document is `docs/spec/MULTIVERSE_SPEC.md`. The JSON
+Schemas in `schemas/` and each package's `schemas/` directory are its
+executable representations; they do not create a parallel specification.
 
 ## Current Support
 
@@ -27,16 +21,22 @@ The checked-in preview currently supports:
 - `input` human requests with direct output-schema JSON submissions
 - local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
+- durable command receipts for service commands and idempotent retries
 - machine-readable `artifact register` command
 - read-only JSON Inspector snapshots with scopes, nodes, events, HumanRequests, and Artifacts
+- local FastAPI JSON and SSE service over the same SQLite Runtime
 
 The preview does not claim support for HTTP Job execution, Local Process
 registration, LangGraph persistence, parallel or general nested workflow
-execution, deployment or import, production HTTP APIs, remote Artifact
-upload/registration, UI forms, or Latent Handoff. Local Run controls do not yet
-provide command receipts, active external Attempt cancellation, reconciliation,
-or worker crash recovery. Inspector snapshots are local point-in-time DTOs;
-they do not provide HTTP, SSE, pagination, authorization, or embedded SDK APIs.
+execution, deployment or import, production hosting/IAM, remote Artifact
+upload/registration, UI forms, or Latent Handoff. The HTTP/SSE service is a
+local SQLite single-process profile; it does not provide PostgreSQL,
+multi-worker scheduling, external Attempt cancellation, or reconciliation.
+Command receipts and local Run records survive application restart, while
+active external execution recovery is not claimed. Inspector snapshots remain
+local point-in-time DTOs;
+the service API is a separate Runtime boundary and does not turn snapshots
+into a browser-owned workflow engine.
 
 ## Authoring Loop
 
@@ -153,6 +153,43 @@ The registration command copies the file into the local Artifact store,
 records a content digest, and does not complete the HumanRequest. The final
 decision still checks request version, subject digest, actor authorization,
 output Schema, Artifact existence, run ownership, and content digest.
+
+## Service Monitoring Loop
+
+Start the local service with the package and binding explicitly configured:
+
+```bash
+uv run mverse serve \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --subject example-reviewer \
+  --bearer-token dev-token \
+  --port 8787
+```
+
+An external Agent or host then uses:
+
+```text
+POST /api/v1/namespaces/{namespace}/runs
+GET  /api/v1/namespaces/{namespace}/runs/{runId}
+GET  /api/v1/namespaces/{namespace}/runs/{runId}/graph
+GET  /api/v1/namespaces/{namespace}/runs/{runId}/events?after=0
+GET  /api/v1/namespaces/{namespace}/runs/{runId}/stream?after=0
+GET  /api/v1/namespaces/{namespace}/human-requests?runId={runId}
+POST /api/v1/namespaces/{namespace}/human-requests/{requestId}/decisions
+GET  /api/v1/commands/{requestId}
+```
+
+The SSE stream replays persisted events before polling and uses the Ledger
+event `seq` as the SSE `id`. A disconnected client can reconnect from its last
+sequence number; disconnecting does not cancel a Run. Every state-changing POST
+requires an `Idempotency-Key`, while HumanRequest decisions additionally
+require the persisted request version, subject digest, and authenticated
+principal authorization. The request body never supplies a namespace or actor.
+Run creation uses `deploymentId`, `workflowId`, `input`, and optional
+`externalRefs`; the server resolves package and Binding from the immutable
+deployment configuration.
 
 ## Package Rules
 

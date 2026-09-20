@@ -89,8 +89,9 @@ def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
     return {
         key: run[key]
         for key in (
-            "id",
-            "workflow_id",
+        "id",
+        "deployment_id",
+        "workflow_id",
             "package_digest",
             "binding_digest",
             "status",

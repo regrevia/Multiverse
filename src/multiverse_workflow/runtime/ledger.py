@@ -15,6 +15,10 @@ class LedgerConflict(RuntimeError):
     """A persisted command cannot be applied to the current resource version."""
 
 
+def new_id(prefix: str) -> str:
+    return _new_id(prefix)
+
+
 class Ledger:
     def __init__(self, database_path: Path) -> None:
         database_path = database_path.expanduser().resolve()
@@ -34,31 +38,34 @@ class Ledger:
         self,
         *,
         namespace: str,
+        deployment_id: str | None = None,
         workflow_id: str,
         package_digest: str,
         binding_digest: str | None,
         plan: dict[str, Any],
         input_value: Any,
         deadline_at: str,
+        run_id: str | None = None,
         rerun_of: str | None = None,
         rerun_reason: str | None = None,
     ) -> dict[str, Any]:
-        run_id = _new_id("run")
+        run_id = run_id or _new_id("run")
         now = _now()
         input_json = _json(input_value)
         with self._transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO runs (
-                    id, namespace, workflow_id, package_digest, binding_digest,
+                    id, namespace, deployment_id, workflow_id, package_digest, binding_digest,
                     plan_json, input_json, input_digest, status, control_mode,
                     deadline_at, version, current_node_id, rerun_of, rerun_reason,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
                     namespace,
+                    deployment_id,
                     workflow_id,
                     package_digest,
                     binding_digest,
@@ -79,6 +86,81 @@ class Ledger:
                 {"status": "queued", "workflowId": workflow_id},
             )
         return self.get_run(run_id)  # type: ignore[return-value]
+
+    def create_command(
+        self,
+        *,
+        command_id: str,
+        idempotency_key: str,
+        fingerprint: str,
+        operation: str,
+        namespace: str,
+        resource_id: str,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO commands (
+                    id, idempotency_key, fingerprint, operation, namespace,
+                    resource_id, status, resource_version, error_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'accepted', NULL, NULL, ?, ?)
+                """,
+                (
+                    command_id,
+                    idempotency_key,
+                    fingerprint,
+                    operation,
+                    namespace,
+                    resource_id,
+                    now,
+                    now,
+                ),
+            )
+        return self.get_command(command_id)  # type: ignore[return-value]
+
+    def get_command(self, command_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM commands WHERE id = ?", (command_id,)
+        ).fetchone()
+        return _row(row)
+
+    def get_command_by_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM commands WHERE idempotency_key = ?", (idempotency_key,)
+        ).fetchone()
+        return _row(row)
+
+    def finish_command(
+        self,
+        command_id: str,
+        *,
+        status: Literal["completed", "rejected"],
+        resource_version: int | None = None,
+        error: Any = None,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM commands WHERE id = ?", (command_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"command not found: {command_id}")
+            connection.execute(
+                """
+                UPDATE commands
+                SET status = ?, resource_version = ?, error_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    resource_version,
+                    _json_or_none(error),
+                    _now(),
+                    command_id,
+                ),
+            )
+        return self.get_command(command_id)  # type: ignore[return-value]
 
     def control_run(
         self,
@@ -910,6 +992,7 @@ class Ledger:
             CREATE TABLE IF NOT EXISTS runs (
                 id TEXT PRIMARY KEY,
                 namespace TEXT NOT NULL,
+                deployment_id TEXT,
                 workflow_id TEXT NOT NULL,
                 package_digest TEXT NOT NULL,
                 binding_digest TEXT,
@@ -924,6 +1007,19 @@ class Ledger:
                 rerun_of TEXT REFERENCES runs(id),
                 rerun_reason TEXT,
                 output_json TEXT,
+                error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS commands (
+                id TEXT PRIMARY KEY,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                fingerprint TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                resource_version INTEGER,
                 error_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -1047,6 +1143,7 @@ class Ledger:
             row["name"] for row in self._connection.execute("PRAGMA table_info(runs)").fetchall()
         }
         for column, definition in (
+            ("deployment_id", "TEXT"),
             ("rerun_of", "TEXT"),
             ("rerun_reason", "TEXT"),
         ):

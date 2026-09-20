@@ -41,8 +41,57 @@ uv run mverse decide <request-id> presets/content-delivery \
 This is a local single-process preview. Bounded sequential `repeat` execution
 is available for child workflows, but HTTP Job, LangGraph persistence, parallel
 and general nested workflow execution, deployment/import, outbox/inbox
-recovery, the production HTTP API, and Latent Handoff are not claimed as
+recovery, production hosting/IAM, and Latent Handoff are not claimed as
 implemented yet.
+
+### Local Runtime Service
+
+The service exposes the same SQLite Ledger and Runner through JSON and SSE. It
+is suitable for a local Agent host or an online monitoring prototype:
+
+```bash
+uv run mverse serve \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --subject example-reviewer \
+  --bearer-token dev-token \
+  --host 127.0.0.1 \
+  --port 8787
+```
+
+Create a real Run and keep the returned `resourceId`:
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/v1/namespaces/local/runs \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer dev-token' \
+  -H 'Idempotency-Key: create-1' \
+  -d '{
+    "deploymentId": "deployment_local",
+    "workflowId": "delivery",
+    "input": {"goal": "write a release note"}
+  }'
+```
+
+Monitor the persisted audit stream and query pending human requests:
+
+```bash
+curl -H 'Authorization: Bearer dev-token' \
+  http://127.0.0.1:8787/api/v1/namespaces/local/runs/<run-id>/stream
+curl -H 'Authorization: Bearer dev-token' \
+  'http://127.0.0.1:8787/api/v1/namespaces/local/human-requests?runId=<run-id>'
+```
+
+Submit the returned HumanRequest decision with its current `version` and
+`subjectDigest`. All state-changing POST requests require an
+`Idempotency-Key`; use the returned `requestId` with
+`GET /api/v1/commands/{requestId}` to retrieve the durable command receipt
+after reconnecting or restarting the service.
+
+The current service profile is local SQLite and single-process. It does not
+claim PostgreSQL, multi-worker recovery, production IAM, remote Connectors, or
+HTTP Artifact upload. The service does not keep workflow state in the browser.
 
 ### Local Run Controls
 
@@ -75,8 +124,8 @@ uv run mverse cancel <run-id> \
 ```
 
 These controls are limited to the local SQLite preview. They do not yet provide
-durable command receipts, external execution cancellation, worker recovery, or
-reconciliation of an active external Attempt.
+external execution cancellation, worker recovery, or reconciliation of an
+active external Attempt.
 
 ### Inspector Snapshot
 

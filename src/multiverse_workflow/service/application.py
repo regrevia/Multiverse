@@ -16,7 +16,7 @@ from .contracts import (
     RunControlRequest,
     RunCreateRequest,
 )
-from .errors import ServiceError, not_found, state_conflict
+from .errors import ServiceError, idempotency_conflict, not_found, state_conflict
 
 
 class RuntimeApplication:
@@ -28,42 +28,105 @@ class RuntimeApplication:
         package_dir: Path,
         binding_path: Path,
         database_path: Path,
+        deployment_id: str = "deployment_local",
         namespace: str = "local",
+        subject: str = "local-user",
     ) -> None:
         self.package_dir = package_dir.expanduser().resolve()
         self.binding_path = binding_path.expanduser().resolve()
+        self.deployment_id = deployment_id
         self.namespace = namespace
+        self.subject = subject
         self.runner = Runner(
             self.package_dir,
             binding_path=self.binding_path,
             database_path=database_path,
+            deployment_id=deployment_id,
             namespace=namespace,
         )
-        self._idempotency: dict[str, tuple[str, CommandReceipt]] = {}
-
     def create_run(
         self,
         request: RunCreateRequest,
         *,
         idempotency_key: str,
     ) -> CommandReceipt:
-        self._require_namespace(request.namespace)
-        self._require_deployment(request)
+        self._require_deployment(request.deployment_id)
         self._require_idempotency_key(idempotency_key)
         fingerprint = self._fingerprint(request)
-        previous = self._idempotency.get(idempotency_key)
-        if previous is not None:
-            if previous[0] != fingerprint:
-                raise state_conflict("idempotency key was already used for another request")
-            return previous[1]
+        previous = self._existing_command(idempotency_key, fingerprint, self.namespace)
+        if previous is not None and previous["status"] == "completed":
+            return self._receipt_from_command(previous)
+        if previous is not None and previous["status"] == "rejected":
+            return self._receipt_from_command(previous)
+        if previous is None:
+            run_id = self._new_resource_id("run")
+            command_id = self._new_resource_id("cmd")
+            try:
+                self.runner.ledger.create_command(
+                    command_id=command_id,
+                    idempotency_key=idempotency_key,
+                    fingerprint=fingerprint,
+                    operation="run.create",
+                    namespace=self.namespace,
+                    resource_id=run_id,
+                )
+            except Exception as exc:
+                existing = self._existing_command(idempotency_key, fingerprint, self.namespace)
+                if existing is not None:
+                    return self._receipt_from_command(existing)
+                raise ServiceError("COMMAND_REJECTED", str(exc), status_code=409) from exc
+        else:
+            command_id = str(previous["id"])
+            run_id = str(previous["resource_id"])
+
+        existing_run = self.runner.ledger.get_run(run_id)
+        if existing_run is not None:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="completed",
+                resource_version=int(existing_run["version"]),
+            )
+            return self._receipt(
+                "run.create",
+                existing_run,
+                request_id=command_id,
+                status="completed",
+            )
 
         try:
-            run = self.runner.start(request.input, workflow_id=request.workflow)
+            run = self.runner.start(
+                request.input,
+                workflow_id=request.workflow_id,
+                run_id=run_id,
+            )
         except (KeyError, RunError, LedgerConflict) as exc:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="rejected",
+                error={"message": str(exc)},
+            )
             raise ServiceError("RUN_REJECTED", str(exc), status_code=422) from exc
-        receipt = self._receipt("run.create", run)
-        self._idempotency[idempotency_key] = (fingerprint, receipt)
-        return receipt
+        self.runner.ledger.finish_command(
+            command_id,
+            status="completed",
+            resource_version=int(run["version"]),
+        )
+        return self._receipt("run.create", run, request_id=command_id, status="completed")
+
+    def get_command(self, namespace: str, command_id: str) -> dict[str, Any]:
+        self._require_namespace(namespace)
+        command = self.runner.ledger.get_command(command_id)
+        if command is None or command["namespace"] != namespace:
+            raise not_found(f"command not found: {command_id}")
+        return {
+            "request_id": command["id"],
+            "status": command["status"],
+            "resource_id": command["resource_id"],
+            "operation": command["operation"],
+            "resource_version": command["resource_version"],
+            "created_at": command["created_at"],
+            "updated_at": command["updated_at"],
+        }
 
     def get_run(self, namespace: str, run_id: str) -> dict[str, Any]:
         run = self._require_run(namespace, run_id)
@@ -101,8 +164,36 @@ class RuntimeApplication:
         run_id: str,
         operation: Literal["pause", "resume", "cancel"],
         request: RunControlRequest,
+        *,
+        idempotency_key: str,
     ) -> CommandReceipt:
         self._require_run(namespace, run_id)
+        self._require_idempotency_key(idempotency_key)
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "namespace": namespace,
+                    "runId": run_id,
+                    "operation": operation,
+                    "request": request.model_dump(mode="json", by_alias=True),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        previous = self._existing_command(idempotency_key, fingerprint, namespace)
+        if previous is not None:
+            return self._receipt_from_command(previous)
+        command_id = self._new_resource_id("cmd")
+        resource_id = run_id
+        self.runner.ledger.create_command(
+            command_id=command_id,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+            operation=f"run.{operation}",
+            namespace=namespace,
+            resource_id=resource_id,
+        )
         try:
             if operation == "resume":
                 run = self.runner.resume(
@@ -123,8 +214,23 @@ class RuntimeApplication:
                     reason=request.reason,
                 )
         except (KeyError, LedgerConflict, RunError) as exc:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="rejected",
+                error={"message": str(exc)},
+            )
             raise state_conflict(str(exc)) from exc
-        return self._receipt(f"run.{operation}", run, status="completed")
+        self.runner.ledger.finish_command(
+            command_id,
+            status="completed",
+            resource_version=int(run["version"]),
+        )
+        return self._receipt(
+            f"run.{operation}",
+            run,
+            request_id=command_id,
+            status="completed",
+        )
 
     def list_human_requests(
         self,
@@ -156,20 +262,60 @@ class RuntimeApplication:
         if human_request is None:
             raise not_found(f"human request not found: {request_id}")
         run = self._require_run(namespace, human_request["run_id"])
+        self._require_idempotency_key(idempotency_key)
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "namespace": namespace,
+                    "requestId": request_id,
+                    "request": request.model_dump(mode="json", by_alias=True),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        previous = self._existing_command(idempotency_key, fingerprint, namespace)
+        if previous is not None:
+            return self._receipt_from_command(previous)
+        command_id = self._new_resource_id("cmd")
+        self.runner.ledger.create_command(
+            command_id=command_id,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+            operation="human-request.decide",
+            namespace=namespace,
+            resource_id=run["id"],
+        )
         try:
             finished = self.runner.decide(
                 request_id,
                 choice=request.choice,
                 decision=request.decision,
                 comment=request.comment,
-                actor=request.actor,
+                actor=self.subject,
                 subject_digest=request.subject_digest,
                 expected_version=request.expected_version,
                 idempotency_key=idempotency_key,
             )
         except (KeyError, LedgerConflict, RunError) as exc:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="rejected",
+                error={"message": str(exc)},
+            )
             raise state_conflict(str(exc)) from exc
-        return self._receipt("human-request.decide", finished, status="completed", fallback=run)
+        self.runner.ledger.finish_command(
+            command_id,
+            status="completed",
+            resource_version=int(finished["version"]),
+        )
+        return self._receipt(
+            "human-request.decide",
+            finished,
+            request_id=command_id,
+            status="completed",
+            fallback=run,
+        )
 
     def close(self) -> None:
         self.runner.ledger.close()
@@ -191,13 +337,11 @@ class RuntimeApplication:
         if namespace != self.namespace:
             raise not_found(f"namespace not found: {namespace}")
 
-    def _require_deployment(self, request: RunCreateRequest) -> None:
-        requested_package = Path(request.package).expanduser().resolve()
-        requested_binding = Path(request.binding).expanduser().resolve()
-        if requested_package != self.package_dir or requested_binding != self.binding_path:
+    def _require_deployment(self, deployment_id: str) -> None:
+        if deployment_id != self.deployment_id:
             raise ServiceError(
-                "DEPLOYMENT_MISMATCH",
-                "request package and binding do not match the configured local deployment",
+                "DATA_REFERENCE_MISSING",
+                f"deployment is not available: {deployment_id}",
                 status_code=422,
             )
 
@@ -209,6 +353,39 @@ class RuntimeApplication:
                 "Idempotency-Key must not be empty",
                 status_code=422,
             )
+
+    def _existing_command(
+        self,
+        idempotency_key: str,
+        fingerprint: str,
+        namespace: str,
+    ) -> dict[str, Any] | None:
+        command = self.runner.ledger.get_command_by_key(idempotency_key)
+        if command is None:
+            return None
+        if command["namespace"] != namespace or command["fingerprint"] != fingerprint:
+            raise idempotency_conflict("idempotency key was already used for another request")
+        return command
+
+    @staticmethod
+    def _new_resource_id(prefix: str) -> str:
+        return f"{prefix}_{uuid.uuid4().hex}"
+
+    def _receipt_from_command(self, command: dict[str, Any]) -> CommandReceipt:
+        if command["status"] == "rejected":
+            error = json.loads(command["error_json"] or "{}")
+            raise ServiceError(
+                "RUN_REJECTED",
+                str(error.get("message", "command was rejected")),
+                status_code=422,
+            )
+        return CommandReceipt(
+            requestId=command["id"],
+            status=command["status"],
+            resourceId=command["resource_id"],
+            operation=command["operation"],
+            resourceVersion=command["resource_version"],
+        )
 
     @staticmethod
     def _fingerprint(request: RunCreateRequest) -> str:
@@ -223,12 +400,13 @@ class RuntimeApplication:
         *,
         status: Literal["accepted", "completed"] = "accepted",
         fallback: dict[str, Any] | None = None,
+        request_id: str | None = None,
     ) -> CommandReceipt:
         source = run or fallback
         if source is None:
             raise ServiceError("RUN_REJECTED", "runtime returned no run record", status_code=500)
         return CommandReceipt(
-            requestId=f"req_{uuid.uuid4().hex}",
+            requestId=request_id or f"req_{uuid.uuid4().hex}",
             status=status,
             resourceId=str(source["id"]),
             operation=operation,

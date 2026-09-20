@@ -21,14 +21,12 @@ def _non_empty(value: str) -> str:
 
 
 class RunCreateRequest(ServiceModel):
-    package: str = Field(min_length=1)
-    binding: str = Field(min_length=1)
-    workflow: str | None = Field(default=None, min_length=1)
+    deployment_id: str = Field(alias="deploymentId", min_length=1)
+    workflow_id: str = Field(alias="workflowId", min_length=1)
     input: Any
-    namespace: str = Field(default="local", min_length=1)
     external_refs: dict[str, str] = Field(default_factory=dict, alias="externalRefs")
 
-    _validate_package = field_validator("package", "binding", "namespace")(_non_empty)
+    _validate_ids = field_validator("deployment_id", "workflow_id")(_non_empty)
 
 
 class RunControlRequest(ServiceModel):
@@ -41,12 +39,11 @@ class RunControlRequest(ServiceModel):
 class HumanDecisionRequest(ServiceModel):
     expected_version: int = Field(alias="expectedVersion", ge=1)
     subject_digest: str = Field(alias="subjectDigest", min_length=1)
-    actor: str = Field(min_length=1)
     choice: str | None = Field(default=None, min_length=1)
     decision: Any | None = None
     comment: str = ""
 
-    _validate_text = field_validator("subject_digest", "actor")(_non_empty)
+    _validate_text = field_validator("subject_digest")(_non_empty)
 
 
 class CommandReceipt(ServiceModel):
@@ -60,11 +57,15 @@ class CommandReceipt(ServiceModel):
 class ErrorBody(ServiceModel):
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
+    retryable: bool = False
     details: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list, alias="evidenceRefs")
+    next_actions: list[str] = Field(default_factory=list, alias="nextActions")
 
 
 class ErrorResponse(ServiceModel):
     error: ErrorBody
+    request_id: str = Field(alias="requestId", min_length=1)
 
 
 class RunSummary(ServiceModel):

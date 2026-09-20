@@ -5,6 +5,8 @@ from typing import Annotated
 import typer
 
 from multiverse_workflow import __version__
+from multiverse_workflow.api.app import create_app
+from multiverse_workflow.api.dependencies import ServiceSettings
 from multiverse_workflow.compiler import compile_package, executor_capabilities
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
@@ -29,6 +31,31 @@ def main(
     ] = None,
 ) -> None:
     """Validate and run Multiverse Workflow packages."""
+
+
+@app.command()
+def serve(
+    package: Annotated[Path, typer.Option("--package", exists=True, file_okay=False)],
+    binding: Annotated[Path, typer.Option("--binding", exists=True, dir_okay=False)],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8787,
+    namespace: Annotated[str, typer.Option("--namespace")] = "local",
+    bearer_token: Annotated[str | None, typer.Option("--bearer-token")] = None,
+    subject: Annotated[str, typer.Option("--subject")] = "local-user",
+) -> None:
+    """Start the local single-process Runtime HTTP/SSE service."""
+    import uvicorn
+
+    settings = ServiceSettings(
+        database_path=db,
+        package_dir=package,
+        binding_path=binding,
+        namespace=namespace,
+        bearer_token=bearer_token,
+        subject=subject,
+    )
+    uvicorn.run(create_app(settings), host=host, port=port)
 
 
 @app.command()

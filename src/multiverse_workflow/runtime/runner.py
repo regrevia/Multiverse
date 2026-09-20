@@ -28,10 +28,12 @@ class Runner:
         *,
         binding_path: Path,
         database_path: Path,
+        deployment_id: str | None = None,
         namespace: str = "local",
         executor_registry: ExecutorRegistry | None = None,
     ) -> None:
         self.package_dir = package_dir.resolve()
+        self.deployment_id = deployment_id
         self.namespace = namespace
         self._executor_registry = (
             executor_registry or local_executor_registry()
@@ -61,6 +63,7 @@ class Runner:
         input_value: Any,
         workflow_id: str | None = None,
         *,
+        run_id: str | None = None,
         rerun_of: str | None = None,
         rerun_reason: str | None = None,
     ) -> dict[str, Any]:
@@ -75,6 +78,7 @@ class Runner:
         )
         run = self.ledger.create_run(
             namespace=self.namespace,
+            deployment_id=self.deployment_id,
             workflow_id=workflow_id,
             package_digest=plan.package_digest,
             binding_digest=plan.binding_digest,
@@ -87,6 +91,7 @@ class Runner:
             },
             input_value=input_value,
             deadline_at=_timestamp(deadline),
+            run_id=run_id,
             rerun_of=rerun_of,
             rerun_reason=rerun_reason,
         )
