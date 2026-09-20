@@ -347,3 +347,15 @@ async def test_attempt_reconcile_uses_authenticated_subject_and_persistent_recei
     reconciled = application.state.runtime.runner.ledger.get_attempt(unknown["id"])
     assert reconciled is not None
     assert '"actor": "example-reviewer"' in reconciled["reconciliation_json"]
+    assert application.state.runtime.runner.ledger.get_run(run_id)["status"] == (
+        "blocked"
+    )
+    reconciliation_wait = application.state.runtime.runner.ledger.get_wait_by_key(
+        "local", f"attempt-reconcile:{unknown['id']}"
+    )
+    assert reconciliation_wait is not None
+    assert reconciliation_wait["status"] == "pending"
+    application.state.runtime.runner.sweep(worker_id="test-worker")
+    assert application.state.runtime.runner.ledger.get_run(run_id)["status"] == (
+        "failed"
+    )

@@ -221,7 +221,8 @@ class RuntimeApplication:
                 and attempt_state["status"] != "unknown"
                 and attempt_state["reconciliation_json"] is not None
             ):
-                reconciled = self.runner.resume_reconciled_attempt(attempt_id)
+                self.runner.ledger.ensure_attempt_reconciliation_wait(attempt_id)
+                reconciled = attempt_state
             else:
                 reconciled = self.runner.reconcile_attempt(
                     attempt_id,
@@ -231,6 +232,7 @@ class RuntimeApplication:
                     reason=request.reason,
                     actor=self.subject,
                     output=request.output,
+                    resume=False,
                 )
         except SchemaValidationError as exc:
             self.runner.ledger.finish_command(

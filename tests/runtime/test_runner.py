@@ -214,6 +214,45 @@ def test_reconciled_success_validates_output_and_resumes_same_invocation(
     } >= {"produce", "critique", "verify", "review"}
 
 
+def test_non_resuming_reconciliation_only_persists_worker_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    applied = False
+
+    def fail_if_applied(*args: object, **kwargs: object) -> dict[str, object]:
+        nonlocal applied
+        applied = True
+        raise AssertionError("non-resuming reconciliation must not apply progress")
+
+    monkeypatch.setattr(runner, "_apply_reconciled_attempt", fail_if_applied)
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://provider/failed"],
+        reason="The provider confirmed failure.",
+        actor="example-reviewer",
+        resume=False,
+    )
+
+    assert not applied
+    assert reconciled["status"] == "failed"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "reconciling"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "running"
+    wait = runner.ledger.get_wait_by_key(
+        "local", f"attempt-reconcile:{unknown['id']}"
+    )
+    assert wait is not None
+    assert wait["status"] == "pending"
+
+
 def test_reconciled_failure_fails_the_invocation_without_dispatching_downstream(
     tmp_path: Path,
 ) -> None:

@@ -290,6 +290,7 @@ def test_accepted_pause_command_is_resumed_after_process_interruption(
     )
     try:
         created = application.create_run(_create_request(), idempotency_key="create-1")
+        application.runner.sweep(worker_id="setup-worker")
     finally:
         application.runner._drive = drive  # type: ignore[method-assign]
     request = RunControlRequest(
@@ -352,6 +353,7 @@ def test_reconciled_retry_command_is_resumed_after_process_interruption(
     )
     try:
         created = application.create_run(_create_request(), idempotency_key="create-1")
+        application.runner.sweep(worker_id="setup-worker")
     finally:
         application.runner._drive = drive  # type: ignore[method-assign]
     scope = application.runner.ledger.list_scopes(created.resource_id)[0]
@@ -428,7 +430,18 @@ def test_reconciled_retry_command_is_resumed_after_process_interruption(
         subject="example-reviewer",
         operation="attempt.reconcile",
     )["status"] == "completed"
-    assert restarted.runner.ledger.get_invocation(invocation["id"])["status"] == "succeeded"
+    assert restarted.runner.ledger.get_invocation(invocation["id"])["status"] == (
+        "reconciling"
+    )
+    wait = restarted.runner.ledger.get_wait_by_key(
+        "local", f"attempt-reconcile:{unknown['id']}"
+    )
+    assert wait is not None
+    assert wait["status"] == "pending"
+    restarted.runner.sweep(worker_id="restarted-worker")
+    assert restarted.runner.ledger.get_invocation(invocation["id"])["status"] == (
+        "succeeded"
+    )
 
 
 def test_attempt_version_conflict_exposes_expected_and_actual_versions(

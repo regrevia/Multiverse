@@ -108,6 +108,15 @@ Submit the returned HumanRequest decision with its current `version` and
 `GET /api/v1/commands/{requestId}` to retrieve the durable command receipt
 after reconnecting or restarting the service.
 
+Attempt reconciliation follows the same two-step boundary. The reconcile
+endpoint durably records the provider conclusion, evidence, and authenticated
+actor, then returns a command receipt; it does not synchronously advance the
+Invocation or downstream graph. The local Worker consumes the persisted
+`attempt-reconcile:<attempt-id>` wait and applies the conclusion exactly once.
+Query the Run again after a Worker cycle before treating the workflow as
+failed, cancelled, or resumed. A cancelled Run can still have a reconciliation
+wait while an in-flight unknown external action is being closed out.
+
 The current service profile uses local SQLite with one active Worker per
 database. It does not claim PostgreSQL, multi-worker recovery, production IAM,
 remote Connectors, or HTTP Artifact upload. The service does not keep workflow
@@ -159,8 +168,10 @@ uv run mverse worker presets/content-delivery \
 
 This is a local SQLite development preview with one active Worker per
 database. It does not provide PostgreSQL coordination, multiple active
-Workers, a distributed queue, an external outbox, or proof that an unknown
-external side effect has stopped.
+Workers, a distributed queue, a remote Job or Connector lookup adapter, a
+production outbox/inbox, or proof that an unknown external side effect has
+stopped. The reconciliation endpoint stores real local evidence supplied by
+the caller; it is not a substitute for a real provider lookup implementation.
 
 ### Local Run Controls
 

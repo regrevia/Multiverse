@@ -1254,6 +1254,7 @@ class Ledger:
         reason: str,
         actor: str,
         output: Any = None,
+        enqueue_wait: bool = False,
     ) -> dict[str, Any]:
         if not evidence_refs or any(not ref.strip() for ref in evidence_refs):
             raise LedgerConflict("reconciliation requires evidence references")
@@ -1332,7 +1333,136 @@ class Ledger:
                 invocation_id=row["invocation_id"],
                 attempt_id=attempt_id,
             )
+            if enqueue_wait:
+                run = self._require_run(connection, row["run_id"])
+                now = _now()
+                wait_key = f"attempt-reconcile:{attempt_id}"
+                existing_wait = connection.execute(
+                    """
+                    SELECT status FROM waits
+                    WHERE namespace = ? AND wait_key = ?
+                    """,
+                    (run["namespace"], wait_key),
+                ).fetchone()
+                if existing_wait is None:
+                    connection.execute(
+                        """
+                        INSERT INTO waits (
+                            id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                            not_before, payload_json, status, worker_id, claimed_at,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, 'attempt-reconcile', ?, ?, ?, ?, ?, 'pending',
+                                  NULL, NULL, ?, ?)
+                        """,
+                        (
+                            _new_id("wait"),
+                            run["namespace"],
+                            wait_key,
+                            row["run_id"],
+                            row["scope_id"],
+                            row["invocation_id"],
+                            now,
+                            _json(
+                                {
+                                    "attemptId": attempt_id,
+                                    "runId": row["run_id"],
+                                    "scopeId": row["scope_id"],
+                                    "invocationId": row["invocation_id"],
+                                    "attemptVersion": version,
+                                }
+                            ),
+                            now,
+                            now,
+                        ),
+                    )
+                elif existing_wait["status"] == "cancelled":
+                    connection.execute(
+                        """
+                        UPDATE waits
+                        SET kind = 'attempt-reconcile', not_before = ?,
+                            payload_json = ?, status = 'pending',
+                            worker_id = NULL, claimed_at = NULL, updated_at = ?
+                        WHERE namespace = ? AND wait_key = ?
+                        """,
+                        (
+                            now,
+                            _json(
+                                {
+                                    "attemptId": attempt_id,
+                                    "runId": row["run_id"],
+                                    "scopeId": row["scope_id"],
+                                    "invocationId": row["invocation_id"],
+                                    "attemptVersion": version,
+                                }
+                            ),
+                            now,
+                            run["namespace"],
+                            wait_key,
+                        ),
+                    )
         return self.get_attempt(attempt_id)  # type: ignore[return-value]
+
+    def ensure_attempt_reconciliation_wait(self, attempt_id: str) -> dict[str, Any]:
+        """Ensure a persisted reconciliation fact has a recoverable wake."""
+        with self._transaction() as connection:
+            attempt = self._require_attempt(connection, attempt_id)
+            if attempt["reconciliation_json"] is None or attempt["status"] == "unknown":
+                raise LedgerConflict("attempt reconciliation is not committed")
+            run = self._require_run(connection, attempt["run_id"])
+            now = _now()
+            wait_key = f"attempt-reconcile:{attempt_id}"
+            existing = connection.execute(
+                """
+                SELECT * FROM waits
+                WHERE namespace = ? AND wait_key = ?
+                """,
+                (run["namespace"], wait_key),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                        not_before, payload_json, status, worker_id, claimed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, 'attempt-reconcile', ?, ?, ?, ?, ?, 'pending',
+                              NULL, NULL, ?, ?)
+                    """,
+                    (
+                        _new_id("wait"),
+                        run["namespace"],
+                        wait_key,
+                        attempt["run_id"],
+                        attempt["scope_id"],
+                        attempt["invocation_id"],
+                        now,
+                        _json(
+                            {
+                                "attemptId": attempt_id,
+                                "runId": attempt["run_id"],
+                                "scopeId": attempt["scope_id"],
+                                "invocationId": attempt["invocation_id"],
+                                "attemptVersion": attempt["version"],
+                            }
+                        ),
+                        now,
+                        now,
+                    ),
+                )
+            elif existing["status"] == "cancelled":
+                connection.execute(
+                    """
+                    UPDATE waits
+                    SET kind = 'attempt-reconcile', not_before = ?, status = 'pending',
+                        worker_id = NULL, claimed_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, existing["id"]),
+                )
+        wait = self.get_wait_by_key(str(run["namespace"]), wait_key)
+        if wait is None:
+            raise LedgerConflict("attempt reconciliation wait is missing")
+        return wait
 
     def create_human_request(
         self,

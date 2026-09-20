@@ -6,7 +6,11 @@ import pytest
 
 from multiverse_workflow.runtime.runner import Runner
 from multiverse_workflow.service.application import RuntimeApplication
-from multiverse_workflow.service.contracts import HumanDecisionRequest, RunCreateRequest
+from multiverse_workflow.service.contracts import (
+    AttemptReconcileRequest,
+    HumanDecisionRequest,
+    RunCreateRequest,
+)
 
 ROOT = Path(__file__).parents[2]
 PACKAGE = ROOT / "presets/content-delivery"
@@ -38,6 +42,47 @@ def _request() -> RunCreateRequest:
         workflowId="delivery",
         input={"goal": "write a release note"},
     )
+
+
+def _unknown_producer_attempt(
+    application: RuntimeApplication,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[str, dict[str, object], dict[str, object]]:
+    created = application.create_run(_request(), idempotency_key="create-reconcile")
+    original_drive = application.runner._drive
+    monkeypatch.setattr(
+        application.runner,
+        "_drive",
+        lambda run_id, scope_id, node_id: application.runner.ledger.get_run(run_id),
+    )
+    try:
+        application.runner.sweep(worker_id="test-worker")
+    finally:
+        monkeypatch.setattr(application.runner, "_drive", original_drive)
+    scope = application.runner.ledger.list_scopes(created.resource_id)[0]
+    invocation = application.runner.ledger.create_invocation(
+        created.resource_id,
+        scope["id"],
+        "produce",
+        {"goal": "write a release note"},
+    )
+    application.runner.ledger.finish_invocation(invocation["id"], status="running")
+    attempt = application.runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    application.runner.ledger.finish_attempt(attempt["id"], status="running")
+    unknown = application.runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    application.runner.ledger.update_run(
+        created.resource_id,
+        status="running",
+        current_scope_id=scope["id"],
+        current_node_id="produce",
+        current_invocation_id=None,
+    )
+    return created.resource_id, invocation, unknown
 
 
 def test_enqueue_persists_a_queued_run_until_a_worker_sweeps_it(tmp_path: Path) -> None:
@@ -122,3 +167,66 @@ def test_repeated_async_create_returns_the_same_queued_run(tmp_path: Path) -> No
     assert second.resource_id == first.resource_id
     assert len(application.runner.ledger.list_scopes(first.resource_id)) == 1
     assert len(application.runner.ledger.list_waits(run_id=first.resource_id)) == 1
+
+
+def test_service_reconcile_persists_a_worker_wake_without_driving_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path)
+    run_id, _invocation, unknown = _unknown_producer_attempt(application, monkeypatch)
+
+    def fail_if_applied(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("HTTP reconciliation must not apply workflow progress")
+
+    monkeypatch.setattr(application.runner, "_apply_reconciled_attempt", fail_if_applied)
+
+    receipt = application.reconcile_attempt(
+        "local",
+        unknown["id"],
+        AttemptReconcileRequest(
+            expectedVersion=unknown["version"],
+            conclusion="confirmed_failed",
+            evidenceRefs=["evidence://provider/failed"],
+            reason="The provider confirmed the execution failed.",
+        ),
+        idempotency_key="reconcile-async",
+    )
+
+    assert receipt.status == "completed"
+    assert application.get_run("local", run_id)["status"] == "running"
+    wait = application.runner.ledger.get_wait_by_key(
+        "local", f"attempt-reconcile:{unknown['id']}"
+    )
+    assert wait is not None
+    assert wait["kind"] == "attempt-reconcile"
+    assert wait["status"] == "pending"
+
+
+def test_worker_applies_a_persisted_attempt_reconciliation_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path)
+    run_id, _invocation, unknown = _unknown_producer_attempt(application, monkeypatch)
+
+    application.reconcile_attempt(
+        "local",
+        unknown["id"],
+        AttemptReconcileRequest(
+            expectedVersion=unknown["version"],
+            conclusion="confirmed_failed",
+            evidenceRefs=["evidence://provider/failed"],
+            reason="The provider confirmed the execution failed.",
+        ),
+        idempotency_key="reconcile-async",
+    )
+
+    results = application.runner.sweep(worker_id="test-worker")
+
+    assert results[0]["kind"] == "attempt-reconcile"
+    assert application.get_run("local", run_id)["status"] == "failed"
+    assert application.runner.ledger.get_wait_by_key(
+        "local", f"attempt-reconcile:{unknown['id']}"
+    )["status"] == "completed"
+    assert len(application.runner.ledger.list_attempts(run_id)) == 1

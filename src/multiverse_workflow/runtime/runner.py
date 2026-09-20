@@ -137,7 +137,13 @@ class Runner:
         )
         results: list[dict[str, Any]] = []
         for wait in due_waits:
-            if wait["kind"] not in {"retry", "human-progress", "run-start", "run-resume"}:
+            if wait["kind"] not in {
+                "retry",
+                "human-progress",
+                "run-start",
+                "run-resume",
+                "attempt-reconcile",
+            }:
                 continue
             claimed = self.ledger.claim_wait(
                 wait["id"],
@@ -177,6 +183,27 @@ class Runner:
                             "run_id": result["id"],
                             "request_id": request_id,
                             "status": result["status"],
+                        }
+                    )
+                elif claimed["kind"] == "attempt-reconcile":
+                    attempt_id = payload.get("attemptId")
+                    if not isinstance(attempt_id, str):
+                        raise RunError("attempt reconciliation wait has no attempt id")
+                    attempt = self.ledger.get_attempt(attempt_id)
+                    if attempt is None or attempt["run_id"] != claimed["run_id"]:
+                        raise RunError("attempt reconciliation target is missing")
+                    result = self.resume_reconciled_attempt(attempt_id)
+                    self.ledger.complete_wait(claimed["id"])
+                    resumed_run = self.ledger.get_run(result["run_id"])
+                    if resumed_run is None:
+                        raise RunError("attempt reconciliation run disappeared")
+                    results.append(
+                        {
+                            "wait_id": claimed["id"],
+                            "kind": claimed["kind"],
+                            "attempt_id": attempt_id,
+                            "run_id": result["run_id"],
+                            "status": resumed_run["status"],
                         }
                     )
                 else:
@@ -512,6 +539,7 @@ class Runner:
         reason: str,
         actor: str,
         output: Any = None,
+        resume: bool = True,
     ) -> dict[str, Any]:
         attempt = self.ledger.get_attempt(attempt_id)
         if attempt is None:
@@ -570,7 +598,10 @@ class Runner:
             reason=reason,
             actor=actor,
             output=output,
+            enqueue_wait=not resume,
         )
+        if not resume:
+            return reconciled
         return self._apply_reconciled_attempt(reconciled)
 
     def resume_reconciled_attempt(self, attempt_id: str) -> dict[str, Any]:

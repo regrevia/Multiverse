@@ -169,6 +169,52 @@ def test_ledger_reconciles_unknown_attempt_once_with_evidence(tmp_path: Path) ->
         )
 
 
+def test_reconciliation_wait_is_unique_and_recoverable(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-reconcile-wait",
+        effect_key="effect-reconcile-wait",
+    )
+    unknown = ledger.finish_attempt(attempt["id"], status="unknown")
+
+    reconciled = ledger.reconcile_attempt(
+        attempt["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://operator/reconcile-wait"],
+        reason="Provider confirmed a terminal failure.",
+        actor="example-reviewer",
+        enqueue_wait=True,
+    )
+    first_wait = ledger.ensure_attempt_reconciliation_wait(attempt["id"])
+    second_wait = ledger.ensure_attempt_reconciliation_wait(attempt["id"])
+
+    assert reconciled["version"] == unknown["version"] + 1
+    assert first_wait["id"] == second_wait["id"]
+    waits = ledger.list_waits(run_id=run["id"], kind="attempt-reconcile")
+    assert len(waits) == 1
+    assert json.loads(waits[0]["payload_json"]) == {
+        "attemptId": attempt["id"],
+        "runId": run["id"],
+        "scopeId": scope["id"],
+        "invocationId": invocation["id"],
+        "attemptVersion": reconciled["version"],
+    }
+
+
 def test_unknown_attempt_enters_reconciling_and_blocks_the_run(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "runtime.db")
     run = ledger.create_run(
