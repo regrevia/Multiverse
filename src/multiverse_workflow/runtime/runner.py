@@ -112,8 +112,12 @@ class Runner:
         invocation = self.ledger.get_invocation(request["invocation_id"])
         if invocation is None:
             raise RunError("human request invocation is missing")
-        workflow_id = self.ledger.get_run(request["run_id"])["workflow_id"]  # type: ignore[index]
-        node = self._plan(workflow_id).nodes[invocation["node_id"]]
+        run = self.ledger.get_run(request["run_id"])
+        if run is None:
+            raise RunError("human request run is missing")
+        plan = self._plan(run["workflow_id"])
+        self._require_matching_definition(run, plan)
+        node = plan.nodes[invocation["node_id"]]
         if request_type in {"approval", "review"}:
             if choice is None and isinstance(decision, dict):
                 raw_choice = decision.get("decision")
@@ -378,6 +382,16 @@ class Runner:
                 f"{issue.code} ({issue.node_id}): {issue.message}" for issue in issues
             )
             raise RunError(f"runtime preflight failed: {detail}")
+
+    def _require_matching_definition(
+        self,
+        run: dict[str, Any],
+        plan: ExecutionPlan,
+    ) -> None:
+        if run["package_digest"] != plan.package_digest:
+            raise RunError("runtime definition drift: package digest changed")
+        if run["binding_digest"] != plan.binding_digest:
+            raise RunError("runtime definition drift: binding digest changed")
 
     def _validate_schema(self, value: Any, relative_path: str) -> None:
         path = (self.package_dir / relative_path).resolve()

@@ -111,6 +111,45 @@ def test_unavailable_adapter_is_rejected_before_a_run_is_recorded(tmp_path: Path
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
+def test_resume_blocks_a_binding_digest_that_changed_after_run_start(tmp_path: Path) -> None:
+    binding = tmp_path / "binding.yaml"
+    binding.write_text(
+        (ROOT / "examples/bindings/content-local.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    database = tmp_path / "runtime.db"
+    first = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding,
+        database_path=database,
+    )
+    waiting = first.start({"goal": "prepare a release"})
+    request = first.pending_human_requests(waiting["id"])[0]
+
+    binding.write_text(
+        binding.read_text(encoding="utf-8").replace(
+            "version: 0.1.0",
+            "version: 0.1.1",
+        ),
+        encoding="utf-8",
+    )
+    resumed = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding,
+        database_path=database,
+    )
+
+    with pytest.raises(RunError, match="runtime definition drift.*binding digest"):
+        resumed.decide(
+            request["id"],
+            choice="approve",
+            comment="Approved.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+        )
+
+
 def _write_manual_input_package(root: Path) -> tuple[Path, Path]:
     package = root / "manual-input"
     shutil.copytree(ROOT / "presets/content-delivery", package)
