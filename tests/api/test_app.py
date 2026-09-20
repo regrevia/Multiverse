@@ -80,6 +80,45 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
 
 
 @pytest.mark.anyio
+async def test_event_payload_keys_are_not_camelized_or_overwritten(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "create-1",
+            },
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+        )
+        run_id = created.json()["resourceId"]
+        application.state.runtime.runner.ledger.record_event(
+            run_id,
+            "business.payload",
+            {"customer_id": "snake", "customerId": "camel"},
+        )
+
+        events = await client.get(
+            f"/api/v1/namespaces/local/runs/{run_id}/events?after=0",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    payload = next(
+        event["payload"]
+        for event in events.json()["events"]
+        if event["type"] == "business.payload"
+    )
+    assert payload == {"customer_id": "snake", "customerId": "camel"}
+
+
+@pytest.mark.anyio
 async def test_stale_control_returns_json_state_conflict(settings: ServiceSettings) -> None:
     application = create_app(settings)
     transport = httpx.ASGITransport(app=application)

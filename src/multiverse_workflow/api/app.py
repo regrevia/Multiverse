@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -286,7 +285,7 @@ def create_app(settings: ServiceSettings) -> FastAPI:
     ) -> dict[str, Any]:
         require_scope(principal, "read")
         requests = runtime.list_human_requests(namespace, run_id=run_id, status=status)
-        return {"requests": _present(requests)}
+        return {"requests": [_present_human_request(request) for request in requests]}
 
     @app.post(
         "/api/v1/namespaces/{namespace}/human-requests/{request_id}/decisions",
@@ -353,9 +352,60 @@ def _present(value: Any) -> Any:
     if isinstance(value, list):
         return [_present(item) for item in value]
     if isinstance(value, dict):
-        return {_camelize(str(key)): _present(item) for key, item in value.items()}
+        return {
+            _camelize_runtime_key(str(key)): _present(item)
+            for key, item in value.items()
+        }
     return value
 
 
-def _camelize(value: str) -> str:
-    return re.sub(r"_([a-z])", lambda match: match.group(1).upper(), value)
+def _present_human_request(request: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": request["id"],
+        "runId": request["run_id"],
+        "scopeId": request["scope_id"],
+        "invocationId": request["invocation_id"],
+        "requestType": request["request_type"],
+        "title": request["title"],
+        "instructions": request["instructions"],
+        "input": json.loads(request["input_json"]),
+        "inputDigest": request["input_digest"],
+        "subjectDigest": request["subject_digest"],
+        "choices": json.loads(request["choices_json"]),
+        "decisionSchema": json.loads(request["decision_schema_json"]),
+        "authorizedSubjects": json.loads(request["authorized_subjects_json"]),
+        "createdAt": request["created_at"],
+        "expiresAt": request["expires_at"],
+        "version": request["version"],
+        "status": request["status"],
+        "decisionId": request["decision_id"],
+        "updatedAt": request["updated_at"],
+    }
+
+
+_RUNTIME_KEYS = {
+    "request_id": "requestId",
+    "resource_id": "resourceId",
+    "resource_version": "resourceVersion",
+    "workflow_id": "workflowId",
+    "deployment_id": "deploymentId",
+    "package_digest": "packageDigest",
+    "binding_digest": "bindingDigest",
+    "control_mode": "controlMode",
+    "current_node_id": "currentNodeId",
+    "deadline_at": "deadlineAt",
+    "created_at": "createdAt",
+    "updated_at": "updatedAt",
+    "rerun_of": "rerunOf",
+    "rerun_reason": "rerunReason",
+    "scope_id": "scopeId",
+    "invocation_id": "invocationId",
+    "attempt_id": "attemptId",
+    "occurred_at": "occurredAt",
+    "subject_digest": "subjectDigest",
+    "next_after": "nextAfter",
+}
+
+
+def _camelize_runtime_key(value: str) -> str:
+    return _RUNTIME_KEYS.get(value, value)

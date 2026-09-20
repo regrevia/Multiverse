@@ -286,13 +286,25 @@ class RuntimeApplication:
     ) -> list[dict[str, Any]]:
         self._require_run(namespace, run_id)
         try:
-            return self.runner.ledger.list_events_after(
+            events = self.runner.ledger.list_events_after(
                 run_id,
                 after_seq=after,
                 limit=limit,
             )
         except ValueError as exc:
             raise ServiceError("INVALID_ARGUMENT", str(exc), status_code=422) from exc
+        return [
+            {
+                "seq": event["seq"],
+                "type": event["type"],
+                "occurred_at": event["occurred_at"],
+                "scope_id": event["scope_id"],
+                "invocation_id": event["invocation_id"],
+                "attempt_id": event["attempt_id"],
+                "payload": json.loads(event["payload_json"]),
+            }
+            for event in events
+        ]
 
     def event_cursor(self, namespace: str, run_id: str) -> int:
         self._require_run(namespace, run_id)
