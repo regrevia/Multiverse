@@ -1970,6 +1970,9 @@ class Runner:
                 )
                 output = dict(output)
                 output["artifact_refs"] = [artifact["id"]]
+                # The Runtime-owned ArtifactRef changes the value that is
+                # released downstream, so validate the assembled output too.
+                self._validate_schema(output, definition["outputSchema"])
             self._validate_artifact_refs(run_id, output)
         except (LedgerConflict, OSError, RunError, TypeError) as exc:
             error = {"code": "EXECUTOR_OUTPUT_INVALID", "message": str(exc)}

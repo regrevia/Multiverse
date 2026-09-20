@@ -14,6 +14,9 @@ The checked-in preview currently supports:
 - deterministic package validation and execution plans
 - sequential `call`, `switch`, and `end` execution
 - bounded sequential `repeat` execution through separately persisted child scopes
+- nested `workflow` execution through separately persisted child scopes
+- static `parallel` execution with stable branch IDs, `join: all`, and bounded
+  `maxConcurrency`
 - builtin local executors
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
@@ -28,14 +31,15 @@ The checked-in preview currently supports:
 - read-only JSON Inspector snapshots with scopes, nodes, events, HumanRequests, and Artifacts
 - local FastAPI JSON and SSE service over the same SQLite Runtime
 
-The preview does not claim support for HTTP Job execution, Local Process
-registration, LangGraph persistence, parallel or general nested workflow
-execution, deployment or import, production hosting/IAM, remote Artifact
-upload/registration, UI forms, or Latent Handoff. The HTTP/SSE service is a
+The preview does not claim support for Local Process registration, LangGraph
+persistence, deployment or import, production hosting/IAM, remote Artifact
+upload/registration, UI forms, or Latent Handoff. The HTTP Job path is
+available only through a verified development Binding and the local Worker;
+it does not claim production Connector behavior. The HTTP/SSE service is a
 local SQLite single-process profile; it does not provide PostgreSQL,
-multi-worker scheduling, or external Attempt cancellation. Reconciliation is
-available only for an already persisted `unknown` Attempt and does not prove
-that an external provider can be queried or cancelled.
+multi-worker scheduling, or confirmed cancellation of external Attempts.
+Reconciliation is available only for an already persisted `unknown` Attempt
+and does not prove that an external provider can be queried or cancelled.
 Command receipts and local Run records survive application restart, while
 active external execution recovery is not claimed. Inspector snapshots remain
 local point-in-time DTOs;

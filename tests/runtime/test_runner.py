@@ -1788,6 +1788,66 @@ def test_runner_fails_an_invalid_generated_artifact_without_registering_it(
     assert list((tmp_path / "artifacts").iterdir()) == []
 
 
+def test_runner_revalidates_output_after_injecting_generated_artifact_ref(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    package = tmp_path / "artifact-contract-package"
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    deliverable_schema = package / "schemas/produced-deliverable.json"
+    shutil.copyfile(package / "schemas/deliverable.json", deliverable_schema)
+    schema = json.loads(deliverable_schema.read_text(encoding="utf-8"))
+    schema["properties"]["artifact_refs"]["maxItems"] = 0
+    deliverable_schema.write_text(json.dumps(schema), encoding="utf-8")
+    workflow_path = package / "workflows/delivery.yaml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    workflow = workflow.replace(
+        "outputSchema: schemas/deliverable.json",
+        "outputSchema: schemas/produced-deliverable.json",
+        1,
+    )
+    workflow_path.write_text(workflow, encoding="utf-8")
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_with_generated_artifact(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "builtin.ollama-deliverable.v1":
+            return original_execute(executor_ref, input_value, config)
+        return ExecutionResult(
+            output={"text": "Generated deliverable.", "artifact_refs": []},
+            generated_artifact=GeneratedArtifact(
+                name="agent-deliverable.md",
+                media_type="text/markdown",
+                content=b"Generated deliverable.",
+            ),
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_with_generated_artifact)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-ollama.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    failed = runner.start({"goal": "write a release note"})
+
+    assert failed["status"] == "failed"
+    assert json.loads(failed["error_json"])["code"] == "EXECUTOR_OUTPUT_INVALID"
+    producer = next(
+        invocation
+        for invocation in runner.ledger.list_invocations(failed["id"])
+        if invocation["node_id"] == "produce"
+    )
+    assert producer["status"] == "failed"
+    assert len(runner.ledger.list_artifacts(failed["id"])) == 1
+
+
 def test_repeated_decision_command_does_not_replay_downstream_nodes(tmp_path: Path) -> None:
     runner = Runner(
         ROOT / "presets/content-delivery",
