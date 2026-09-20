@@ -161,6 +161,41 @@ def inspect(
 
 
 @app.command()
+def sweep(
+    package: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    binding: Annotated[Path, typer.Option("--binding", exists=True, dir_okay=False)],
+    worker_id: Annotated[str, typer.Option("--worker-id")],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    namespace: Annotated[str, typer.Option("--namespace")] = "local",
+    limit: Annotated[int, typer.Option("--limit", min=1)] = 100,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Resume due persistent local waits once for this worker."""
+    runner = Runner(
+        package,
+        binding_path=binding,
+        database_path=db,
+        namespace=namespace,
+    )
+    try:
+        records = runner.sweep(worker_id=worker_id, limit=limit)
+    except (LedgerConflict, KeyError, RunError, ValueError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+    finally:
+        runner.close()
+    if as_json:
+        typer.echo(json.dumps(records, ensure_ascii=False, sort_keys=True))
+    else:
+        for record in records:
+            typer.echo(
+                f"{record.get('kind', 'wait')}: "
+                f"{record.get('run_id', record.get('request_id', ''))} "
+                f"{record.get('status', 'unknown')}"
+            )
+
+
+@app.command()
 def pause(
     run_id: Annotated[str, typer.Argument()],
     expected_version: Annotated[int, typer.Option("--expected-version")],

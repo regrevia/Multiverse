@@ -93,6 +93,25 @@ The current service profile is local SQLite and single-process. It does not
 claim PostgreSQL, multi-worker recovery, production IAM, remote Connectors, or
 HTTP Artifact upload. The service does not keep workflow state in the browser.
 
+### Persistent Local Worker Sweep
+
+Human decisions and retry backoffs are stored as durable waits. If the process
+stops after a decision or before a retry is dispatched, start the same package
+and binding again and sweep the due waits:
+
+```bash
+uv run mverse sweep presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --worker-id local-worker \
+  --json
+```
+
+The sweep claims each wait once, rechecks the persisted Run, Scope and
+Invocation state, and releases the wait if execution fails. It is a bounded
+single-process recovery loop; it is not a distributed queue, an external
+outbox, or proof that an unknown external side effect has stopped.
+
 ### Local Run Controls
 
 Paused local runs stop new downstream dispatch. A valid HumanRequest decision
@@ -124,9 +143,9 @@ uv run mverse cancel <run-id> \
 ```
 
 These controls are limited to the local SQLite preview. They do not provide
-external execution cancellation or worker recovery. If an execution response
-is lost and its persisted Attempt is `unknown`, an authorized operator can
-reconcile it through the service boundary:
+external execution cancellation. If an execution response is lost and its
+persisted Attempt is `unknown`, an authorized operator can reconcile it through
+the service boundary:
 
 ```bash
 curl -X POST \

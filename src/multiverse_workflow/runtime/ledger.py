@@ -285,6 +285,14 @@ class Ledger:
                     """,
                     (_now(), run_id),
                 )
+                connection.execute(
+                    """
+                    UPDATE waits
+                    SET status = 'cancelled', updated_at = ?
+                    WHERE run_id = ? AND status IN ('pending', 'claimed')
+                    """,
+                    (_now(), run_id),
+                )
                 if active_attempt is None:
                     cancellation_error = _json(
                         {"code": "RUN_CANCELLED", "message": reason}
@@ -943,6 +951,35 @@ class Ledger:
                 invocation_id=attempt["invocation_id"],
                 attempt_id=attempt_id,
             )
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'retry', ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
+                """,
+                (
+                    _new_id("wait"),
+                    run["namespace"],
+                    f"retry:{run['id']}:{attempt_id}",
+                    run["id"],
+                    attempt["scope_id"],
+                    invocation["id"],
+                    next_attempt_at,
+                    _json(
+                        {
+                            "runId": run["id"],
+                            "scopeId": attempt["scope_id"],
+                            "nodeId": current_node_id,
+                            "invocationId": invocation["id"],
+                            "attemptId": attempt_id,
+                        }
+                    ),
+                    now,
+                    now,
+                ),
+            )
         return self.get_attempt(attempt_id)  # type: ignore[return-value]
 
     def reconcile_attempt(
@@ -1095,6 +1132,29 @@ class Ledger:
                 scope_id=scope_id,
                 invocation_id=invocation_id,
             )
+            run = self._require_run(connection, run_id)
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'human', ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
+                """,
+                (
+                    _new_id("wait"),
+                    run["namespace"],
+                    f"human:{request_id}",
+                    run_id,
+                    scope_id,
+                    invocation_id,
+                    expires_at,
+                    _json({"requestId": request_id}),
+                    now,
+                    now,
+                ),
+            )
         return self.get_human_request(request_id)  # type: ignore[return-value]
 
     def get_human_request(self, request_id: str) -> dict[str, Any] | None:
@@ -1199,6 +1259,13 @@ class Ledger:
 
     def complete_human_progress_intent(self, request_id: str) -> None:
         with self._transaction() as connection:
+            intent = connection.execute(
+                """
+                SELECT run_id FROM human_progress_intents
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
             connection.execute(
                 """
                 UPDATE human_progress_intents
@@ -1207,6 +1274,15 @@ class Ledger:
                 """,
                 (_now(), request_id),
             )
+            if intent is not None:
+                connection.execute(
+                    """
+                    UPDATE waits
+                    SET status = 'completed', updated_at = ?
+                    WHERE run_id = ? AND wait_key = ? AND status IN ('pending', 'claimed')
+                    """,
+                    (_now(), intent["run_id"], f"human-progress:{request_id}"),
+                )
 
     def register_artifact(
         self,
@@ -1332,6 +1408,192 @@ class Ledger:
                 attempt_id=attempt_id,
             )
 
+    def create_wait(
+        self,
+        *,
+        namespace: str,
+        wait_key: str,
+        kind: str,
+        run_id: str,
+        not_before: str,
+        payload: dict[str, Any],
+        scope_id: str | None = None,
+        invocation_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not wait_key.strip() or not kind.strip():
+            raise LedgerConflict("wait key and kind are required")
+        wait_id = _new_id("wait")
+        now = _now()
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
+                """,
+                (
+                    wait_id,
+                    namespace,
+                    wait_key,
+                    kind,
+                    run_id,
+                    scope_id,
+                    invocation_id,
+                    not_before,
+                    _json(payload),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def get_wait(self, wait_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM waits WHERE id = ?", (wait_id,)
+        ).fetchone()
+        return _row(row)
+
+    def get_wait_by_key(self, namespace: str, wait_key: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM waits
+            WHERE namespace = ? AND wait_key = ?
+            """,
+            (namespace, wait_key),
+        ).fetchone()
+        return _row(row)
+
+    def list_waits(
+        self,
+        *,
+        run_id: str | None = None,
+        kind: str | None = None,
+        statuses: tuple[str, ...] = ("pending", "claimed"),
+    ) -> list[dict[str, Any]]:
+        if not statuses:
+            return []
+        clauses = [f"status IN ({','.join('?' for _ in statuses)})"]
+        parameters: list[Any] = list(statuses)
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            parameters.append(run_id)
+        if kind is not None:
+            clauses.append("kind = ?")
+            parameters.append(kind)
+        rows = self._connection.execute(
+            f"""
+            SELECT * FROM waits
+            WHERE {' AND '.join(clauses)}
+            ORDER BY not_before, created_at, id
+            """,
+            parameters,
+        ).fetchall()
+        return [wait for row in rows if (wait := _row(row)) is not None]
+
+    def update_wait(self, wait_id: str, *, not_before: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET not_before = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (not_before, _now(), wait_id),
+            )
+            if updated.rowcount != 1:
+                raise KeyError(f"wait not found: {wait_id}")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def list_due_waits(
+        self,
+        *,
+        now: str,
+        namespace: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        clauses = ["status = 'pending'", "not_before <= ?"]
+        parameters: list[Any] = [now]
+        if namespace is not None:
+            clauses.append("namespace = ?")
+            parameters.append(namespace)
+        parameters.append(limit)
+        rows = self._connection.execute(
+            f"""
+            SELECT * FROM waits
+            WHERE {' AND '.join(clauses)}
+            ORDER BY not_before, created_at, id
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+        return [wait for row in rows if (wait := _row(row)) is not None]
+
+    def claim_wait(
+        self,
+        wait_id: str,
+        *,
+        worker_id: str,
+        now: str,
+    ) -> dict[str, Any] | None:
+        if not worker_id.strip():
+            raise LedgerConflict("worker id is required")
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'claimed', worker_id = ?, claimed_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'pending' AND not_before <= ?
+                """,
+                (worker_id, now, now, wait_id, now),
+            )
+            if updated.rowcount != 1:
+                return None
+        return self.get_wait(wait_id)
+
+    def complete_wait(self, wait_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM waits WHERE id = ?", (wait_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] == "completed":
+                return dict(row)
+            if row["status"] != "claimed":
+                raise LedgerConflict(f"wait is not claimed: {row['status']}")
+            connection.execute(
+                """
+                UPDATE waits
+                SET status = 'completed', updated_at = ?
+                WHERE id = ?
+                """,
+                (_now(), wait_id),
+            )
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def release_wait(self, wait_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL, updated_at = ?
+                WHERE id = ? AND status = 'claimed'
+                """,
+                (_now(), wait_id),
+            )
+            if updated.rowcount != 1:
+                row = connection.execute(
+                    "SELECT * FROM waits WHERE id = ?", (wait_id,)
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"wait not found: {wait_id}")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
     def decide_human_request(
         self,
         request_id: str,
@@ -1434,6 +1696,16 @@ class Ledger:
                 )
                 if updated.rowcount != 1:
                     raise LedgerConflict("human decision command is not accepted")
+            connection.execute(
+                """
+                UPDATE waits
+                SET status = 'completed', updated_at = ?
+                WHERE namespace = (
+                    SELECT namespace FROM runs WHERE id = ?
+                ) AND wait_key = ? AND status IN ('pending', 'claimed')
+                """,
+                (_now(), request["run_id"], f"human:{request_id}"),
+            )
             now = _now()
             connection.execute(
                 """
@@ -1451,6 +1723,30 @@ class Ledger:
                     decision_id,
                     now,
                     now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                )
+                SELECT ?, r.namespace, ?, 'human-progress', r.id, ?, ?, ?, ?, 'pending',
+                       NULL, NULL, ?, ?
+                FROM runs AS r
+                WHERE r.id = ?
+                """,
+                (
+                    _new_id("wait"),
+                    f"human-progress:{request_id}",
+                    request["scope_id"],
+                    request["invocation_id"],
+                    now,
+                    _json({"requestId": request_id}),
+                    now,
+                    now,
+                    request["run_id"],
                 ),
             )
             return dict(self._require_human_request(connection, request_id))
@@ -1627,6 +1923,23 @@ class Ledger:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS waits (
+                id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                wait_key TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                scope_id TEXT REFERENCES scopes(id),
+                invocation_id TEXT REFERENCES invocations(id),
+                not_before TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                worker_id TEXT,
+                claimed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(namespace, wait_key)
             );
             CREATE TABLE IF NOT EXISTS run_events (
                 id TEXT PRIMARY KEY,

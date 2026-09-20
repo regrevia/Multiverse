@@ -321,3 +321,56 @@ def test_cli_runs_manual_input_artifact_trial_end_to_end(tmp_path: Path) -> None
     finished = json.loads(decide_result.stdout)
     assert finished["status"] == "succeeded"
     assert json.loads(finished["output_json"])["artifact_refs"] == [artifact["id"]]
+
+
+def test_cli_sweep_resumes_a_persisted_human_progress_intent(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    request_input = tmp_path / "request.json"
+    request_input.write_text(json.dumps({"goal": "ship the release"}), encoding="utf-8")
+    run_result = CLI.invoke(
+        app,
+        [
+            "run",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--input",
+            str(request_input),
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    assert run_result.exit_code == 4, run_result.stdout
+    waiting = json.loads(run_result.stdout)
+    ledger = Ledger(database)
+    request = ledger.list_human_requests(status="pending")[0]
+    ledger.decide_human_request(
+        request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=request["subject_digest"],
+        expected_version=request["version"],
+        idempotency_key="decision-cli-sweep",
+    )
+
+    result = CLI.invoke(
+        app,
+        [
+            "sweep",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--db",
+            str(database),
+            "--worker-id",
+            "cli-worker",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload[0]["run_id"] == waiting["id"]
+    assert Ledger(database).get_run(waiting["id"])["status"] == "succeeded"

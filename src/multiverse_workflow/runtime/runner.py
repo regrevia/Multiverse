@@ -65,22 +65,126 @@ class Runner:
     def close(self) -> None:
         self.ledger.close()
 
-    def resume_due(self, run_id: str) -> dict[str, Any]:
+    def resume_due(
+        self,
+        run_id: str,
+        *,
+        worker_id: str = "resume_due",
+        wait_id: str | None = None,
+    ) -> dict[str, Any]:
         run = self.ledger.get_run(run_id)
         if run is None:
             raise KeyError(f"run not found: {run_id}")
         if run["status"] != "retry_wait" or run["next_attempt_at"] is None:
             return run
-        if run["next_attempt_at"] > _timestamp(datetime.now(UTC)):
+        now = _timestamp(datetime.now(UTC))
+        if run["next_attempt_at"] > now:
             return run
+        retry_waits = self.ledger.list_waits(run_id=run_id, kind="retry")
+        retry_wait = next(
+            (
+                item
+                for item in retry_waits
+                if wait_id is None or item["id"] == wait_id
+            ),
+            None,
+        )
+        claimed_wait = None
+        if retry_wait is not None:
+            if retry_wait["status"] == "pending":
+                claimed_wait = self.ledger.claim_wait(
+                    retry_wait["id"],
+                    worker_id=worker_id,
+                    now=now,
+                )
+                if claimed_wait is None:
+                    return run
+            elif retry_wait["status"] == "claimed":
+                if retry_wait["worker_id"] != worker_id:
+                    return run
+                claimed_wait = retry_wait
         node_id = run["current_node_id"]
         if node_id is None:
             raise RunError("retry_wait run has no current node")
-        return self._drive(
-            run_id,
-            self._active_scope_for_node(run_id, node_id)["id"],
-            node_id,
+        try:
+            resumed = self._drive(
+                run_id,
+                self._active_scope_for_node(run_id, node_id)["id"],
+                node_id,
+            )
+        except Exception:
+            if claimed_wait is not None:
+                self.ledger.release_wait(claimed_wait["id"])
+            raise
+        if claimed_wait is not None:
+            self.ledger.complete_wait(claimed_wait["id"])
+        return resumed
+
+    def sweep(
+        self,
+        *,
+        worker_id: str,
+        now: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if not worker_id.strip():
+            raise LedgerConflict("worker id is required")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        now = now or _timestamp(datetime.now(UTC))
+        due_waits = self.ledger.list_due_waits(
+            now=now,
+            namespace=self.namespace,
+            limit=limit,
         )
+        results: list[dict[str, Any]] = []
+        for wait in due_waits:
+            if wait["kind"] not in {"retry", "human-progress"}:
+                continue
+            claimed = self.ledger.claim_wait(
+                wait["id"],
+                worker_id=worker_id,
+                now=now,
+            )
+            if claimed is None:
+                continue
+            try:
+                payload = json.loads(claimed["payload_json"])
+                if claimed["kind"] == "retry":
+                    result = self.resume_due(
+                        claimed["run_id"],
+                        worker_id=worker_id,
+                        wait_id=claimed["id"],
+                    )
+                    results.append(
+                        {
+                            "wait_id": claimed["id"],
+                            "kind": claimed["kind"],
+                            "run_id": result["id"],
+                            "status": result["status"],
+                        }
+                    )
+                else:
+                    request_id = payload.get("requestId")
+                    if not isinstance(request_id, str):
+                        raise RunError("human progress wait has no request id")
+                    request = self.ledger.get_human_request(request_id)
+                    if request is None:
+                        raise RunError("human progress request is missing")
+                    result = self._resume_decided_request(request)
+                    results.append(
+                        {
+                            "wait_id": claimed["id"],
+                            "kind": claimed["kind"],
+                            "run_id": result["id"],
+                            "request_id": request_id,
+                            "status": result["status"],
+                        }
+                    )
+            except Exception:
+                self.ledger.release_wait(claimed["id"])
+                raise
+        return results
 
     def start(
         self,

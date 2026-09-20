@@ -67,6 +67,9 @@ def test_content_delivery_waits_for_review_and_finishes_after_approval(tmp_path:
     request = runner.pending_human_requests()[0]
     assert request["status"] == "pending"
     assert json.loads(request["input_json"])["deliverable"]["text"]
+    human_wait = runner.ledger.get_wait_by_key("local", f"human:{request['id']}")
+    assert human_wait is not None
+    assert human_wait["status"] == "pending"
 
     finished = runner.decide(
         request["id"],
@@ -81,6 +84,9 @@ def test_content_delivery_waits_for_review_and_finishes_after_approval(tmp_path:
     output = json.loads(finished["output_json"])
     assert output["review"]["decision"] == "approve"
     assert output["deliverable"]["artifact_refs"] == []
+    assert runner.ledger.get_wait_by_key("local", f"human:{request['id']}")["status"] == (
+        "completed"
+    )
 
 
 def test_content_delivery_rejection_follows_explicit_failed_end(tmp_path: Path) -> None:
@@ -640,6 +646,11 @@ def test_retry_wait_is_persisted_and_resumes_after_restart(
     assert first_attempt["status"] == "failed"
     assert first_attempt["next_attempt_at"] == waiting["next_attempt_at"]
     assert runner.ledger.list_invocations(waiting["id"])[0]["status"] == "retry_wait"
+    retry_wait = runner.ledger.get_wait_by_key(
+        "local", f"retry:{waiting['id']}:{first_attempt['id']}"
+    )
+    assert retry_wait is not None
+    assert retry_wait["status"] == "pending"
 
     runner.close()
     restarted = Runner(
@@ -656,6 +667,7 @@ def test_retry_wait_is_persisted_and_resumes_after_restart(
         current_node_id="produce",
         next_attempt_at=due,
     )
+    restarted.ledger.update_wait(retry_wait["id"], not_before=due)
     resumed = restarted.resume_due(waiting["id"])
 
     assert resumed["status"] == "waiting"
@@ -675,6 +687,7 @@ def test_retry_wait_is_persisted_and_resumes_after_restart(
         event["type"] == "retry.scheduled"
         for event in restarted.ledger.list_events(waiting["id"])
     )
+    assert restarted.ledger.get_wait(retry_wait["id"])["status"] == "completed"
 
 
 def test_retry_wait_honors_cancel_control_intent(tmp_path: Path) -> None:
@@ -706,6 +719,112 @@ def test_retry_wait_honors_cancel_control_intent(tmp_path: Path) -> None:
     assert cancelled["control_mode"] == "cancel"
     assert cancelled["next_attempt_at"] is None
     assert runner.resume_due(waiting["id"])["status"] == "cancelled"
+
+
+def test_worker_sweep_resumes_a_due_retry_wait_after_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    package = _write_scheduled_retry_package(tmp_path)
+    original_execute = runner_module.execute_builtin
+    producer_calls = 0
+
+    def fail_first_producer(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        nonlocal producer_calls
+        if executor_ref == "example.content-fixture.v1" and isinstance(input_value, dict):
+            if "goal" in input_value:
+                producer_calls += 1
+                if producer_calls == 1:
+                    raise ExecutorError("transient provider failure")
+        return original_execute(executor_ref, input_value, config)
+
+    monkeypatch.setattr(runner_module, "execute_builtin", fail_first_producer)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    first_attempt = runner.ledger.list_attempts(waiting["id"])[0]
+    retry_wait = runner.ledger.get_wait_by_key(
+        "local", f"retry:{waiting['id']}:{first_attempt['id']}"
+    )
+    assert retry_wait is not None
+    runner.close()
+
+    restarted = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    due = _timestamp(datetime.now(UTC) - timedelta(seconds=1))
+    restarted.ledger.update_run(
+        waiting["id"],
+        status="retry_wait",
+        current_node_id="produce",
+        next_attempt_at=due,
+    )
+    restarted.ledger.update_wait(retry_wait["id"], not_before=due)
+
+    results = restarted.sweep(worker_id="worker-1", now=due)
+
+    assert results[0]["run_id"] == waiting["id"]
+    assert restarted.ledger.get_run(waiting["id"])["status"] == "waiting"
+    assert restarted.ledger.get_wait(retry_wait["id"])["status"] == "completed"
+
+
+def test_worker_sweep_resumes_pending_human_progress_intent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+    def interrupt_worker(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated worker interruption")
+
+    monkeypatch.setattr(runner, "_drive", interrupt_worker)
+    with pytest.raises(RuntimeError, match="worker interruption"):
+        runner.decide(
+            request["id"],
+            choice="approve",
+            comment="Approved.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+            idempotency_key="decision-sweep",
+        )
+    assert runner.ledger.get_human_progress_intent(request["id"])["status"] == "pending"
+    progress_wait = runner.ledger.get_wait_by_key(
+        "local", f"human-progress:{request['id']}"
+    )
+    assert progress_wait is not None
+    runner.close()
+
+    restarted = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    results = restarted.sweep(worker_id="worker-1")
+
+    assert results[0]["request_id"] == request["id"]
+    assert restarted.ledger.get_run(waiting["id"])["status"] == "succeeded"
+    assert restarted.ledger.get_human_progress_intent(request["id"])["status"] == (
+        "completed"
+    )
+    assert restarted.ledger.get_wait(progress_wait["id"])["status"] == "completed"
 
 
 def test_determined_executor_failure_routes_through_on_error_with_error_output(

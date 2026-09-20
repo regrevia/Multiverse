@@ -448,6 +448,51 @@ def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> N
         )
 
 
+def test_waits_are_claimable_once_and_complete_by_semantic_key(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+
+    wait = ledger.create_wait(
+        namespace="local",
+        wait_key="retry:run-1:attempt-1",
+        kind="retry",
+        run_id=run["id"],
+        not_before="2020-01-01T00:00:00Z",
+        payload={"attemptId": "attempt-1"},
+    )
+
+    assert ledger.list_due_waits(
+        now="2020-01-01T00:00:01Z",
+    )[0]["id"] == wait["id"]
+    claimed = ledger.claim_wait(
+        wait["id"],
+        worker_id="worker-1",
+        now="2020-01-01T00:00:02Z",
+    )
+    assert claimed is not None
+    assert claimed["status"] == "claimed"
+    assert ledger.claim_wait(
+        wait["id"],
+        worker_id="worker-2",
+        now="2020-01-01T00:00:03Z",
+    ) is None
+
+    completed = ledger.complete_wait(wait["id"])
+    assert completed["status"] == "completed"
+    assert ledger.get_wait_by_key("local", "retry:run-1:attempt-1")["status"] == (
+        "completed"
+    )
+    assert ledger.list_due_waits(now="2099-01-01T00:00:00Z") == []
+
+
 def test_ledger_rejects_an_unauthorized_human_subject(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "runtime.db")
     run = ledger.create_run(
