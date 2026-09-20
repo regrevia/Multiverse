@@ -1,15 +1,14 @@
-# Multiverse Specifications
+# Multiverse Specification
 
-`MULTIVERSE_SPEC.md` is the main V0.1 development specification.
-`MULTIVERSE_APPEND_SPEC.md` is its normative supplementary specification,
-using sections `S0` through `S15` and appendices. The supplement does not
-replace or silently revise the main specification.
-`MULTIVERSE_RUNTIME_INTEGRATION_DELIVERY_SPEC.md` is the second implementation
-supplement, using sections `R0` through `R26` for managed execution,
-integration, control, and delivery requirements. It also does not make
-unimplemented interfaces or capabilities part of the public protocol.
+`MULTIVERSE_SPEC.md` is the only normative development, integration, and
+acceptance reference for Multiverse V0.1.
 
-Implementation status is tracked in
-`docs/authoring/AUTHORING_GUIDE.md`. That guide distinguishes declared,
-installed, available, and verified capabilities and does not treat examples as
-runtime support.
+It incorporates the previous main specification and supplementary documents.
+The removed source documents remain represented by the migration record in
+Appendix G of `MULTIVERSE_SPEC.md`; they must not be restored as parallel rule
+sources.
+
+Implementation support is determined by fixed code, configuration, and current
+test evidence. `docs/authoring/AUTHORING_GUIDE.md` records what is declared,
+installed, available, verified, deferred, or unsupported without changing the
+normative requirements.
