@@ -61,7 +61,8 @@ class Runner:
         plan = self._plan(workflow_id)
         workflow = self._workflows[workflow_id]
         self._validate_schema(input_value, workflow.spec.input_schema)
-        self._preflight_execution(plan)
+        for candidate_plan in self._plans.values():
+            self._preflight_execution(candidate_plan)
         deadline = datetime.now(UTC) + timedelta(
             seconds=plan.defaults["runDeadlineSeconds"]
         )
@@ -74,7 +75,12 @@ class Runner:
             input_value=input_value,
             deadline_at=_timestamp(deadline),
         )
-        scope = self.ledger.create_scope(run["id"], workflow_id, path=["root"])
+        scope = self.ledger.create_scope(
+            run["id"],
+            workflow_id,
+            path=["root"],
+            input_value=input_value,
+        )
         self.ledger.update_run(
             run["id"],
             status="running",
@@ -116,8 +122,12 @@ class Runner:
         run = self.ledger.get_run(request["run_id"])
         if run is None:
             raise RunError("human request run is missing")
-        plan = self._plan(run["workflow_id"])
-        self._require_matching_definition(run, plan)
+        root_plan = self._plan(run["workflow_id"])
+        self._require_matching_definition(run, root_plan)
+        scope = self.ledger.get_scope(invocation["scope_id"])
+        if scope is None:
+            raise RunError("human request scope is missing")
+        plan = self._plan(scope["workflow_id"])
         request_input = json.loads(request["input_json"])
         if (
             self._artifact_subject_digest(run["id"], request_input)
@@ -169,8 +179,12 @@ class Runner:
             raise RunError("human request invocation is missing")
         if run is None:
             raise RunError("human request run is missing")
-        plan = self._plan(run["workflow_id"])
-        self._require_matching_definition(run, plan)
+        root_plan = self._plan(run["workflow_id"])
+        self._require_matching_definition(run, root_plan)
+        scope = self.ledger.get_scope(invocation["scope_id"])
+        if scope is None:
+            raise RunError("human request scope is missing")
+        plan = self._plan(scope["workflow_id"])
         if invocation["status"] == "succeeded":
             return run
         if invocation["status"] != "waiting":
@@ -198,8 +212,12 @@ class Runner:
         run = self.ledger.get_run(run_id)
         if run is None:
             raise KeyError(f"run not found: {run_id}")
-        plan = self._plan(run["workflow_id"])
-        input_value = json.loads(run["input_json"])
+        scope = self.ledger.get_scope(scope_id)
+        if scope is None:
+            raise RunError("execution scope is missing")
+        plan = self._plan(scope["workflow_id"])
+        input_json = scope["input_json"] or run["input_json"]
+        input_value = json.loads(input_json)
         while True:
             node = plan.nodes[node_id]
             definition = node["definition"]
@@ -224,14 +242,14 @@ class Runner:
                     )
                     if output is None:
                         return self.ledger.get_run(run_id)  # type: ignore[return-value]
-                node_outputs = self._outputs(run_id)
+                node_outputs = self._outputs(scope_id)
                 node_outputs[node_id] = output
                 node_id = definition["next"]
                 self.ledger.update_run(run_id, status="running", current_node_id=node_id)
                 continue
 
             if node["type"] == "switch":
-                node_outputs = self._outputs(run_id)
+                node_outputs = self._outputs(scope_id)
                 next_node = definition["default"]
                 for case in definition["cases"]:
                     if self._predicate(case["when"], input_value, node_outputs):
@@ -254,26 +272,158 @@ class Runner:
                 self.ledger.update_run(run_id, status="running", current_node_id=node_id)
                 continue
 
+            if node["type"] == "repeat":
+                invocation = self.ledger.get_invocation_for_node(scope_id, node_id)
+                child_workflow_id = definition["workflow"]
+                child_workflow = self._workflows[child_workflow_id]
+                if invocation is None:
+                    child_input = self._resolve_expr(
+                        definition["input"],
+                        input_value,
+                        self._outputs(scope_id),
+                    )
+                    self._validate_schema(child_input, child_workflow.spec.input_schema)
+                    invocation = self.ledger.create_invocation(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        child_input,
+                    )
+                    self.ledger.finish_invocation(invocation["id"], status="running")
+                    return self._start_repeat_iteration(
+                        run_id,
+                        scope,
+                        node_id,
+                        invocation,
+                        child_workflow_id,
+                        child_input,
+                        iteration_index=1,
+                    )
+
+                if invocation["status"] == "succeeded":
+                    node_id = definition["next"]
+                    self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                    continue
+                if invocation["status"] != "running":
+                    error = json.loads(invocation["error_json"] or "{}")
+                    return self._fail_scope(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        error or {"code": "REPEAT_FAILED", "message": "repeat invocation failed"},
+                    )
+
+                child_scopes = self.ledger.list_child_scopes(invocation["id"])
+                if not child_scopes:
+                    return self._fail_scope(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        {
+                            "code": "REPEAT_STATE_INVALID",
+                            "message": "repeat invocation has no child scope",
+                        },
+                    )
+                child_scope = child_scopes[-1]
+                if child_scope["status"] == "active":
+                    return self.ledger.update_run(
+                        run_id,
+                        status="waiting",
+                        current_node_id=node_id,
+                    )
+                if child_scope["status"] != "succeeded" or child_scope["output_json"] is None:
+                    error = json.loads(child_scope["error_json"] or "{}")
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="failed",
+                        error=error
+                        or {
+                            "code": "REPEAT_ITERATION_FAILED",
+                            "message": "repeat child scope did not succeed",
+                        },
+                    )
+                    return self._fail_scope(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        error
+                        or {
+                            "code": "REPEAT_ITERATION_FAILED",
+                            "message": "repeat child scope did not succeed",
+                        },
+                    )
+
+                iteration_index = len(child_scopes)
+                iteration_output = json.loads(child_scope["output_json"])
+                iteration = {"output": iteration_output, "index": iteration_index}
+                self.ledger.record_event(
+                    run_id,
+                    "repeat.iteration.completed",
+                    {
+                        "nodeId": node_id,
+                        "iteration": iteration_index,
+                        "scopeId": child_scope["id"],
+                    },
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                )
+                if self._predicate(
+                    definition["until"],
+                    input_value,
+                    self._outputs(scope_id),
+                    iteration=iteration,
+                ):
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="succeeded",
+                        output=iteration_output,
+                    )
+                    node_id = definition["next"]
+                    self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                    continue
+                if iteration_index >= definition["maxIterations"]:
+                    error = {
+                        "code": "LOOP_LIMIT_EXCEEDED",
+                        "message": f"repeat node {node_id} reached {iteration_index} iterations",
+                    }
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="failed",
+                        error=error,
+                    )
+                    return self._fail_scope(run_id, scope_id, node_id, error)
+                child_input = self._resolve_expr(
+                    definition["feedback"],
+                    input_value,
+                    self._outputs(scope_id),
+                    iteration=iteration,
+                )
+                self._validate_schema(child_input, child_workflow.spec.input_schema)
+                return self._start_repeat_iteration(
+                    run_id,
+                    scope,
+                    node_id,
+                    invocation,
+                    child_workflow_id,
+                    child_input,
+                    iteration_index=iteration_index + 1,
+                )
+
             if node["type"] == "end":
                 if definition["outcome"] == "succeeded":
                     output = self._resolve_expr(
-                        definition["output"], input_value, self._outputs(run_id)
+                        definition["output"], input_value, self._outputs(scope_id)
                     )
-                    workflow = self._workflows[run["workflow_id"]]
+                    workflow = self._workflows[scope["workflow_id"]]
                     self._validate_schema(output, workflow.spec.output_schema)
-                    return self.ledger.update_run(
+                    return self._finish_scope(
                         run_id,
-                        status="succeeded",
-                        current_node_id=node_id,
+                        scope_id,
+                        node_id,
                         output=output,
                     )
                 error = definition["error"]
-                return self.ledger.update_run(
-                    run_id,
-                    status="failed",
-                    current_node_id=node_id,
-                    error=error,
-                )
+                return self._fail_scope(run_id, scope_id, node_id, error)
 
             raise RunError(f"unsupported runtime node type: {node['type']}")
 
@@ -283,10 +433,14 @@ class Runner:
         scope_id: str,
         node_id: str,
         definition: dict[str, Any],
-        root_input: Any,
+        scope_input: Any,
         plan: ExecutionPlan,
     ) -> Any | None:
-        input_value = self._resolve_expr(definition["input"], root_input, self._outputs(run_id))
+        input_value = self._resolve_expr(
+            definition["input"],
+            scope_input,
+            self._outputs(scope_id),
+        )
         self._validate_schema(input_value, definition["inputSchema"])
         invocation = self.ledger.create_invocation(
             run_id,
@@ -306,24 +460,14 @@ class Runner:
             error = {"code": "INPUT_ARTIFACT_INVALID", "message": str(exc)}
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            self.ledger.update_run(
-                run_id,
-                status="failed",
-                current_node_id=node_id,
-                error=error,
-            )
+            self._fail_scope(run_id, scope_id, node_id, error)
             return None
         binding = self._binding.spec.slots[definition["slot"]]
         if binding.adapter not in {"builtin", "human"}:
             error = {"code": "EXECUTOR_UNSUPPORTED", "message": "HTTP Job runtime is not enabled."}
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            self.ledger.update_run(
-                run_id,
-                status="failed",
-                current_node_id=node_id,
-                error=error,
-            )
+            self._fail_scope(run_id, scope_id, node_id, error)
             return None
         try:
             result = execute_builtin(binding.executor_ref, input_value, binding.config)
@@ -331,12 +475,7 @@ class Runner:
             error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            self.ledger.update_run(
-                run_id,
-                status="failed",
-                current_node_id=node_id,
-                error=error,
-            )
+            self._fail_scope(run_id, scope_id, node_id, error)
             return None
         for observation in result.observations or []:
             self.ledger.record_event(
@@ -410,12 +549,7 @@ class Runner:
             )
             self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
             self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
-            self.ledger.update_run(
-                run_id,
-                status="failed",
-                current_node_id=node_id,
-                error=error,
-            )
+            self._fail_scope(run_id, scope_id, node_id, error)
             return None
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
@@ -427,6 +561,99 @@ class Runner:
         if diagnostic is not None or schema is None:
             raise RunError(f"schema invalid: {relative_path}")
         return schema
+
+    def _start_repeat_iteration(
+        self,
+        run_id: str,
+        parent_scope: dict[str, Any],
+        node_id: str,
+        parent_invocation: dict[str, Any],
+        child_workflow_id: str,
+        child_input: Any,
+        *,
+        iteration_index: int,
+    ) -> dict[str, Any]:
+        path = json.loads(parent_scope["path_json"]) + [
+            node_id,
+            str(iteration_index),
+        ]
+        child_scope = self.ledger.create_scope(
+            run_id,
+            child_workflow_id,
+            path=path,
+            input_value=child_input,
+            parent_scope_id=parent_scope["id"],
+            parent_invocation_id=parent_invocation["id"],
+        )
+        self.ledger.record_event(
+            run_id,
+            "repeat.iteration.started",
+            {
+                "nodeId": node_id,
+                "iteration": iteration_index,
+                "scopeId": child_scope["id"],
+            },
+            scope_id=parent_scope["id"],
+            invocation_id=parent_invocation["id"],
+        )
+        entry = self._workflows[child_workflow_id].spec.entry
+        return self._drive(run_id, child_scope["id"], entry)
+
+    def _finish_scope(
+        self,
+        run_id: str,
+        scope_id: str,
+        node_id: str,
+        *,
+        output: Any,
+    ) -> dict[str, Any]:
+        scope = self.ledger.finish_scope(scope_id, status="succeeded", output=output)
+        if scope["parent_invocation_id"] is None:
+            return self.ledger.update_run(
+                run_id,
+                status="succeeded",
+                current_node_id=node_id,
+                output=output,
+            )
+        parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
+        if parent_invocation is None:
+            raise RunError("parent invocation is missing")
+        return self._drive(
+            run_id,
+            parent_invocation["scope_id"],
+            parent_invocation["node_id"],
+        )
+
+    def _fail_scope(
+        self,
+        run_id: str,
+        scope_id: str,
+        node_id: str,
+        error: dict[str, Any],
+    ) -> dict[str, Any]:
+        scope = self.ledger.get_scope(scope_id)
+        if scope is None:
+            raise RunError("execution scope is missing")
+        if scope["status"] == "active":
+            scope = self.ledger.finish_scope(scope_id, status="failed", error=error)
+        if scope["parent_invocation_id"] is None:
+            return self.ledger.update_run(
+                run_id,
+                status="failed",
+                current_node_id=node_id,
+                error=error,
+            )
+        parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
+        if parent_invocation is None:
+            raise RunError("parent invocation is missing")
+        if parent_invocation["status"] == "running":
+            self.ledger.finish_invocation(parent_invocation["id"], status="failed", error=error)
+        return self._fail_scope(
+            run_id,
+            parent_invocation["scope_id"],
+            parent_invocation["node_id"],
+            error,
+        )
 
     def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
         self.ledger.validate_artifact_refs(run_id, self._artifact_refs(value))
@@ -464,9 +691,9 @@ class Runner:
         visit(value)
         return refs
 
-    def _outputs(self, run_id: str) -> dict[str, Any]:
+    def _outputs(self, scope_id: str) -> dict[str, Any]:
         outputs: dict[str, Any] = {}
-        for invocation in self.ledger.list_invocations(run_id):
+        for invocation in self.ledger.list_scope_invocations(scope_id):
             if invocation["status"] == "succeeded" and invocation["output_json"] is not None:
                 outputs[invocation["node_id"]] = json.loads(invocation["output_json"])
         return outputs
@@ -508,8 +735,10 @@ class Runner:
     def _resolve_expr(
         self,
         expression: dict[str, Any],
-        root_input: Any,
+        scope_input: Any,
         outputs: dict[str, Any],
+        *,
+        iteration: dict[str, Any] | None = None,
     ) -> Any:
         if "literal" in expression:
             return expression["literal"]
@@ -517,37 +746,75 @@ class Runner:
             reference = expression["ref"]
             root, _, fragment = reference.partition("#")
             if root == "input":
-                value = root_input
+                value = scope_input
             elif root.startswith("nodes.") and root.endswith(".output"):
                 value = outputs[root[6:-7]]
+            elif root == "iteration.output" and iteration is not None:
+                value = iteration["output"]
+            elif root == "iteration.index" and iteration is not None:
+                value = iteration["index"]
             else:
                 raise RunError(f"unsupported runtime reference: {reference}")
             return _pointer(value, fragment)
         if "object" in expression:
             return {
-                key: self._resolve_expr(child, root_input, outputs)
+                key: self._resolve_expr(
+                    child,
+                    scope_input,
+                    outputs,
+                    iteration=iteration,
+                )
                 for key, child in expression["object"].items()
             }
         if "array" in expression:
             return [
-                self._resolve_expr(child, root_input, outputs) for child in expression["array"]
+                self._resolve_expr(
+                    child,
+                    scope_input,
+                    outputs,
+                    iteration=iteration,
+                )
+                for child in expression["array"]
             ]
         raise RunError("invalid ValueExpr in execution plan")
 
     def _predicate(
         self,
         predicate: dict[str, Any],
-        root_input: Any,
+        scope_input: Any,
         outputs: dict[str, Any],
+        *,
+        iteration: dict[str, Any] | None = None,
     ) -> bool:
         if "all" in predicate:
-            return all(self._predicate(item, root_input, outputs) for item in predicate["all"])
+            return all(
+                self._predicate(item, scope_input, outputs, iteration=iteration)
+                for item in predicate["all"]
+            )
         if "any" in predicate:
-            return any(self._predicate(item, root_input, outputs) for item in predicate["any"])
+            return any(
+                self._predicate(item, scope_input, outputs, iteration=iteration)
+                for item in predicate["any"]
+            )
         if "not" in predicate:
-            return not self._predicate(predicate["not"], root_input, outputs)
-        left = self._resolve_expr(predicate["left"], root_input, outputs)
-        right = self._resolve_expr(predicate["right"], root_input, outputs)
+            return not self._predicate(
+                predicate["not"],
+                scope_input,
+                outputs,
+                iteration=iteration,
+            )
+        left = self._resolve_expr(
+            predicate["left"],
+            scope_input,
+            outputs,
+            iteration=iteration,
+        )
+        right = self._resolve_expr(
+            predicate["right"],
+            scope_input,
+            outputs,
+            iteration=iteration,
+        )
         op = predicate["op"]
         if op == "eq":
             return bool(left == right)

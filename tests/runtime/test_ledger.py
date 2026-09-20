@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,12 @@ def test_ledger_persists_run_scope_invocation_attempt_and_events(tmp_path: Path)
         input_value={"goal": "write"},
         deadline_at="2026-09-20T00:00:00Z",
     )
-    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    scope = ledger.create_scope(
+        run["id"],
+        "delivery",
+        path=["root"],
+        input_value={"goal": "write"},
+    )
     invocation = ledger.create_invocation(
         run["id"],
         scope["id"],
@@ -48,6 +54,99 @@ def test_ledger_persists_run_scope_invocation_attempt_and_events(tmp_path: Path)
     assert ledger.list_events(run["id"])[-1]["type"] == "run.updated"
     assert ledger.get_attempt(attempt["id"])["status"] == "succeeded"
     assert json.loads(ledger.get_attempt(attempt["id"])["output_json"]) == {"text": "done"}
+    assert json.loads(ledger.get_scope(scope["id"])["input_json"]) == {"goal": "write"}
+
+
+def test_ledger_persists_child_scope_terminal_output(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={"round": 0},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    parent = ledger.create_scope(
+        run["id"],
+        "delivery",
+        path=["root"],
+        input_value={"round": 0},
+    )
+    invocation = ledger.create_invocation(
+        run["id"],
+        parent["id"],
+        "repair",
+        {"round": 0},
+    )
+    child = ledger.create_scope(
+        run["id"],
+        "repair-round",
+        path=["root", "repair", "1"],
+        input_value={"round": 0},
+        parent_scope_id=parent["id"],
+        parent_invocation_id=invocation["id"],
+    )
+
+    finished = ledger.finish_scope(
+        child["id"],
+        status="succeeded",
+        output={"round": 1, "valid": True},
+    )
+
+    assert finished["status"] == "succeeded"
+    assert json.loads(finished["output_json"]) == {"round": 1, "valid": True}
+    assert ledger.list_child_scopes(invocation["id"])[0]["id"] == child["id"]
+
+
+def test_ledger_migrates_legacy_scope_columns(tmp_path: Path) -> None:
+    database = tmp_path / "legacy.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE scopes (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                parent_scope_id TEXT,
+                parent_invocation_id TEXT,
+                workflow_id TEXT NOT NULL,
+                path_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE human_decisions (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                request_version INTEGER NOT NULL,
+                choice TEXT NOT NULL,
+                comment TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                subject_digest TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO scopes (
+                id, run_id, parent_scope_id, parent_invocation_id,
+                workflow_id, path_json, status, created_at
+            ) VALUES (
+                'scope_legacy', 'run_legacy', NULL, NULL, 'delivery',
+                '["root"]', 'active', '2026-09-20T00:00:00Z'
+            )
+            """
+        )
+
+    ledger = Ledger(database)
+    migrated = ledger.get_scope("scope_legacy")
+
+    assert migrated is not None
+    assert migrated["input_json"] is None
+    assert migrated["output_json"] is None
+    assert migrated["error_json"] is None
 
 
 def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> None:

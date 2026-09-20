@@ -136,18 +136,20 @@ class Ledger:
         workflow_id: str,
         *,
         path: list[str],
+        input_value: Any = None,
         parent_scope_id: str | None = None,
         parent_invocation_id: str | None = None,
     ) -> dict[str, Any]:
         scope_id = _new_id("scope")
+        input_json = _json(input_value)
         with self._transaction() as connection:
             self._require_run(connection, run_id)
             connection.execute(
                 """
                 INSERT INTO scopes (
                     id, run_id, parent_scope_id, parent_invocation_id,
-                    workflow_id, path_json, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                    workflow_id, path_json, input_json, input_digest, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
                 """,
                 (
                     scope_id,
@@ -156,6 +158,8 @@ class Ledger:
                     parent_invocation_id,
                     workflow_id,
                     _json(path),
+                    input_json,
+                    _digest(input_json),
                     _now(),
                 ),
             )
@@ -163,7 +167,11 @@ class Ledger:
                 connection,
                 run_id,
                 "scope.created",
-                {"scopeId": scope_id, "workflowId": workflow_id},
+                {
+                    "scopeId": scope_id,
+                    "workflowId": workflow_id,
+                    "inputDigest": _digest(input_json),
+                },
                 scope_id=scope_id,
             )
         return self.get_scope(scope_id)  # type: ignore[return-value]
@@ -171,6 +179,56 @@ class Ledger:
     def get_scope(self, scope_id: str) -> dict[str, Any] | None:
         row = self._connection.execute("SELECT * FROM scopes WHERE id = ?", (scope_id,)).fetchone()
         return _row(row)
+
+    def list_scopes(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT * FROM scopes WHERE run_id = ? ORDER BY created_at, id",
+            (run_id,),
+        ).fetchall()
+        return [scope for row in rows if (scope := _row(row)) is not None]
+
+    def list_child_scopes(self, parent_invocation_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM scopes
+            WHERE parent_invocation_id = ?
+            ORDER BY created_at, id
+            """,
+            (parent_invocation_id,),
+        ).fetchall()
+        return [scope for row in rows if (scope := _row(row)) is not None]
+
+    def finish_scope(
+        self,
+        scope_id: str,
+        *,
+        status: str,
+        output: Any = None,
+        error: Any = None,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            scope = self._require_scope_by_id(connection, scope_id)
+            connection.execute(
+                """
+                UPDATE scopes
+                SET status = ?, output_json = ?, error_json = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    _json_or_none(output),
+                    _json_or_none(error),
+                    scope_id,
+                ),
+            )
+            self._event(
+                connection,
+                scope["run_id"],
+                "scope.updated",
+                {"scopeId": scope_id, "status": status},
+                scope_id=scope_id,
+            )
+        return self.get_scope(scope_id)  # type: ignore[return-value]
 
     def create_invocation(
         self,
@@ -232,6 +290,13 @@ class Ledger:
         rows = self._connection.execute(
             "SELECT * FROM invocations WHERE run_id = ? ORDER BY created_at",
             (run_id,),
+        ).fetchall()
+        return [invocation for row in rows if (invocation := _row(row)) is not None]
+
+    def list_scope_invocations(self, scope_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT * FROM invocations WHERE scope_id = ? ORDER BY created_at, id",
+            (scope_id,),
         ).fetchall()
         return [invocation for row in rows if (invocation := _row(row)) is not None]
 
@@ -713,7 +778,11 @@ class Ledger:
                 parent_invocation_id TEXT,
                 workflow_id TEXT NOT NULL,
                 path_json TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
                 status TEXT NOT NULL,
+                output_json TEXT,
+                error_json TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS invocations (
@@ -809,14 +878,25 @@ class Ledger:
             );
             """
         )
-        columns = {
+        human_decision_columns = {
             row["name"]
             for row in self._connection.execute("PRAGMA table_info(human_decisions)").fetchall()
         }
-        if "decision_json" not in columns:
+        if "decision_json" not in human_decision_columns:
             self._connection.execute(
                 "ALTER TABLE human_decisions ADD COLUMN decision_json TEXT NOT NULL DEFAULT '{}'"
             )
+        scope_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(scopes)").fetchall()
+        }
+        for column, definition in (
+            ("input_json", "TEXT"),
+            ("input_digest", "TEXT"),
+            ("output_json", "TEXT"),
+            ("error_json", "TEXT"),
+        ):
+            if column not in scope_columns:
+                self._connection.execute(f"ALTER TABLE scopes ADD COLUMN {column} {definition}")
         self._connection.commit()
 
     @contextmanager
@@ -882,6 +962,14 @@ class Ledger:
         row = connection.execute(
             "SELECT * FROM scopes WHERE id = ? AND run_id = ?", (scope_id, run_id)
         ).fetchone()
+        row = cast(sqlite3.Row | None, row)
+        if row is None:
+            raise KeyError(f"scope not found: {scope_id}")
+        return row
+
+    @staticmethod
+    def _require_scope_by_id(connection: sqlite3.Connection, scope_id: str) -> sqlite3.Row:
+        row = connection.execute("SELECT * FROM scopes WHERE id = ?", (scope_id,)).fetchone()
         row = cast(sqlite3.Row | None, row)
         if row is None:
             raise KeyError(f"scope not found: {scope_id}")

@@ -68,6 +68,153 @@ def test_content_delivery_rejection_follows_explicit_failed_end(tmp_path: Path) 
     assert json.loads(finished["error_json"])["code"] == "DELIVERABLE_REJECTED"
 
 
+def test_repeat_runs_each_iteration_in_an_independent_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_round(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        round_number = input_value["round"] + 1
+        return ExecutionResult(
+            output={
+                "round": round_number,
+                "completeAfter": input_value["completeAfter"],
+                "valid": round_number >= input_value["completeAfter"],
+            }
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_round)
+    runner = Runner(
+        _write_repeat_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    finished = runner.start({"round": 0, "completeAfter": 2})
+
+    assert finished["status"] == "succeeded"
+    assert json.loads(finished["output_json"]) == {
+        "round": 2,
+        "completeAfter": 2,
+        "valid": True,
+    }
+    scopes = runner.ledger.list_scopes(finished["id"])
+    assert [json.loads(scope["path_json"]) for scope in scopes] == [
+        ["root"],
+        ["root", "repair", "1"],
+        ["root", "repair", "2"],
+    ]
+    assert [scope["status"] for scope in scopes] == ["succeeded", "succeeded", "succeeded"]
+
+
+def test_repeat_fails_when_the_iteration_limit_is_reached(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_round(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        round_number = input_value["round"] + 1
+        return ExecutionResult(
+            output={
+                "round": round_number,
+                "completeAfter": input_value["completeAfter"],
+                "valid": False,
+            }
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_round)
+    runner = Runner(
+        _write_repeat_package(tmp_path, max_iterations=2),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    failed = runner.start({"round": 0, "completeAfter": 3})
+
+    assert failed["status"] == "failed"
+    assert json.loads(failed["error_json"])["code"] == "LOOP_LIMIT_EXCEEDED"
+    scopes = runner.ledger.list_scopes(failed["id"])
+    assert [json.loads(scope["path_json"]) for scope in scopes] == [
+        ["root"],
+        ["root", "repair", "1"],
+        ["root", "repair", "2"],
+    ]
+    assert all(scope["status"] == "succeeded" for scope in scopes[1:])
+
+
+def test_repeat_creates_a_new_human_request_for_each_iteration(tmp_path: Path) -> None:
+    runner = Runner(
+        _write_repeat_review_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    first_waiting = runner.start({"goal": "review the release"})
+    first_request = runner.pending_human_requests(first_waiting["id"])[0]
+    second_waiting = runner.decide(
+        first_request["id"],
+        choice="reject",
+        comment="Needs another pass.",
+        actor="example-reviewer",
+        subject_digest=first_request["subject_digest"],
+        expected_version=first_request["version"],
+    )
+    second_request = runner.pending_human_requests(second_waiting["id"])[0]
+    finished = runner.decide(
+        second_request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=second_request["subject_digest"],
+        expected_version=second_request["version"],
+    )
+
+    assert finished["status"] == "succeeded"
+    assert first_request["id"] != second_request["id"]
+    assert first_request["scope_id"] != second_request["scope_id"]
+    scopes = runner.ledger.list_scopes(finished["id"])
+    assert [json.loads(scope["path_json"]) for scope in scopes] == [
+        ["root"],
+        ["root", "review-loop", "1"],
+        ["root", "review-loop", "2"],
+    ]
+
+
+def test_repeat_preflights_child_workflow_executors_before_recording_a_run(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    runner = Runner(
+        _write_repeat_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-remote.yaml",
+        database_path=database,
+    )
+
+    with pytest.raises(RunError, match="EXECUTOR_UNAVAILABLE.*example.remote-content.v1"):
+        runner.start({"round": 0, "completeAfter": 1})
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
 def test_content_delivery_passes_two_agent_outputs_to_human_review(tmp_path: Path) -> None:
     runner = Runner(
         ROOT / "presets/content-delivery",
@@ -594,6 +741,232 @@ def _write_manual_input_package(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return package, binding
+
+
+def _write_repeat_package(root: Path, *, max_iterations: int = 3) -> Path:
+    package = root / "repeat-package"
+    schemas = package / "schemas"
+    workflows = package / "workflows"
+    schemas.mkdir(parents=True)
+    workflows.mkdir()
+    round_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["round", "completeAfter"],
+        "properties": {
+            "round": {"type": "integer", "minimum": 0},
+            "completeAfter": {"type": "integer", "minimum": 1},
+        },
+        "additionalProperties": False,
+    }
+    round_output_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["round", "completeAfter", "valid"],
+        "properties": {
+            "round": {"type": "integer", "minimum": 1},
+            "completeAfter": {"type": "integer", "minimum": 1},
+            "valid": {"type": "boolean"},
+        },
+        "additionalProperties": False,
+    }
+    (schemas / "round-input.json").write_text(
+        json.dumps(round_schema),
+        encoding="utf-8",
+    )
+    (schemas / "round-output.json").write_text(
+        json.dumps(round_output_schema),
+        encoding="utf-8",
+    )
+    (package / "manifest.yaml").write_text(
+        """apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: repeat-package
+  version: 0.1.0
+spec:
+  workflows:
+    delivery: workflows/delivery.yaml
+    repair-round: workflows/repair-round.yaml
+  entrypoints: [delivery]
+  requiredFeatures: [core.call, core.repeat]
+""",
+        encoding="utf-8",
+    )
+    (workflows / "delivery.yaml").write_text(
+        f"""apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: delivery
+  version: 0.1.0
+spec:
+  inputSchema: schemas/round-input.json
+  outputSchema: schemas/round-output.json
+  entry: repair
+  nodes:
+    repair:
+      type: repeat
+      workflow: repair-round
+      input:
+        ref: input#
+      until:
+        op: eq
+        left: {{ref: "iteration.output#/valid"}}
+        right: {{literal: true}}
+      feedback:
+        object:
+          round: {{ref: "iteration.output#/round"}}
+          completeAfter: {{ref: "iteration.output#/completeAfter"}}
+      maxIterations: {max_iterations}
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.repair.output#
+""",
+        encoding="utf-8",
+    )
+    (workflows / "repair-round.yaml").write_text(
+        """apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: repair-round
+  version: 0.1.0
+spec:
+  inputSchema: schemas/round-input.json
+  outputSchema: schemas/round-output.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      slot: producer
+      inputSchema: schemas/round-input.json
+      outputSchema: schemas/round-output.json
+      input:
+        ref: input#
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.work.output#
+""",
+        encoding="utf-8",
+    )
+    return package
+
+
+def _write_repeat_review_package(root: Path) -> Path:
+    package = root / "repeat-review-package"
+    schemas = package / "schemas"
+    workflows = package / "workflows"
+    schemas.mkdir(parents=True)
+    workflows.mkdir()
+    request_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["goal"],
+        "properties": {"goal": {"type": "string", "minLength": 1}},
+        "additionalProperties": False,
+    }
+    review_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["decision", "comment"],
+        "properties": {
+            "decision": {"type": "string", "enum": ["approve", "reject"]},
+            "comment": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+    (schemas / "request.json").write_text(json.dumps(request_schema), encoding="utf-8")
+    (schemas / "review.json").write_text(json.dumps(review_schema), encoding="utf-8")
+    (package / "manifest.yaml").write_text(
+        """apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: repeat-review-package
+  version: 0.1.0
+spec:
+  workflows:
+    delivery: workflows/delivery.yaml
+    review-round: workflows/review-round.yaml
+  entrypoints: [delivery]
+  requiredFeatures: [core.call, core.human, core.repeat]
+""",
+        encoding="utf-8",
+    )
+    (workflows / "delivery.yaml").write_text(
+        """apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: delivery
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/review.json
+  entry: review-loop
+  nodes:
+    review-loop:
+      type: repeat
+      workflow: review-round
+      input:
+        ref: input#
+      until:
+        op: eq
+        left: {ref: "iteration.output#/decision"}
+        right: {literal: approve}
+      feedback:
+        ref: input#
+      maxIterations: 2
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.review-loop.output#
+""",
+        encoding="utf-8",
+    )
+    (workflows / "review-round.yaml").write_text(
+        """apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: review-round
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/review.json
+  entry: review
+  nodes:
+    review:
+      type: call
+      slot: reviewer
+      inputSchema: schemas/request.json
+      outputSchema: schemas/review.json
+      input:
+        ref: input#
+      requires:
+        capabilities: [human.review@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.review.output#
+""",
+        encoding="utf-8",
+    )
+    return package
 
 
 def test_input_human_request_accepts_a_structured_artifact_result(tmp_path: Path) -> None:

@@ -38,9 +38,11 @@ uv run mverse decide <request-id> presets/content-delivery \
   --json
 ```
 
-This is a local single-process preview. HTTP Job, LangGraph persistence,
-parallel/repeat execution, deployment/import, outbox/inbox recovery, and the
-production HTTP API, and Latent Handoff are not claimed as implemented yet.
+This is a local single-process preview. Bounded sequential `repeat` execution
+is available for child workflows, but HTTP Job, LangGraph persistence, parallel
+and general nested workflow execution, deployment/import, outbox/inbox
+recovery, the production HTTP API, and Latent Handoff are not claimed as
+implemented yet.
 
 ### Trusted Local Ollama Agent Trial
 

@@ -5,7 +5,8 @@ The normative documents are:
 
 1. `docs/spec/MULTIVERSE_SPEC.md`
 2. `docs/spec/MULTIVERSE_APPEND_SPEC.md`
-3. The JSON Schemas in `schemas/` and each package's `schemas/` directory
+3. `docs/spec/MULTIVERSE_RUNTIME_INTEGRATION_DELIVERY_SPEC.md`
+4. The JSON Schemas in `schemas/` and each package's `schemas/` directory
 
 The supplement is additional specification content. It does not grant runtime,
 approval, deployment, network, or latent permissions.
@@ -18,6 +19,7 @@ The checked-in preview currently supports:
 - `multiverse/v0.1` Workflow, WorkflowPackage, and BindingSet resources
 - deterministic package validation and execution plans
 - sequential `call`, `switch`, and `end` execution
+- bounded sequential `repeat` execution through separately persisted child scopes
 - builtin local executors
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
@@ -27,9 +29,9 @@ The checked-in preview currently supports:
 - machine-readable `artifact register` command
 
 The preview does not claim support for HTTP Job execution, Local Process
-registration, LangGraph persistence, parallel/repeat execution, deployment or
-import, production HTTP APIs, remote Artifact upload/registration, UI forms, or
-Latent Handoff.
+registration, LangGraph persistence, parallel or general nested workflow
+execution, deployment or import, production HTTP APIs, remote Artifact
+upload/registration, UI forms, or Latent Handoff.
 
 ## Authoring Loop
 
