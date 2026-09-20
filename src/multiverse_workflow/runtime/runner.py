@@ -887,6 +887,13 @@ class Runner:
                     self.ledger.finish_invocation(
                         invocation["id"],
                         status="failed",
+                        output=error_output(
+                            error
+                            or {
+                                "code": "REPEAT_ITERATION_FAILED",
+                                "message": "repeat child scope did not succeed",
+                            }
+                        ),
                         error=error
                         or {
                             "code": "REPEAT_ITERATION_FAILED",
@@ -940,6 +947,7 @@ class Runner:
                     self.ledger.finish_invocation(
                         invocation["id"],
                         status="failed",
+                        output=error_output(error),
                         error=error,
                     )
                     return self._fail_scope(run_id, scope_id, node_id, error)

@@ -1102,6 +1102,114 @@ def test_repeat_fails_when_the_iteration_limit_is_reached(
     assert all(scope["status"] == "succeeded" for scope in scopes[1:])
 
 
+def test_repeat_limit_failure_persists_error_output_for_on_error_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_round(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        return ExecutionResult(
+            output={
+                "round": input_value["round"] + 1,
+                "completeAfter": input_value["completeAfter"],
+                "valid": False,
+            }
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_round)
+    package = _write_repeat_package(tmp_path, max_iterations=1)
+    workflow_path = package / "workflows/delivery.yaml"
+    workflow = workflow_path.read_text(encoding="utf-8").replace(
+        """      maxIterations: 1
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.repair.output#
+""",
+        """      maxIterations: 1
+      onError: handle-error
+      next: complete
+    handle-error:
+      type: end
+      outcome: succeeded
+      output:
+        object:
+          error:
+            ref: nodes.repair.output#/error
+    complete:
+      type: end
+      outcome: succeeded
+      output:
+        ref: nodes.repair.output#
+""",
+        1,
+    )
+    workflow_path.write_text(workflow, encoding="utf-8")
+    output_schema = package / "schemas/round-output.json"
+    output_schema.write_text(
+        """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["round", "completeAfter", "valid"],
+      "properties": {
+        "round": {"type": "integer", "minimum": 1},
+        "completeAfter": {"type": "integer", "minimum": 1},
+        "valid": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string"},
+            "message": {"type": "string"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    failed = runner.start({"round": 0, "completeAfter": 3})
+
+    assert failed["status"] == "succeeded"
+    assert json.loads(failed["output_json"])["error"]["code"] == "LOOP_LIMIT_EXCEEDED"
+    repair = next(
+        item for item in runner.ledger.list_invocations(failed["id"])
+        if item["node_id"] == "repair"
+    )
+    assert json.loads(repair["output_json"])["error"]["code"] == "LOOP_LIMIT_EXCEEDED"
+
+
 def test_repeat_projection_keeps_each_child_scope_and_its_frozen_nodes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
