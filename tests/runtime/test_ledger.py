@@ -215,6 +215,107 @@ def test_reconciliation_wait_is_unique_and_recoverable(tmp_path: Path) -> None:
     }
 
 
+def test_external_submit_outbox_and_observation_wait_are_durable_and_unique(
+    tmp_path: Path,
+) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-http-job",
+        effect_key="effect-http-job",
+    )
+    payload = {"dispatchKey": attempt["dispatch_key"], "input": {}}
+
+    outbox = ledger.ensure_submit_outbox(
+        attempt_id=attempt["id"],
+        payload=payload,
+    )
+    duplicate = ledger.ensure_submit_outbox(
+        attempt_id=attempt["id"],
+        payload=payload,
+    )
+    started = ledger.claim_submit_outbox(outbox["id"])
+    submitted = ledger.mark_submit_outbox_submitted(
+        outbox["id"], external_ref="execution-1"
+    )
+    wait = ledger.ensure_external_observation_wait(
+        attempt_id=attempt["id"],
+        external_ref="execution-1",
+    )
+    same_wait = ledger.ensure_external_observation_wait(
+        attempt_id=attempt["id"],
+        external_ref="execution-1",
+    )
+
+    assert duplicate["id"] == outbox["id"]
+    assert started["status"] == "submitting"
+    assert submitted["status"] == "submitted"
+    assert submitted["external_ref"] == "execution-1"
+    assert wait["id"] == same_wait["id"]
+    assert wait["kind"] == "external-observe"
+    assert len(ledger.list_waits(run_id=run["id"], kind="external-observe")) == 1
+
+
+def test_external_observation_same_revision_is_idempotent_but_conflicting_content_is_rejected(
+    tmp_path: Path,
+) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-observation",
+        effect_key="effect-observation",
+    )
+    observation = {
+        "executionRef": "execution-1",
+        "revision": 1,
+        "status": "running",
+        "observedAt": "2099-01-01T00:00:00Z",
+        "executionFinal": False,
+        "effectState": "possible",
+    }
+
+    first = ledger.record_external_observation(
+        attempt["id"], observation=observation
+    )
+    duplicate = ledger.record_external_observation(
+        attempt["id"], observation=dict(observation)
+    )
+
+    assert first["observation_revision"] == 1
+    assert duplicate["observation_json"] == first["observation_json"]
+
+    conflicting = dict(observation)
+    conflicting["status"] = "failed"
+    with pytest.raises(LedgerConflict, match="EXECUTOR_PROTOCOL_VIOLATION"):
+        ledger.record_external_observation(
+            attempt["id"], observation=conflicting
+        )
+
+
 def test_unknown_attempt_enters_reconciling_and_blocks_the_run(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "runtime.db")
     run = ledger.create_run(

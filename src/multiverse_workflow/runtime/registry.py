@@ -65,6 +65,9 @@ class ExecutorRegistry:
     def snapshot(self) -> ExecutorRegistry:
         return ExecutorRegistry(self._descriptors.values())
 
+    def descriptors(self) -> tuple[ExecutorDescriptor, ...]:
+        return tuple(self._descriptors.values())
+
     def capability_catalog(self) -> list[dict[str, object]]:
         return [
             descriptor.as_catalog_entry()

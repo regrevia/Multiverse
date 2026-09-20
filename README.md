@@ -39,10 +39,61 @@ uv run mverse decide <request-id> presets/content-delivery \
 ```
 
 This is a local single-process preview. Bounded sequential `repeat` execution
-is available for child workflows, but HTTP Job, LangGraph persistence, parallel
-and general nested workflow execution, deployment/import, outbox/inbox
-recovery, production hosting/IAM, and Latent Handoff are not claimed as
-implemented yet.
+is available for child workflows. The standard HTTP Job path is available when
+the Binding points at a trusted test or Bridge service; LangGraph persistence,
+parallel and general nested workflow execution, deployment/import, production
+hosting/IAM, and Latent Handoff remain outside this preview.
+
+### Standard HTTP Job Binding
+
+An HTTP Job Binding uses the standard `/v1` lifecycle and must be registered as
+an installed, available, and verified executor. Its configuration supplies the
+service URL and request timeout:
+
+```yaml
+slots:
+  producer:
+    adapter: http_job
+    executorRef: example.remote-content.v1
+    config:
+      baseUrl: http://127.0.0.1:9000
+      timeoutSeconds: 30
+```
+
+The service must implement `GET /v1/descriptor`, `POST /v1/executions`,
+dispatch-key lookup, observation, cancel, and artifact metadata endpoints.
+`POST /v1/executions` is a durable submission boundary: an accepted response
+only gives an external reference, while `running` and terminal state come from
+later observations. The local Worker polls the persisted observation wait and
+only advances the graph after a final observation passes the frozen output
+schema and Artifact checks.
+
+The Runtime persists one submit intent per Attempt and keeps the same
+`dispatchKey` across transport retries. A lost submit response becomes
+`unknown`; the Worker first performs lookup and can only resume the original
+execution when the service returns the matching reference. It never creates a
+second business Attempt for that uncertainty. Observation revisions are
+monotonic; a repeated revision with different content is a protocol violation
+and blocks the Run with audit evidence. `failed` observations use the node's
+existing retry and `onError` rules, while a final `unknown` observation remains
+in reconciliation.
+
+The HTTP Job preview requires one active local Worker per SQLite database:
+
+```bash
+uv run mverse worker \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-remote.yaml \
+  --db .multiverse/runtime.db \
+  --worker-id http-worker \
+  --poll-interval 1
+```
+
+PostgreSQL, multiple active Workers, production Secret Providers/IAM, remote
+Connector pairing, and arbitrary third-party APIs without a standard Bridge
+remain unsupported. A custom `ExecutorRegistry` is required for the current
+development HTTP Job binding; the default local registry intentionally does
+not trust an arbitrary URL as a production executor.
 
 ### Local Runtime Service
 

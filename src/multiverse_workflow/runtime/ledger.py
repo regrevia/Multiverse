@@ -967,6 +967,652 @@ class Ledger:
             )
         return self.get_attempt(attempt_id)  # type: ignore[return-value]
 
+    def get_submit_outbox(self, attempt_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM outbox WHERE action_key = ?",
+            (f"submit:{attempt_id}",),
+        ).fetchone()
+        return _row(row)
+
+    def get_outbox(self, outbox_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+        ).fetchone()
+        return _row(row)
+
+    def ensure_submit_outbox(
+        self,
+        *,
+        attempt_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload_json = _json(payload)
+        payload_digest = _digest(payload_json)
+        action_key = f"submit:{attempt_id}"
+        with self._transaction() as connection:
+            attempt = self._require_attempt(connection, attempt_id)
+            existing = connection.execute(
+                "SELECT * FROM outbox WHERE action_key = ?",
+                (action_key,),
+            ).fetchone()
+            if existing is not None:
+                if existing["payload_digest"] != payload_digest:
+                    raise LedgerConflict("submit outbox payload conflict")
+            else:
+                now = _now()
+                connection.execute(
+                    """
+                    INSERT INTO outbox (
+                        id, action_key, namespace, run_id, scope_id, invocation_id,
+                        attempt_id, action, payload_json, payload_digest, status,
+                        external_ref, attempt_count, next_attempt_at, last_error_json,
+                        created_at, updated_at
+                    ) VALUES (?, ?, (SELECT namespace FROM runs WHERE id = ?), ?, ?, ?, ?,
+                              'submit', ?, ?, 'pending', NULL, 0, ?, NULL, ?, ?)
+                    """,
+                    (
+                        _new_id("outbox"),
+                        action_key,
+                        attempt["run_id"],
+                        attempt["run_id"],
+                        attempt["scope_id"],
+                        attempt["invocation_id"],
+                        attempt_id,
+                        payload_json,
+                        payload_digest,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+                self._event(
+                    connection,
+                    attempt["run_id"],
+                    "execution.submit_intent.created",
+                    {
+                        "attemptId": attempt_id,
+                        "dispatchKey": attempt["dispatch_key"],
+                        "payloadDigest": payload_digest,
+                    },
+                    scope_id=attempt["scope_id"],
+                    invocation_id=attempt["invocation_id"],
+                    attempt_id=attempt_id,
+                )
+            result = connection.execute(
+                "SELECT * FROM outbox WHERE action_key = ?",
+                (action_key,),
+            ).fetchone()
+            if result is None:
+                raise LedgerConflict("submit outbox disappeared")
+            self._ensure_submit_wait_in_transaction(
+                connection,
+                outbox_id=result["id"],
+                attempt_id=attempt_id,
+                not_before=result["next_attempt_at"] or _now(),
+            )
+        return dict(result)
+
+    def _ensure_submit_wait(
+        self,
+        *,
+        outbox_id: str,
+        attempt_id: str,
+        not_before: str,
+    ) -> dict[str, Any]:
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise KeyError(f"attempt not found: {attempt_id}")
+        run = self.get_run(attempt["run_id"])
+        if run is None:
+            raise KeyError(f"run not found: {attempt['run_id']}")
+        with self._transaction() as connection:
+            self._ensure_submit_wait_in_transaction(
+                connection,
+                outbox_id=outbox_id,
+                attempt_id=attempt_id,
+                not_before=not_before,
+            )
+        wait_key = f"submit:{attempt_id}"
+        wait = self.get_wait_by_key(run["namespace"], wait_key)
+        if wait is None:
+            raise LedgerConflict("submit wait disappeared")
+        return wait
+
+    def _ensure_submit_wait_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        outbox_id: str,
+        attempt_id: str,
+        not_before: str,
+    ) -> None:
+        attempt = self._require_attempt(connection, attempt_id)
+        run = self._require_run(connection, attempt["run_id"])
+        wait_key = f"submit:{attempt_id}"
+        existing = connection.execute(
+            "SELECT * FROM waits WHERE namespace = ? AND wait_key = ?",
+            (run["namespace"], wait_key),
+        ).fetchone()
+        if existing is None:
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'external-submit', ?, ?, ?, ?, ?, 'pending',
+                          NULL, NULL, ?, ?)
+                """,
+                (
+                    _new_id("wait"),
+                    run["namespace"],
+                    wait_key,
+                    attempt["run_id"],
+                    attempt["scope_id"],
+                    attempt["invocation_id"],
+                    not_before,
+                    _json({"outboxId": outbox_id, "attemptId": attempt_id}),
+                    now,
+                    now,
+                ),
+            )
+        elif existing["status"] == "cancelled":
+            connection.execute(
+                """
+                UPDATE waits SET status = 'pending', not_before = ?,
+                    worker_id = NULL, claimed_at = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (not_before, _now(), existing["id"]),
+            )
+
+    def claim_submit_outbox(self, outbox_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE outbox
+                SET status = 'submitting', attempt_count = attempt_count + 1,
+                    updated_at = ?
+                WHERE id = ? AND status IN ('pending', 'unknown')
+                """,
+                (_now(), outbox_id),
+            )
+            if updated.rowcount != 1:
+                row = connection.execute(
+                    "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"outbox not found: {outbox_id}")
+                return dict(row)
+        row = self._connection.execute(
+            "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"outbox not found: {outbox_id}")
+        return dict(row)
+
+    def mark_submit_outbox_submitted(
+        self,
+        outbox_id: str,
+        *,
+        external_ref: str,
+    ) -> dict[str, Any]:
+        if not external_ref.strip():
+            raise LedgerConflict("external execution reference is required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"outbox not found: {outbox_id}")
+            if row["status"] == "submitted" and row["external_ref"] == external_ref:
+                return dict(row)
+            if row["status"] != "submitting":
+                raise LedgerConflict(f"outbox cannot be submitted from {row['status']}")
+            now = _now()
+            connection.execute(
+                """
+                UPDATE outbox
+                SET status = 'submitted', external_ref = ?, next_attempt_at = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (external_ref, now, outbox_id),
+            )
+            connection.execute(
+                """
+                UPDATE attempts
+                SET external_ref = ?,
+                    status = CASE WHEN status = 'unknown' THEN status ELSE 'submitted' END,
+                    version = version + 1,
+                    updated_at = ?
+                WHERE id = ? AND status != 'unknown'
+                """,
+                (external_ref, now, row["attempt_id"]),
+            )
+            self._event(
+                connection,
+                row["run_id"],
+                "execution.submitted",
+                {"attemptId": row["attempt_id"], "externalRef": external_ref},
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+        return self._outbox_by_id(outbox_id)
+
+    def resolve_unknown_submit(
+        self,
+        outbox_id: str,
+        *,
+        external_ref: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not external_ref.strip():
+            raise LedgerConflict("external execution reference is required")
+        if not isinstance(evidence, dict) or not evidence:
+            raise LedgerConflict("unknown submit resolution requires evidence")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"outbox not found: {outbox_id}")
+            if row["status"] == "submitted" and row["external_ref"] == external_ref:
+                return dict(row)
+            if row["status"] != "unknown":
+                raise LedgerConflict(
+                    f"unknown submit cannot be resolved from {row['status']}"
+                )
+            now = _now()
+            connection.execute(
+                """
+                UPDATE outbox
+                SET status = 'submitted', external_ref = ?, next_attempt_at = NULL,
+                    last_error_json = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (external_ref, now, outbox_id),
+            )
+            attempt = self._require_attempt(connection, row["attempt_id"])
+            if attempt["external_ref"] not in (None, external_ref):
+                raise LedgerConflict("resolved external reference conflicts with attempt")
+            connection.execute(
+                """
+                UPDATE attempts
+                SET external_ref = ?, status = 'submitted',
+                    version = version + 1, updated_at = ?
+                WHERE id = ?
+                """,
+                (external_ref, now, row["attempt_id"]),
+            )
+            invocation = self._require_invocation(connection, row["invocation_id"])
+            if invocation["status"] == "reconciling":
+                connection.execute(
+                    """
+                    UPDATE invocations
+                    SET status = 'running', version = version + 1, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, invocation["id"]),
+                )
+            run = self._require_run(connection, row["run_id"])
+            if run["status"] == "blocked" and run["control_mode"] != "cancel":
+                connection.execute(
+                    """
+                    UPDATE runs
+                    SET status = 'running', error_json = NULL, version = version + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, run["id"]),
+                )
+            self._event(
+                connection,
+                row["run_id"],
+                "execution.submit_reconciled",
+                {
+                    "attemptId": row["attempt_id"],
+                    "externalRef": external_ref,
+                    "evidence": evidence,
+                },
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+        return self._outbox_by_id(outbox_id)
+
+    def mark_submit_outbox_unknown(
+        self,
+        outbox_id: str,
+        *,
+        error: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"outbox not found: {outbox_id}")
+            now = _now()
+            connection.execute(
+                """
+                UPDATE outbox
+                SET status = 'unknown', last_error_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (_json(error), now, outbox_id),
+            )
+            attempt = self._require_attempt(connection, row["attempt_id"])
+            if attempt["status"] not in {"succeeded", "failed", "cancelled"}:
+                connection.execute(
+                    """
+                    UPDATE attempts
+                    SET status = 'unknown', error_json = ?, version = version + 1,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (_json(error), now, row["attempt_id"]),
+                )
+                invocation = self._require_invocation(connection, row["invocation_id"])
+                connection.execute(
+                    """
+                    UPDATE invocations
+                    SET status = 'reconciling', error_json = ?, version = version + 1,
+                        updated_at = ?
+                    WHERE id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled')
+                    """,
+                    (_json(error), now, invocation["id"]),
+                )
+                run = self._require_run(connection, row["run_id"])
+                if run["status"] not in {"succeeded", "failed", "cancelled"}:
+                    connection.execute(
+                        """
+                        UPDATE runs
+                        SET status = 'blocked', error_json = ?, version = version + 1,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (_json(error), now, run["id"]),
+                    )
+            self._event(
+                connection,
+                row["run_id"],
+                "execution.submit_unknown",
+                {"attemptId": row["attempt_id"], "error": error},
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+        return self._outbox_by_id(outbox_id)
+
+    def mark_submit_outbox_retryable(self, outbox_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"outbox not found: {outbox_id}")
+            updated = connection.execute(
+                """
+                UPDATE outbox
+                SET status = 'pending', last_error_json = NULL, updated_at = ?
+                WHERE id = ? AND status = 'unknown'
+                """,
+                (_now(), outbox_id),
+            )
+            if updated.rowcount != 1:
+                if row["status"] != "pending":
+                    raise LedgerConflict(
+                        f"outbox is not safely retryable from {row['status']}"
+                    )
+            else:
+                now = _now()
+                attempt = self._require_attempt(connection, row["attempt_id"])
+                if attempt["status"] == "unknown":
+                    connection.execute(
+                        """
+                        UPDATE attempts
+                        SET status = 'created', error_json = NULL,
+                            version = version + 1, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (now, row["attempt_id"]),
+                    )
+                    invocation = self._require_invocation(connection, row["invocation_id"])
+                    if invocation["status"] == "reconciling":
+                        connection.execute(
+                            """
+                            UPDATE invocations
+                            SET status = 'running', error_json = NULL,
+                                version = version + 1, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (now, invocation["id"]),
+                        )
+                    run = self._require_run(connection, row["run_id"])
+                    if run["status"] == "blocked" and run["control_mode"] != "cancel":
+                        connection.execute(
+                            """
+                            UPDATE runs
+                            SET status = 'running', error_json = NULL,
+                                version = version + 1, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (now, run["id"]),
+                        )
+        return self._outbox_by_id(outbox_id)
+
+    def _outbox_by_id(self, outbox_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            "SELECT * FROM outbox WHERE id = ?", (outbox_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"outbox not found: {outbox_id}")
+        return dict(row)
+
+    def ensure_external_observation_wait(
+        self,
+        *,
+        attempt_id: str,
+        external_ref: str,
+        not_before: str | None = None,
+    ) -> dict[str, Any]:
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise KeyError(f"attempt not found: {attempt_id}")
+        run = self.get_run(attempt["run_id"])
+        if run is None:
+            raise KeyError(f"run not found: {attempt['run_id']}")
+        wait_key = f"external-observe:{attempt_id}"
+        now = not_before or _now()
+        payload = {
+            "attemptId": attempt_id,
+            "runId": attempt["run_id"],
+            "scopeId": attempt["scope_id"],
+            "invocationId": attempt["invocation_id"],
+            "externalRef": external_ref,
+        }
+        with self._transaction() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM waits WHERE namespace = ? AND wait_key = ?
+                """,
+                (run["namespace"], wait_key),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                        not_before, payload_json, status, worker_id, claimed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, 'external-observe', ?, ?, ?, ?, ?, 'pending',
+                              NULL, NULL, ?, ?)
+                    """,
+                    (
+                        _new_id("wait"),
+                        run["namespace"],
+                        wait_key,
+                        attempt["run_id"],
+                        attempt["scope_id"],
+                        attempt["invocation_id"],
+                        now,
+                        _json(payload),
+                        _now(),
+                        _now(),
+                    ),
+                )
+            elif existing["status"] in {"completed", "cancelled"}:
+                connection.execute(
+                    """
+                    UPDATE waits SET not_before = ?, payload_json = ?, status = 'pending',
+                        worker_id = NULL, claimed_at = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, _json(payload), _now(), existing["id"]),
+                )
+        wait = self.get_wait_by_key(run["namespace"], wait_key)
+        if wait is None:
+            raise LedgerConflict("external observation wait disappeared")
+        return wait
+
+    def reschedule_wait(self, wait_id: str, *, not_before: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                    not_before = ?, updated_at = ?
+                WHERE id = ? AND status = 'claimed'
+                """,
+                (not_before, _now(), wait_id),
+            )
+            if updated.rowcount != 1:
+                row = connection.execute(
+                    "SELECT status FROM waits WHERE id = ?", (wait_id,)
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"wait not found: {wait_id}")
+                if row["status"] != "pending":
+                    raise LedgerConflict(f"wait cannot be rescheduled from {row['status']}")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def record_external_observation(
+        self,
+        attempt_id: str,
+        *,
+        observation: dict[str, Any],
+    ) -> dict[str, Any]:
+        required = {
+            "executionRef",
+            "revision",
+            "status",
+            "observedAt",
+            "executionFinal",
+            "effectState",
+        }
+        if not required.issubset(observation):
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: observation is missing required fields"
+            )
+        revision = observation.get("revision")
+        if not isinstance(revision, int) or revision < 1:
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: observation revision must be positive"
+            )
+        if not isinstance(observation.get("executionRef"), str):
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: executionRef must be a string"
+            )
+        if observation.get("status") not in {
+            "accepted",
+            "running",
+            "waiting",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "unknown",
+        }:
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: observation status is invalid"
+            )
+        if not isinstance(observation.get("observedAt"), str):
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: observedAt must be a string"
+            )
+        if not isinstance(observation.get("executionFinal"), bool):
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: executionFinal must be boolean"
+            )
+        if observation.get("effectState") not in {
+            "none",
+            "possible",
+            "confirmed",
+            "not_applicable",
+        }:
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: effectState is invalid"
+            )
+        if (
+            observation.get("status") == "succeeded"
+            and observation.get("executionFinal") is not True
+        ):
+            raise LedgerConflict(
+                "EXECUTOR_PROTOCOL_VIOLATION: succeeded observation must be final"
+            )
+        with self._transaction() as connection:
+            row = self._require_attempt(connection, attempt_id)
+            if row["external_ref"] not in (None, observation["executionRef"]):
+                raise LedgerConflict(
+                    "EXECUTOR_PROTOCOL_VIOLATION: executionRef does not match attempt"
+                )
+            previous = row["observation_revision"]
+            if previous is not None and revision < int(previous):
+                raise LedgerConflict(
+                    "EXECUTOR_PROTOCOL_VIOLATION: observation revision moved backwards"
+                )
+            observation_json = _json(observation)
+            if previous is not None and revision == int(previous):
+                if row["observation_json"] == observation_json:
+                    return dict(row)
+                raise LedgerConflict(
+                    "EXECUTOR_PROTOCOL_VIOLATION: same observation revision changed"
+                )
+            if row["observation_json"] is not None:
+                previous_observation = json.loads(row["observation_json"])
+                previous_status = previous_observation.get("status")
+                if previous_status in {"succeeded", "failed", "cancelled"}:
+                    if previous_status != observation.get("status"):
+                        raise LedgerConflict(
+                            "EXECUTOR_PROTOCOL_VIOLATION: terminal observation changed"
+                        )
+                if (
+                    previous_observation.get("executionFinal") is True
+                    and observation.get("executionFinal") is not True
+                ):
+                    raise LedgerConflict(
+                        "EXECUTOR_PROTOCOL_VIOLATION: final observation became non-final"
+                    )
+            if (
+                observation.get("executionFinal") is True
+                and observation.get("status")
+                not in {"succeeded", "failed", "cancelled", "unknown"}
+            ):
+                raise LedgerConflict(
+                    "EXECUTOR_PROTOCOL_VIOLATION: non-terminal observation is final"
+                )
+            connection.execute(
+                """
+                UPDATE attempts
+                SET observation_revision = ?, observation_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (revision, observation_json, _now(), attempt_id),
+            )
+        return self.get_attempt(attempt_id)  # type: ignore[return-value]
+
     def get_attempt(self, attempt_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
             "SELECT * FROM attempts WHERE id = ?", (attempt_id,)
@@ -2288,6 +2934,8 @@ class Ledger:
                 output_json TEXT,
                 error_json TEXT,
                 external_ref TEXT,
+                observation_revision INTEGER,
+                observation_json TEXT,
                 next_attempt_at TEXT,
                 version INTEGER NOT NULL DEFAULT 1,
                 reconciliation_json TEXT,
@@ -2357,6 +3005,25 @@ class Ledger:
                 updated_at TEXT NOT NULL,
                 UNIQUE(namespace, wait_key)
             );
+            CREATE TABLE IF NOT EXISTS outbox (
+                id TEXT PRIMARY KEY,
+                action_key TEXT NOT NULL UNIQUE,
+                namespace TEXT NOT NULL,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                scope_id TEXT NOT NULL REFERENCES scopes(id),
+                invocation_id TEXT NOT NULL REFERENCES invocations(id),
+                attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(id),
+                action TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                external_ref TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT,
+                last_error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS run_events (
                 id TEXT PRIMARY KEY,
                 run_id TEXT NOT NULL REFERENCES runs(id),
@@ -2392,6 +3059,18 @@ class Ledger:
             row["name"]
             for row in self._connection.execute("PRAGMA table_info(commands)").fetchall()
         }
+        attempt_columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(attempts)").fetchall()
+        }
+        for column, definition in (
+            ("observation_revision", "INTEGER"),
+            ("observation_json", "TEXT"),
+        ):
+            if column not in attempt_columns:
+                self._connection.execute(
+                    f"ALTER TABLE attempts ADD COLUMN {column} {definition}"
+                )
         command_sql = self._connection.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'commands'"
         ).fetchone()

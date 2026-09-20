@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -13,6 +14,11 @@ from multiverse_workflow.compiler.references import schema_validator, validate_s
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
 from multiverse_workflow.runtime.executors import ExecutorError, execute_builtin
+from multiverse_workflow.runtime.http_job import (
+    HttpJobClient,
+    HttpJobError,
+    HttpJobTransportError,
+)
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict, error_output
 from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 
@@ -143,6 +149,8 @@ class Runner:
                 "run-start",
                 "run-resume",
                 "attempt-reconcile",
+                "external-submit",
+                "external-observe",
             }:
                 continue
             claimed = self.ledger.claim_wait(
@@ -206,6 +214,24 @@ class Runner:
                             "status": resumed_run["status"],
                         }
                     )
+                elif claimed["kind"] == "external-submit":
+                    result = self._process_external_submit(claimed, payload)
+                    if result["wait_status"] == "completed":
+                        self.ledger.complete_wait(claimed["id"])
+                    else:
+                        self.ledger.reschedule_wait(
+                            claimed["id"], not_before=_timestamp(datetime.now(UTC))
+                        )
+                    results.append(result)
+                elif claimed["kind"] == "external-observe":
+                    result = self._process_external_observe(claimed, payload)
+                    if result["wait_status"] == "completed":
+                        self.ledger.complete_wait(claimed["id"])
+                    else:
+                        self.ledger.reschedule_wait(
+                            claimed["id"], not_before=_timestamp(datetime.now(UTC))
+                        )
+                    results.append(result)
                 else:
                     result = self.resume_queued(claimed["run_id"])
                     self.ledger.complete_wait(claimed["id"])
@@ -241,6 +267,294 @@ class Runner:
                 }
             )
         return results
+
+    def _process_external_submit(
+        self,
+        wait: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        outbox_id = payload.get("outboxId")
+        attempt_id = payload.get("attemptId")
+        if not isinstance(outbox_id, str) or not isinstance(attempt_id, str):
+            raise RunError("external submit wait has invalid payload")
+        outbox = self.ledger.get_outbox(outbox_id)
+        attempt = self.ledger.get_attempt(attempt_id)
+        if outbox is None or attempt is None:
+            raise RunError("external submit target is missing")
+        if outbox["status"] == "submitted" and outbox["external_ref"]:
+            self.ledger.ensure_external_observation_wait(
+                attempt_id=attempt_id,
+                external_ref=outbox["external_ref"],
+            )
+            return {
+                "wait_id": wait["id"],
+                "kind": wait["kind"],
+                "attempt_id": attempt_id,
+                "run_id": attempt["run_id"],
+                "status": "submitted",
+                "wait_status": "completed",
+            }
+        request = json.loads(outbox["payload_json"])
+        client = self._http_job_client(attempt_id)
+        if outbox["status"] == "unknown":
+            lookup = client.lookup(attempt["dispatch_key"])
+            if lookup.get("status") == "found" and isinstance(
+                lookup.get("executionRef"), str
+            ):
+                self.ledger.resolve_unknown_submit(
+                    outbox_id,
+                    external_ref=lookup["executionRef"],
+                    evidence=lookup,
+                )
+                self.ledger.ensure_external_observation_wait(
+                    attempt_id=attempt_id,
+                    external_ref=lookup["executionRef"],
+                )
+                return {
+                    "wait_id": wait["id"],
+                    "kind": wait["kind"],
+                    "attempt_id": attempt_id,
+                    "run_id": attempt["run_id"],
+                    "status": "submitted",
+                    "wait_status": "completed",
+                }
+            if lookup.get("status") != "not_created":
+                raise RunError("HTTP Job submit result remains unknown")
+            descriptor = client.describe()
+            if descriptor.get("reconcileByKey") != "strong":
+                raise RunError(
+                    "HTTP Job strong lookup is required to prove not_created"
+                )
+            self.ledger.mark_submit_outbox_retryable(outbox_id)
+        claimed = self.ledger.claim_submit_outbox(outbox_id)
+        try:
+            response = client.submit(request)
+        except HttpJobTransportError as exc:
+            self.ledger.mark_submit_outbox_unknown(
+                outbox_id,
+                error={"code": "SUBMIT_RESULT_UNKNOWN", "message": str(exc)},
+            )
+            lookup = client.lookup(attempt["dispatch_key"])
+            if lookup.get("status") == "found" and isinstance(
+                lookup.get("executionRef"), str
+            ):
+                self.ledger.resolve_unknown_submit(
+                    outbox_id,
+                    external_ref=lookup["executionRef"],
+                    evidence=lookup,
+                )
+                self.ledger.ensure_external_observation_wait(
+                    attempt_id=attempt_id,
+                    external_ref=lookup["executionRef"],
+                )
+                return {
+                    "wait_id": wait["id"],
+                    "kind": wait["kind"],
+                    "attempt_id": attempt_id,
+                    "run_id": attempt["run_id"],
+                    "status": "submitted",
+                    "wait_status": "completed",
+                }
+            if lookup.get("status") == "not_created":
+                descriptor = client.describe()
+                if descriptor.get("reconcileByKey") != "strong":
+                    raise RunError(
+                        "HTTP Job strong lookup is required to prove not_created"
+                    ) from exc
+                self.ledger.mark_submit_outbox_retryable(outbox_id)
+                raise exc
+            raise
+        except HttpJobError:
+            self.ledger.mark_submit_outbox_unknown(
+                outbox_id,
+                error={"code": "SUBMIT_FAILED", "message": "HTTP Job submit failed"},
+            )
+            raise
+        external_ref = response["executionRef"]
+        self.ledger.mark_submit_outbox_submitted(outbox_id, external_ref=external_ref)
+        self.ledger.ensure_external_observation_wait(
+            attempt_id=attempt_id,
+            external_ref=external_ref,
+        )
+        return {
+            "wait_id": wait["id"],
+            "kind": wait["kind"],
+            "attempt_id": attempt_id,
+            "run_id": attempt["run_id"],
+            "status": claimed["status"],
+            "wait_status": "completed",
+        }
+
+    def _process_external_observe(
+        self,
+        wait: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        attempt_id = payload.get("attemptId")
+        external_ref = payload.get("externalRef")
+        if not isinstance(attempt_id, str) or not isinstance(external_ref, str):
+            raise RunError("external observe wait has invalid payload")
+        attempt = self.ledger.get_attempt(attempt_id)
+        if attempt is None:
+            raise RunError("external observe attempt is missing")
+        observation = self._http_job_client(attempt_id).observe(external_ref)
+        try:
+            self.ledger.record_external_observation(attempt_id, observation=observation)
+        except LedgerConflict as exc:
+            error = {"code": "EXECUTOR_PROTOCOL_VIOLATION", "message": str(exc)}
+            run = self.ledger.get_run(attempt["run_id"])
+            if run is None:
+                raise RunError("external observation run is missing") from exc
+            self.ledger.record_event(
+                run["id"],
+                "executor.observation.rejected",
+                {
+                    "attemptId": attempt_id,
+                    "externalRef": external_ref,
+                    "observation": observation,
+                    "error": error,
+                },
+                scope_id=attempt["scope_id"],
+                invocation_id=attempt["invocation_id"],
+                attempt_id=attempt_id,
+            )
+            self.ledger.update_run(
+                run["id"],
+                status="blocked",
+                current_scope_id=attempt["scope_id"],
+                current_node_id=self._attempt_node(attempt),
+                current_invocation_id=attempt["invocation_id"],
+                error=error,
+            )
+            return {
+                "wait_id": wait["id"],
+                "kind": wait["kind"],
+                "attempt_id": attempt_id,
+                "run_id": attempt["run_id"],
+                "status": "blocked",
+                "wait_status": "completed",
+            }
+        status = observation.get("status")
+        final = observation.get("executionFinal") is True
+        result = {
+            "wait_id": wait["id"],
+            "kind": wait["kind"],
+            "attempt_id": attempt_id,
+            "run_id": attempt["run_id"],
+            "status": status,
+            "wait_status": "pending",
+        }
+        if not final:
+            return result
+        if status == "unknown":
+            error = {
+                "code": "EXECUTION_RESULT_UNKNOWN",
+                "message": (
+                    "HTTP Job returned a final unknown observation; "
+                    "reconciliation is required."
+                ),
+            }
+            self.ledger.finish_attempt(
+                attempt_id,
+                status="unknown",
+                error=error,
+                external_ref=external_ref,
+            )
+            result["status"] = "unknown"
+            result["wait_status"] = "completed"
+            return result
+        if status == "succeeded":
+            output = observation.get("output")
+            scope = self.ledger.get_scope(attempt["scope_id"])
+            run = self.ledger.get_run(attempt["run_id"])
+            if scope is None or run is None:
+                raise RunError("external observation runtime state is missing")
+            plan = self._frozen_plan(run, scope["workflow_id"])
+            invocation = self.ledger.get_invocation(attempt["invocation_id"])
+            if invocation is None:
+                raise RunError("external observation invocation is missing")
+            node = plan.nodes[invocation["node_id"]]
+            self._validate_schema(output, node["definition"]["outputSchema"])
+            self._validate_artifact_refs(run["id"], output)
+            self.ledger.finish_attempt(attempt_id, status="succeeded", output=output)
+            self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+            next_node = node["definition"]["next"]
+            self.ledger.update_run(
+                run["id"],
+                status="running",
+                current_scope_id=scope["id"],
+                current_node_id=next_node,
+                current_invocation_id=None,
+            )
+            self._drive(run["id"], scope["id"], next_node)
+            result["status"] = "succeeded"
+            result["wait_status"] = "completed"
+            return result
+        remote_error = observation.get("error")
+        if not isinstance(remote_error, dict):
+            remote_error = {
+                "code": "REMOTE_EXECUTION_FAILED",
+                "message": "HTTP Job failed",
+            }
+        invocation = self.ledger.get_invocation(attempt["invocation_id"])
+        if invocation is None:
+            raise RunError("external observation invocation is missing")
+        scope = self.ledger.get_scope(attempt["scope_id"])
+        run = self.ledger.get_run(attempt["run_id"])
+        if scope is None or run is None:
+            raise RunError("external observation runtime state is missing")
+        plan = self._frozen_plan(run, scope["workflow_id"])
+        node = plan.nodes[invocation["node_id"]]
+        self._record_call_failure(attempt, invocation, remote_error)
+        if self._schedule_retry(
+            run["id"],
+            scope["id"],
+            invocation["node_id"],
+            node["definition"],
+            invocation,
+            attempt,
+            remote_error,
+        ):
+            result["status"] = status
+            result["wait_status"] = "completed"
+            return result
+        self._fail_scope(
+            attempt["run_id"],
+            attempt["scope_id"],
+            self._attempt_node(attempt),
+            remote_error,
+        )
+        result["status"] = status
+        result["wait_status"] = "completed"
+        return result
+
+    def _attempt_node(self, attempt: dict[str, Any]) -> str:
+        invocation = self.ledger.get_invocation(attempt["invocation_id"])
+        if invocation is None:
+            raise RunError("attempt invocation is missing")
+        return str(invocation["node_id"])
+
+    def _http_job_client(self, attempt_id: str) -> HttpJobClient:
+        attempt = self.ledger.get_attempt(attempt_id)
+        if attempt is None:
+            raise RunError("HTTP Job attempt is missing")
+        invocation = self.ledger.get_invocation(attempt["invocation_id"])
+        run = self.ledger.get_run(attempt["run_id"])
+        if invocation is None or run is None:
+            raise RunError("HTTP Job runtime state is missing")
+        scope = self.ledger.get_scope(attempt["scope_id"])
+        if scope is None:
+            raise RunError("HTTP Job scope is missing")
+        plan = self._frozen_plan(run, scope["workflow_id"])
+        definition = plan.nodes[invocation["node_id"]]["definition"]
+        binding = self._binding.spec.slots[definition["slot"]]
+        base_url = binding.config.get("baseUrl")
+        if not isinstance(base_url, str) or not base_url.strip():
+            raise RunError("HTTP Job binding requires config.baseUrl")
+        timeout = binding.config.get("timeoutSeconds", 30)
+        if not isinstance(timeout, (int, float)):
+            raise RunError("HTTP Job timeoutSeconds must be numeric")
+        return HttpJobClient(base_url, timeout_seconds=float(timeout))
 
     def start(
         self,
@@ -1293,8 +1607,33 @@ class Runner:
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
         binding = self._binding.spec.slots[definition["slot"]]
+        if binding.adapter == "http_job":
+            if attempt["external_ref"]:
+                self.ledger.ensure_external_observation_wait(
+                    attempt_id=attempt["id"],
+                    external_ref=attempt["external_ref"],
+                )
+                return None
+            execution_request = self._build_http_execution_request(
+                run_id=run_id,
+                scope_id=scope_id,
+                invocation=invocation,
+                attempt=attempt,
+                definition=definition,
+                input_value=input_value,
+                plan=plan,
+                binding=binding,
+            )
+            self.ledger.ensure_submit_outbox(
+                attempt_id=attempt["id"],
+                payload=execution_request,
+            )
+            return None
         if binding.adapter not in {"builtin", "human"}:
-            error = {"code": "EXECUTOR_UNSUPPORTED", "message": "HTTP Job runtime is not enabled."}
+            error = {
+                "code": "EXECUTOR_UNSUPPORTED",
+                "message": f"adapter is not enabled: {binding.adapter}",
+            }
             self._record_call_failure(attempt, invocation, error)
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
@@ -1407,6 +1746,57 @@ class Runner:
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
         return output
+
+    def _build_http_execution_request(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        invocation: dict[str, Any],
+        attempt: dict[str, Any],
+        definition: dict[str, Any],
+        input_value: Any,
+        plan: ExecutionPlan,
+        binding: Any,
+    ) -> dict[str, Any]:
+        input_json = json.dumps(
+            input_value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        input_schema = self._load_schema(definition["inputSchema"])
+        output_schema = self._load_schema(definition["outputSchema"])
+        return {
+            "protocolVersion": "multiverse/v0.1",
+            "dispatchKey": attempt["dispatch_key"],
+            "effectKey": attempt["effect_key"],
+            "runId": run_id,
+            "scopeId": scope_id,
+            "invocationId": invocation["id"],
+            "attemptId": attempt["id"],
+            "attemptNo": attempt["attempt_no"],
+            "executorRef": binding.executor_ref,
+            "input": input_value,
+            "inputDigest": f"sha256:{hashlib.sha256(input_json.encode('utf-8')).hexdigest()}",
+            "inputSchemaDigest": _schema_digest(input_schema),
+            "outputSchemaDigest": _schema_digest(output_schema),
+            "deadlineAt": self._require_run_for_request(run_id)["deadline_at"],
+            "authorizationRef": str(binding.secret_refs.get("authorization", "local-grant")),
+            "context": {
+                "artifactRefs": sorted(self._artifact_refs(input_value)),
+                "handoff": None,
+                "promptRefs": [],
+                "skillRefs": [],
+            },
+            "traceContext": None,
+        }
+
+    def _require_run_for_request(self, run_id: str) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise RunError("HTTP Job run is missing")
+        return run
 
     def _record_call_failure(
         self,
@@ -1923,3 +2313,8 @@ def _sha256(value: str) -> str:
 
 def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _schema_digest(schema: dict[str, Any]) -> str:
+    canonical = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _sha256(canonical)
