@@ -227,6 +227,7 @@ class Runner:
         subject_digest: str,
         expected_version: int,
         idempotency_key: str | None = None,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         request = self.ledger.get_human_request(request_id)
         if request is None:
@@ -291,6 +292,7 @@ class Runner:
             subject_digest=subject_digest,
             actor=actor,
             idempotency_key=idempotency_key or f"decision-{uuid.uuid4().hex}",
+            command_id=command_id,
         )
         return self._resume_decided_request(request)
 
@@ -543,6 +545,14 @@ class Runner:
         return attempt
 
     def _resume_decided_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        intent = self.ledger.get_human_progress_intent(request["id"])
+        if intent is None:
+            intent = self.ledger.ensure_human_progress_intent(request["id"])
+        if intent["status"] == "completed":
+            run = self.ledger.get_run(request["run_id"])
+            if run is None:
+                raise RunError("human request run is missing")
+            return run
         invocation = self.ledger.get_invocation(request["invocation_id"])
         run = self.ledger.get_run(request["run_id"])
         if invocation is None:
@@ -555,22 +565,57 @@ class Runner:
         if scope is None:
             raise RunError("human request scope is missing")
         plan = self._plan(scope["workflow_id"])
-        if invocation["status"] == "succeeded":
-            return run
-        if invocation["status"] != "waiting":
+        if invocation["status"] not in {"waiting", "succeeded"}:
             raise RunError(f"human request invocation cannot resume: {invocation['status']}")
         attempt = self.ledger.latest_attempt(invocation["id"])
         decision = self.ledger.get_human_decision(request["id"])
         if attempt is None or decision is None:
             raise RunError("human decision ledger records are incomplete")
-        if request["request_type"] in {"approval", "review"}:
-            output = {"decision": decision["choice"], "comment": decision["comment"]}
-        else:
-            output = json.loads(decision["decision_json"])
-        self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
-        self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+        if invocation["status"] == "waiting":
+            if request["request_type"] in {"approval", "review"}:
+                output = {
+                    "decision": decision["choice"],
+                    "comment": decision["comment"],
+                }
+            else:
+                output = json.loads(decision["decision_json"])
+            if attempt["status"] != "succeeded":
+                self.ledger.finish_attempt(
+                    attempt["id"],
+                    status="succeeded",
+                    output=output,
+                )
+            self.ledger.finish_invocation(
+                invocation["id"],
+                status="succeeded",
+                output=output,
+            )
+            invocation = self.ledger.get_invocation(invocation["id"])
+            if invocation is None:
+                raise RunError("human request invocation disappeared")
+        run = self.ledger.get_run(run["id"])
+        if run is None:
+            raise RunError("human request run is missing")
         node = plan.nodes[invocation["node_id"]]
         next_node = node["definition"]["next"]
+        if run["status"] in {"succeeded", "failed", "cancelled"}:
+            self.ledger.complete_human_progress_intent(request["id"])
+            return run
+        if run["current_node_id"] != invocation["node_id"]:
+            if (
+                run["status"] == "running"
+                and run["control_mode"] == "run"
+                and run["current_node_id"] is not None
+            ):
+                resumed = self._drive(
+                    run["id"],
+                    invocation["scope_id"],
+                    run["current_node_id"],
+                )
+                self.ledger.complete_human_progress_intent(request["id"])
+                return resumed
+            self.ledger.complete_human_progress_intent(request["id"])
+            return run
         if run["control_mode"] == "pause":
             self.ledger.update_run(
                 run["id"],
@@ -578,13 +623,19 @@ class Runner:
                 control_mode="pause",
                 current_node_id=next_node,
             )
-            return self.ledger.get_run(run["id"])  # type: ignore[return-value]
+            paused = self.ledger.get_run(run["id"])
+            if paused is None:
+                raise RunError("human request run disappeared")
+            self.ledger.complete_human_progress_intent(request["id"])
+            return paused
         self.ledger.update_run(
             run["id"],
             status="running",
             current_node_id=next_node,
         )
-        return self._drive(run["id"], invocation["scope_id"], next_node)
+        resumed = self._drive(run["id"], invocation["scope_id"], next_node)
+        self.ledger.complete_human_progress_intent(request["id"])
+        return resumed
 
     def _drive(self, run_id: str, scope_id: str, node_id: str) -> dict[str, Any]:
         run = self.ledger.get_run(run_id)

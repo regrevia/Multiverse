@@ -449,18 +449,34 @@ class RuntimeApplication:
             namespace,
             operation="human-request.decide",
         )
-        if previous is not None:
+        if previous is not None and previous["status"] in {"completed", "rejected"}:
             return self._receipt_from_command(previous)
-        command_id = self._new_resource_id("cmd")
-        self.runner.ledger.create_command(
-            command_id=command_id,
-            idempotency_key=idempotency_key,
-            fingerprint=fingerprint,
-            operation="human-request.decide",
-            namespace=namespace,
-            resource_id=run["id"],
-            subject=self.subject,
+        command_id = (
+            str(previous["id"]) if previous is not None else self._new_resource_id("cmd")
         )
+        if previous is None:
+            try:
+                self.runner.ledger.create_command(
+                    command_id=command_id,
+                    idempotency_key=idempotency_key,
+                    fingerprint=fingerprint,
+                    operation="human-request.decide",
+                    namespace=namespace,
+                    resource_id=run["id"],
+                    subject=self.subject,
+                )
+            except sqlite3.IntegrityError:
+                previous = self._existing_command(
+                    idempotency_key,
+                    fingerprint,
+                    namespace,
+                    operation="human-request.decide",
+                )
+                if previous is None:
+                    raise
+                if previous["status"] in {"completed", "rejected"}:
+                    return self._receipt_from_command(previous)
+                command_id = str(previous["id"])
         try:
             finished = self.runner.decide(
                 request_id,
@@ -471,6 +487,7 @@ class RuntimeApplication:
                 subject_digest=request.subject_digest,
                 expected_version=request.expected_version,
                 idempotency_key=idempotency_key,
+                command_id=command_id,
             )
         except (KeyError, LedgerConflict, RunError) as exc:
             self.runner.ledger.finish_command(

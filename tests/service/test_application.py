@@ -8,6 +8,7 @@ import pytest
 from multiverse_workflow.service.application import RuntimeApplication
 from multiverse_workflow.service.contracts import (
     AttemptReconcileRequest,
+    HumanDecisionRequest,
     RunControlRequest,
     RunCreateRequest,
 )
@@ -584,3 +585,154 @@ def test_accepted_reconcile_command_is_resumed_after_process_interruption(
 
     assert receipt.request_id == command["id"]
     assert restarted.runner.ledger.get_command(command["id"])["status"] == "completed"
+
+
+def test_accepted_human_decision_command_is_resumed_after_process_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = RuntimeApplication(
+        package_dir=PACKAGE,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    human_request = application.list_human_requests(
+        "local",
+        run_id=created.resource_id,
+        status="pending",
+    )[0]
+    request = HumanDecisionRequest(
+        expectedVersion=human_request["version"],
+        subjectDigest=human_request["subject_digest"],
+        choice="approve",
+        comment="Approved.",
+    )
+    original_finish_command = application.runner.ledger.finish_command
+
+    def interrupt_before_receipt(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated process interruption")
+
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        interrupt_before_receipt,
+    )
+    with pytest.raises(RuntimeError, match="interruption"):
+        application.decide_human_request(
+            "local",
+            human_request["id"],
+            request,
+            idempotency_key="decision-recover",
+        )
+    decision = application.runner.ledger.get_human_decision(human_request["id"])
+    assert decision is not None
+    assert application.runner.ledger.get_human_progress_intent(
+        human_request["id"]
+    )["status"] == "completed"
+    events_before_restart = application.runner.ledger.list_events(created.resource_id)
+    assert sum(
+        event["type"] == "human.decided" for event in events_before_restart
+    ) == 1
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        original_finish_command,
+    )
+    application.close()
+
+    restarted = RuntimeApplication(
+        package_dir=PACKAGE,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    receipt = restarted.decide_human_request(
+        "local",
+        human_request["id"],
+        request,
+        idempotency_key="decision-recover",
+    )
+
+    assert receipt.status == "completed"
+    command = restarted.runner.ledger.get_command(receipt.request_id)
+    assert command is not None
+    assert command["status"] == "completed"
+    assert command["before_version"] == 1
+    assert command["after_version"] == 2
+    assert command["transition"] == "human.decided"
+    assert restarted.runner.ledger.get_invocation(
+        human_request["invocation_id"]
+    )["status"] == "succeeded"
+    assert restarted.runner.ledger.get_human_decision(human_request["id"])["id"] == (
+        decision["id"]
+    )
+    assert restarted.runner.ledger.get_human_progress_intent(
+        human_request["id"]
+    )["status"] == "completed"
+    events_after_restart = restarted.runner.ledger.list_events(created.resource_id)
+    assert sum(event["type"] == "human.decided" for event in events_after_restart) == 1
+    assert len(events_after_restart) == len(events_before_restart)
+
+
+def test_human_decision_recovery_drives_persisted_next_node(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = RuntimeApplication(
+        package_dir=PACKAGE,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    human_request = application.list_human_requests(
+        "local",
+        run_id=created.resource_id,
+        status="pending",
+    )[0]
+    request = HumanDecisionRequest(
+        expectedVersion=human_request["version"],
+        subjectDigest=human_request["subject_digest"],
+        choice="approve",
+        comment="Approved.",
+    )
+    def interrupt_before_drive(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated worker interruption")
+
+    monkeypatch.setattr(application.runner, "_drive", interrupt_before_drive)
+    with pytest.raises(RuntimeError, match="worker interruption"):
+        application.decide_human_request(
+            "local",
+            human_request["id"],
+            request,
+            idempotency_key="decision-recover",
+        )
+    run_after_interruption = application.get_run("local", created.resource_id)
+    assert run_after_interruption["status"] == "running"
+    assert run_after_interruption["current_node_id"] == "review-route"
+    assert application.runner.ledger.get_human_progress_intent(
+        human_request["id"]
+    )["status"] == "pending"
+    application.close()
+
+    restarted = RuntimeApplication(
+        package_dir=PACKAGE,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    receipt = restarted.decide_human_request(
+        "local",
+        human_request["id"],
+        request,
+        idempotency_key="decision-recover",
+    )
+
+    assert receipt.status == "completed"
+    assert restarted.get_run("local", created.resource_id)["status"] == "succeeded"

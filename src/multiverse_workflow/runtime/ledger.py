@@ -1136,6 +1136,78 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
+    def get_human_progress_intent(self, request_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM human_progress_intents
+            WHERE request_id = ?
+            """,
+            (request_id,),
+        ).fetchone()
+        return _row(row)
+
+    def ensure_human_progress_intent(self, request_id: str) -> dict[str, Any]:
+        with self._transaction() as connection:
+            existing = connection.execute(
+                """
+                SELECT * FROM human_progress_intents
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
+            if existing is not None:
+                return dict(existing)
+            request = self._require_human_request(connection, request_id)
+            decision = connection.execute(
+                """
+                SELECT id FROM human_decisions
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
+            if decision is None:
+                raise LedgerConflict("human decision is missing")
+            now = _now()
+            intent_id = _new_id("intent")
+            connection.execute(
+                """
+                INSERT INTO human_progress_intents (
+                    id, request_id, run_id, scope_id, invocation_id, decision_id,
+                    action, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'resume-human-decision', 'pending', ?, ?)
+                """,
+                (
+                    intent_id,
+                    request_id,
+                    request["run_id"],
+                    request["scope_id"],
+                    request["invocation_id"],
+                    decision["id"],
+                    now,
+                    now,
+                ),
+            )
+            return dict(
+                connection.execute(
+                    """
+                    SELECT * FROM human_progress_intents
+                    WHERE id = ?
+                    """,
+                    (intent_id,),
+                ).fetchone()
+            )
+
+    def complete_human_progress_intent(self, request_id: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE human_progress_intents
+                SET status = 'completed', updated_at = ?
+                WHERE request_id = ? AND status = 'pending'
+                """,
+                (_now(), request_id),
+            )
+
     def register_artifact(
         self,
         *,
@@ -1271,6 +1343,7 @@ class Ledger:
         subject_digest: str,
         actor: str,
         idempotency_key: str,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         with self._transaction() as connection:
             previous = connection.execute(
@@ -1343,6 +1416,42 @@ class Ledger:
                 {"requestId": request_id, "choice": choice, "version": version},
                 scope_id=request["scope_id"],
                 invocation_id=request["invocation_id"],
+            )
+            if command_id is not None:
+                updated = connection.execute(
+                    """
+                    UPDATE commands
+                    SET before_version = ?, after_version = ?, transition = ?, updated_at = ?
+                    WHERE id = ? AND status = 'accepted'
+                    """,
+                    (
+                        int(request["version"]),
+                        version,
+                        "human.decided",
+                        _now(),
+                        command_id,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise LedgerConflict("human decision command is not accepted")
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO human_progress_intents (
+                    id, request_id, run_id, scope_id, invocation_id, decision_id,
+                    action, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'resume-human-decision', 'pending', ?, ?)
+                """,
+                (
+                    _new_id("intent"),
+                    request_id,
+                    request["run_id"],
+                    request["scope_id"],
+                    request["invocation_id"],
+                    decision_id,
+                    now,
+                    now,
+                ),
             )
             return dict(self._require_human_request(connection, request_id))
 
@@ -1506,6 +1615,18 @@ class Ledger:
                 subject_digest TEXT NOT NULL,
                 idempotency_key TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS human_progress_intents (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL UNIQUE REFERENCES human_requests(id),
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                scope_id TEXT NOT NULL REFERENCES scopes(id),
+                invocation_id TEXT NOT NULL REFERENCES invocations(id),
+                decision_id TEXT NOT NULL UNIQUE REFERENCES human_decisions(id),
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS run_events (
                 id TEXT PRIMARY KEY,

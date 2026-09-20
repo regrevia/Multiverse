@@ -430,6 +430,10 @@ def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> N
     assert decided["status"] == "decided"
     assert decided["version"] == 2
     assert repeated["id"] == decided["id"]
+    intent = ledger.get_human_progress_intent(request["id"])
+    assert intent is not None
+    assert intent["status"] == "pending"
+    assert intent["decision_id"] == ledger.get_human_decision(request["id"])["id"]
     assert ledger.list_events(run["id"])[-1]["type"] == "human.decided"
 
     with pytest.raises(LedgerConflict, match="version"):
