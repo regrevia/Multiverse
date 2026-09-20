@@ -354,7 +354,7 @@ class Runner:
         scope = self.ledger.get_scope(invocation["scope_id"])
         if scope is None:
             raise RunError("human request scope is missing")
-        plan = self._plan(scope["workflow_id"])
+        plan = self._frozen_plan(run, scope["workflow_id"])
         request_input = json.loads(request["input_json"])
         if (
             self._artifact_subject_digest(run["id"], request_input)
@@ -435,7 +435,7 @@ class Runner:
         if run["current_node_id"] != invocation["node_id"]:
             raise LedgerConflict("attempt is not the current run node")
         self._require_matching_definition(run, self._plan(run["workflow_id"]))
-        plan = self._plan(scope["workflow_id"])
+        plan = self._frozen_plan(run, scope["workflow_id"])
         node = plan.nodes.get(invocation["node_id"])
         if node is None:
             raise RunError("reconciled invocation node is missing from the frozen plan")
@@ -491,7 +491,7 @@ class Runner:
             raise RunError("reconciled attempt references missing runtime state")
         if run["status"] in {"succeeded", "failed", "cancelled"}:
             return attempt
-        plan = self._plan(scope["workflow_id"])
+        plan = self._frozen_plan(run, scope["workflow_id"])
         node = plan.nodes.get(invocation["node_id"])
         if node is None:
             raise RunError("reconciled invocation node is missing from the frozen plan")
@@ -668,7 +668,7 @@ class Runner:
         scope = self.ledger.get_scope(invocation["scope_id"])
         if scope is None:
             raise RunError("human request scope is missing")
-        plan = self._plan(scope["workflow_id"])
+        plan = self._frozen_plan(run, scope["workflow_id"])
         if invocation["status"] not in {"waiting", "succeeded"}:
             raise RunError(f"human request invocation cannot resume: {invocation['status']}")
         attempt = self.ledger.latest_attempt(invocation["id"])
@@ -760,7 +760,7 @@ class Runner:
                 current_node_id=node_id,
                 next_attempt_at=None,
             )
-        plan = self._plan(scope["workflow_id"])
+        plan = self._frozen_plan(run, scope["workflow_id"])
         input_json = scope["input_json"] or run["input_json"]
         input_value = json.loads(input_json)
         while True:
@@ -1285,11 +1285,11 @@ class Runner:
         scope = self.ledger.get_scope(scope_id)
         if scope is None:
             raise RunError("execution scope is missing")
-        plan = self._plan(scope["workflow_id"])
-        node = plan.nodes.get(node_id)
         run = self.ledger.get_run(run_id)
         if run is None:
             raise RunError("run not found")
+        plan = self._frozen_plan(run, scope["workflow_id"])
+        node = plan.nodes.get(node_id)
         error_target = (
             node["definition"].get("onError")
             if node is not None and route_on_error
@@ -1434,13 +1434,16 @@ class Runner:
         return outputs
 
     def _active_scope_for_node(self, run_id: str, node_id: str) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
         scopes = [
             scope
             for scope in self.ledger.list_scopes(run_id)
             if scope["status"] == "active"
         ]
         for scope in reversed(scopes):
-            if node_id in self._plan(scope["workflow_id"]).nodes:
+            if node_id in self._frozen_plan(run, scope["workflow_id"]).nodes:
                 return scope
         raise RunError(f"no active scope can resume node: {node_id}")
 
@@ -1449,6 +1452,29 @@ class Runner:
             return self._plans[workflow_id]
         except KeyError as exc:
             raise RunError(f"workflow not found: {workflow_id}") from exc
+
+    def _frozen_plan(self, run: dict[str, Any], workflow_id: str) -> ExecutionPlan:
+        try:
+            persisted = json.loads(run["plan_json"])
+            raw = persisted["workflows"][workflow_id]
+            return ExecutionPlan(
+                plan_version=raw["planVersion"],
+                package_digest=raw["packageDigest"],
+                binding_digest=raw.get("bindingDigest"),
+                workflow_id=raw["workflowId"],
+                defaults=raw["defaults"],
+                input_schema_digest=raw["inputSchemaDigest"],
+                output_schema_digest=raw["outputSchemaDigest"],
+                nodes=raw["nodes"],
+                edges=raw["edges"],
+                source_map=raw["sourceMap"],
+                required_features=raw["requiredFeatures"],
+                compiled_plan_digest=raw["compiledPlanDigest"],
+            )
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise RunError(
+                f"persisted execution plan is invalid for workflow: {workflow_id}"
+            ) from exc
 
     def _preflight_execution(self, plan: ExecutionPlan) -> None:
         issues = self._executor_registry.preflight(nodes=plan.nodes, binding=self._binding)

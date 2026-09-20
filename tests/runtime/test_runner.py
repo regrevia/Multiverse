@@ -1,6 +1,8 @@
 import json
 import shutil
 import sqlite3
+from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -432,6 +434,43 @@ def test_resume_reconciled_attempt_rechecks_the_frozen_definition(
     with pytest.raises(RunError, match="frozen deployment"):
         runner.resume_reconciled_attempt(unknown["id"])
     assert runner.ledger.get_run(waiting["id"])["status"] == "running"
+
+
+def test_reconciled_resume_uses_the_persisted_plan_for_next_node(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, _invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    runner.ledger.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_succeeded",
+        evidence_refs=["evidence://provider/succeeded"],
+        reason="The provider returned the durable output.",
+        actor="example-reviewer",
+        output={"text": "Recovered deliverable.", "artifact_refs": []},
+    )
+
+    current = runner._plans["delivery"]
+    changed_nodes = deepcopy(current.nodes)
+    changed_nodes["produce"]["definition"]["next"] = "review"
+    runner._plans["delivery"] = replace(current, nodes=changed_nodes)
+    driven: list[tuple[str, str, str]] = []
+
+    def record_drive(run_id: str, scope_id: str, node_id: str) -> dict[str, object]:
+        driven.append((run_id, scope_id, node_id))
+        return runner.ledger.get_run(run_id)  # type: ignore[return-value]
+
+    monkeypatch.setattr(runner, "_drive", record_drive)
+    runner.resume_reconciled_attempt(unknown["id"])
+
+    root_scope = runner.ledger.list_scopes(waiting["id"])[0]
+    assert driven == [(waiting["id"], root_scope["id"], "critique")]
 
 
 def test_reconciled_success_does_not_drive_a_different_current_node_scope(
