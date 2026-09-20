@@ -22,6 +22,8 @@ The checked-in preview currently supports:
 - local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
 - durable command receipts for service commands and idempotent retries
+- version-checked Attempt reconciliation for persisted `unknown` results,
+  including evidence, authenticated actor, and frozen output-schema validation
 - machine-readable `artifact register` command
 - read-only JSON Inspector snapshots with scopes, nodes, events, HumanRequests, and Artifacts
 - local FastAPI JSON and SSE service over the same SQLite Runtime
@@ -31,7 +33,9 @@ registration, LangGraph persistence, parallel or general nested workflow
 execution, deployment or import, production hosting/IAM, remote Artifact
 upload/registration, UI forms, or Latent Handoff. The HTTP/SSE service is a
 local SQLite single-process profile; it does not provide PostgreSQL,
-multi-worker scheduling, external Attempt cancellation, or reconciliation.
+multi-worker scheduling, or external Attempt cancellation. Reconciliation is
+available only for an already persisted `unknown` Attempt and does not prove
+that an external provider can be queried or cancelled.
 Command receipts and local Run records survive application restart, while
 active external execution recovery is not claimed. Inspector snapshots remain
 local point-in-time DTOs;
@@ -178,6 +182,7 @@ GET  /api/v1/namespaces/{namespace}/runs/{runId}/events?after=0
 GET  /api/v1/namespaces/{namespace}/runs/{runId}/stream?after=0
 GET  /api/v1/namespaces/{namespace}/human-requests?runId={runId}
 POST /api/v1/namespaces/{namespace}/human-requests/{requestId}/decisions
+POST /api/v1/namespaces/{namespace}/attempts/{attemptId}:reconcile
 GET  /api/v1/commands/{requestId}
 ```
 
@@ -186,7 +191,9 @@ event `seq` as the SSE `id`. A disconnected client can reconnect from its last
 sequence number; disconnecting does not cancel a Run. Every state-changing POST
 requires an `Idempotency-Key`, while HumanRequest decisions additionally
 require the persisted request version, subject digest, and authenticated
-principal authorization. The request body never supplies a namespace or actor.
+principal authorization. Attempt reconciliation additionally requires
+`expectedVersion`, `evidenceRefs`, and `reason`; the request body never
+supplies a namespace or actor.
 Run creation uses `deploymentId`, `workflowId`, `input`, and optional
 `externalRefs`; the server resolves package and Binding from the immutable
 deployment configuration.

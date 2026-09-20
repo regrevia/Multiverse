@@ -244,3 +244,57 @@ async def test_run_create_rejects_a_namespace_different_from_authenticated_subje
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_attempt_reconcile_uses_authenticated_subject_and_persistent_receipt(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "create-1",
+            },
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+        )
+        run_id = created.json()["resourceId"]
+        invocation = application.state.runtime.runner.ledger.list_invocations(run_id)[-1]
+        attempt = application.state.runtime.runner.ledger.latest_attempt(invocation["id"])
+        assert attempt is not None
+        unknown = application.state.runtime.runner.ledger.finish_attempt(
+            attempt["id"],
+            status="unknown",
+        )
+        response = await client.post(
+            f"/api/v1/namespaces/local/attempts/{unknown['id']}:reconcile",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "reconcile-1",
+            },
+            json={
+                "expectedVersion": unknown["version"],
+                "conclusion": "confirmed_failed",
+                "evidenceRefs": ["evidence://provider/failed"],
+                "reason": "The provider confirmed the execution failed.",
+            },
+        )
+
+        assert response.status_code == 202
+        command = await client.get(
+            f"/api/v1/commands/{response.json()['requestId']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    assert command.status_code == 200
+    assert command.json()["status"] == "completed"
+    reconciled = application.state.runtime.runner.ledger.get_attempt(unknown["id"])
+    assert reconciled is not None
+    assert '"actor": "example-reviewer"' in reconciled["reconciliation_json"]

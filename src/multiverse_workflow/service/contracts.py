@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ServiceModel(BaseModel):
@@ -44,6 +44,39 @@ class HumanDecisionRequest(ServiceModel):
     comment: str = ""
 
     _validate_text = field_validator("subject_digest")(_non_empty)
+
+
+ReconcileConclusion = Literal[
+    "confirmed_succeeded",
+    "confirmed_failed",
+    "confirmed_cancelled",
+    "confirmed_not_started",
+]
+
+
+class AttemptReconcileRequest(ServiceModel):
+    expected_version: int = Field(alias="expectedVersion", ge=1)
+    conclusion: ReconcileConclusion
+    evidence_refs: list[str] = Field(alias="evidenceRefs", min_length=1)
+    output: Any | None = None
+    reason: str = Field(min_length=1)
+
+    _validate_reason = field_validator("reason")(_non_empty)
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def _validate_evidence_refs(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values):
+            raise ValueError("evidence references must not be empty")
+        return values
+
+    @model_validator(mode="after")
+    def _validate_output_for_conclusion(self) -> AttemptReconcileRequest:
+        if self.conclusion == "confirmed_succeeded" and self.output is None:
+            raise ValueError("confirmed_succeeded requires output")
+        if self.conclusion != "confirmed_succeeded" and self.output is not None:
+            raise ValueError("output is only allowed for confirmed_succeeded")
+        return self
 
 
 class CommandReceipt(ServiceModel):

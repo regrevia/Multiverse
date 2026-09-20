@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from multiverse_workflow.service.application import RuntimeApplication
 from multiverse_workflow.service.contracts import (
+    AttemptReconcileRequest,
     ErrorBody,
     ErrorResponse,
     HumanDecisionRequest,
@@ -123,6 +124,34 @@ def create_app(settings: ServiceSettings) -> FastAPI:
     ) -> dict[str, Any]:
         require_scope(principal, "read")
         return cast(dict[str, Any], _present(runtime.get_run(namespace, run_id)))
+
+    @app.post(
+        "/api/v1/namespaces/{namespace}/attempts/{attempt_id}:reconcile",
+        status_code=202,
+    )
+    async def reconcile_attempt(
+        namespace: str,
+        attempt_id: str,
+        payload: AttemptReconcileRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "reconcile:write")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        if idempotency_key is None:
+            raise ServiceError(
+                "INVALID_ARGUMENT",
+                "Idempotency-Key header is required",
+                status_code=422,
+            )
+        receipt = runtime.reconcile_attempt(
+            namespace,
+            attempt_id,
+            payload,
+            idempotency_key=idempotency_key,
+        )
+        return receipt.model_dump(mode="json", by_alias=True)
 
     @app.get("/api/v1/commands/{command_id}")
     async def get_command(

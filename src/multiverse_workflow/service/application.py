@@ -8,9 +8,10 @@ from typing import Any, Literal
 
 from multiverse_workflow.runtime.ledger import LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
-from multiverse_workflow.runtime.runner import RunError, Runner
+from multiverse_workflow.runtime.runner import RunError, Runner, SchemaValidationError
 
 from .contracts import (
+    AttemptReconcileRequest,
     CommandReceipt,
     HumanDecisionRequest,
     RunControlRequest,
@@ -53,7 +54,12 @@ class RuntimeApplication:
         self._require_deployment(request.deployment_id)
         self._require_idempotency_key(idempotency_key)
         fingerprint = self._fingerprint(request)
-        previous = self._existing_command(idempotency_key, fingerprint, self.namespace)
+        previous = self._existing_command(
+            idempotency_key,
+            fingerprint,
+            self.namespace,
+            operation="run.create",
+        )
         if previous is not None and previous["status"] == "completed":
             return self._receipt_from_command(previous)
         if previous is not None and previous["status"] == "rejected":
@@ -69,9 +75,15 @@ class RuntimeApplication:
                     operation="run.create",
                     namespace=self.namespace,
                     resource_id=run_id,
+                    subject=self.subject,
                 )
             except Exception as exc:
-                existing = self._existing_command(idempotency_key, fingerprint, self.namespace)
+                existing = self._existing_command(
+                    idempotency_key,
+                    fingerprint,
+                    self.namespace,
+                    operation="run.create",
+                )
                 if existing is not None:
                     return self._receipt_from_command(existing)
                 raise ServiceError("COMMAND_REJECTED", str(exc), status_code=409) from exc
@@ -116,7 +128,11 @@ class RuntimeApplication:
     def get_command(self, namespace: str, command_id: str) -> dict[str, Any]:
         self._require_namespace(namespace)
         command = self.runner.ledger.get_command(command_id)
-        if command is None or command["namespace"] != namespace:
+        if (
+            command is None
+            or command["namespace"] != namespace
+            or command["subject"] != self.subject
+        ):
             raise not_found(f"command not found: {command_id}")
         return {
             "request_id": command["id"],
@@ -131,6 +147,106 @@ class RuntimeApplication:
     def get_run(self, namespace: str, run_id: str) -> dict[str, Any]:
         run = self._require_run(namespace, run_id)
         return run
+
+    def reconcile_attempt(
+        self,
+        namespace: str,
+        attempt_id: str,
+        request: AttemptReconcileRequest,
+        *,
+        idempotency_key: str,
+    ) -> CommandReceipt:
+        self._require_namespace(namespace)
+        attempt = self.runner.ledger.get_attempt(attempt_id)
+        if attempt is None:
+            raise not_found(f"attempt not found: {attempt_id}")
+        self._require_run(namespace, str(attempt["run_id"]))
+        self._require_idempotency_key(idempotency_key)
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "namespace": namespace,
+                    "subject": self.subject,
+                    "operation": "attempt.reconcile",
+                    "attemptId": attempt_id,
+                    "request": request.model_dump(mode="json", by_alias=True),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        previous = self._existing_command(
+            idempotency_key,
+            fingerprint,
+            namespace,
+            operation="attempt.reconcile",
+        )
+        if previous is not None:
+            if previous["status"] in {"completed", "rejected"}:
+                return self._receipt_from_command(previous)
+            command_id = str(previous["id"])
+        else:
+            command_id = self._new_resource_id("cmd")
+
+        if previous is None:
+            self.runner.ledger.create_command(
+                command_id=command_id,
+                idempotency_key=idempotency_key,
+                fingerprint=fingerprint,
+                operation="attempt.reconcile",
+                namespace=namespace,
+                resource_id=attempt_id,
+                subject=self.subject,
+            )
+        try:
+            attempt_state = self.runner.ledger.get_attempt(attempt_id)
+            if (
+                previous is not None
+                and attempt_state is not None
+                and attempt_state["status"] != "unknown"
+                and attempt_state["reconciliation_json"] is not None
+            ):
+                reconciled = self.runner.resume_reconciled_attempt(attempt_id)
+            else:
+                reconciled = self.runner.reconcile_attempt(
+                    attempt_id,
+                    expected_version=request.expected_version,
+                    conclusion=request.conclusion,
+                    evidence_refs=request.evidence_refs,
+                    reason=request.reason,
+                    actor=self.subject,
+                    output=request.output,
+                )
+        except SchemaValidationError as exc:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="rejected",
+                error={"code": "SCHEMA_VALIDATION_FAILED", "message": str(exc)},
+            )
+            raise ServiceError(
+                "SCHEMA_VALIDATION_FAILED",
+                str(exc),
+                status_code=422,
+            ) from exc
+        except (KeyError, LedgerConflict, RunError) as exc:
+            self.runner.ledger.finish_command(
+                command_id,
+                status="rejected",
+                error={"code": "STATE_CONFLICT", "message": str(exc)},
+            )
+            raise state_conflict(str(exc)) from exc
+        self.runner.ledger.finish_command(
+            command_id,
+            status="completed",
+            resource_version=int(reconciled["version"]),
+        )
+        return CommandReceipt(
+            requestId=command_id,
+            status="completed",
+            resourceId=attempt_id,
+            operation="attempt.reconcile",
+            resourceVersion=int(reconciled["version"]),
+        )
 
     def get_graph(self, namespace: str, run_id: str) -> dict[str, Any]:
         self._require_run(namespace, run_id)
@@ -173,15 +289,21 @@ class RuntimeApplication:
             json.dumps(
                 {
                     "namespace": namespace,
-                    "runId": run_id,
+                    "subject": self.subject,
                     "operation": operation,
+                    "runId": run_id,
                     "request": request.model_dump(mode="json", by_alias=True),
                 },
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
-        previous = self._existing_command(idempotency_key, fingerprint, namespace)
+        previous = self._existing_command(
+            idempotency_key,
+            fingerprint,
+            namespace,
+            operation=f"run.{operation}",
+        )
         if previous is not None:
             return self._receipt_from_command(previous)
         command_id = self._new_resource_id("cmd")
@@ -193,6 +315,7 @@ class RuntimeApplication:
             operation=f"run.{operation}",
             namespace=namespace,
             resource_id=resource_id,
+            subject=self.subject,
         )
         try:
             if operation == "resume":
@@ -267,6 +390,8 @@ class RuntimeApplication:
             json.dumps(
                 {
                     "namespace": namespace,
+                    "subject": self.subject,
+                    "operation": "human-request.decide",
                     "requestId": request_id,
                     "request": request.model_dump(mode="json", by_alias=True),
                 },
@@ -274,7 +399,12 @@ class RuntimeApplication:
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
-        previous = self._existing_command(idempotency_key, fingerprint, namespace)
+        previous = self._existing_command(
+            idempotency_key,
+            fingerprint,
+            namespace,
+            operation="human-request.decide",
+        )
         if previous is not None:
             return self._receipt_from_command(previous)
         command_id = self._new_resource_id("cmd")
@@ -285,6 +415,7 @@ class RuntimeApplication:
             operation="human-request.decide",
             namespace=namespace,
             resource_id=run["id"],
+            subject=self.subject,
         )
         try:
             finished = self.runner.decide(
@@ -359,11 +490,27 @@ class RuntimeApplication:
         idempotency_key: str,
         fingerprint: str,
         namespace: str,
+        *,
+        operation: str,
     ) -> dict[str, Any] | None:
-        command = self.runner.ledger.get_command_by_key(idempotency_key)
+        command = self.runner.ledger.get_command_by_key(
+            idempotency_key,
+            namespace=namespace,
+            subject=self.subject,
+            operation=operation,
+        )
         if command is None:
+            same_subject_commands = self.runner.ledger.list_commands_by_key(
+                idempotency_key,
+                namespace=namespace,
+                subject=self.subject,
+            )
+            if same_subject_commands:
+                raise idempotency_conflict(
+                    "idempotency key was already used for another operation"
+                )
             return None
-        if command["namespace"] != namespace or command["fingerprint"] != fingerprint:
+        if command["fingerprint"] != fingerprint:
             raise idempotency_conflict("idempotency key was already used for another request")
         return command
 
@@ -374,8 +521,11 @@ class RuntimeApplication:
     def _receipt_from_command(self, command: dict[str, Any]) -> CommandReceipt:
         if command["status"] == "rejected":
             error = json.loads(command["error_json"] or "{}")
+            code = str(error.get("code", "RUN_REJECTED"))
+            if code == "STATE_CONFLICT":
+                raise state_conflict(str(error.get("message", "command was rejected")))
             raise ServiceError(
-                "RUN_REJECTED",
+                code,
                 str(error.get("message", "command was rejected")),
                 status_code=422,
             )

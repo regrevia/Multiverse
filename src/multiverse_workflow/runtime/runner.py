@@ -21,6 +21,10 @@ class RunError(RuntimeError):
     """A run cannot continue because its input or execution result is invalid."""
 
 
+class SchemaValidationError(RunError):
+    """A runtime result does not satisfy its frozen schema."""
+
+
 class Runner:
     def __init__(
         self,
@@ -244,6 +248,243 @@ class Runner:
         )
         return self._resume_decided_request(request)
 
+    def reconcile_attempt(
+        self,
+        attempt_id: str,
+        *,
+        expected_version: int,
+        conclusion: str,
+        evidence_refs: list[str],
+        reason: str,
+        actor: str,
+        output: Any = None,
+    ) -> dict[str, Any]:
+        attempt = self.ledger.get_attempt(attempt_id)
+        if attempt is None:
+            raise KeyError(f"attempt not found: {attempt_id}")
+        if attempt["status"] != "unknown":
+            raise LedgerConflict(
+                f"only an unknown attempt can be reconciled: {attempt['status']}"
+            )
+        latest_attempt = self.ledger.latest_attempt(attempt["invocation_id"])
+        if latest_attempt is None or latest_attempt["id"] != attempt_id:
+            raise LedgerConflict("only the latest attempt can be reconciled")
+        invocation = self.ledger.get_invocation(attempt["invocation_id"])
+        run = self.ledger.get_run(attempt["run_id"])
+        scope = self.ledger.get_scope(attempt["scope_id"])
+        if invocation is None or run is None or scope is None:
+            raise RunError("reconciled attempt references missing runtime state")
+        if run["status"] in {"succeeded", "failed", "cancelled"}:
+            raise LedgerConflict("cannot reconcile an attempt from a terminal run")
+        if invocation["status"] != "reconciling":
+            raise LedgerConflict(
+                f"attempt invocation is not reconciling: {invocation['status']}"
+            )
+        if run["current_node_id"] != invocation["node_id"]:
+            raise LedgerConflict("attempt is not the current run node")
+        self._require_matching_definition(run, self._plan(run["workflow_id"]))
+        plan = self._plan(scope["workflow_id"])
+        node = plan.nodes.get(invocation["node_id"])
+        if node is None:
+            raise RunError("reconciled invocation node is missing from the frozen plan")
+        if conclusion == "confirmed_succeeded":
+            binding = self._binding.spec.slots[node["definition"]["slot"]]
+            if binding.adapter == "human":
+                raise LedgerConflict(
+                    "human invocation requires a human decision and cannot be "
+                    "reconciled as succeeded"
+                )
+        if conclusion not in {
+            "confirmed_succeeded",
+            "confirmed_failed",
+            "confirmed_cancelled",
+            "confirmed_not_started",
+        }:
+            raise LedgerConflict(f"unsupported reconciliation conclusion: {conclusion}")
+        if conclusion == "confirmed_succeeded":
+            self._validate_schema(output, node["definition"]["outputSchema"])
+            self._validate_artifact_refs(run["id"], output)
+        reconciled = self.ledger.reconcile_attempt(
+            attempt_id,
+            expected_version=expected_version,
+            conclusion=conclusion,  # type: ignore[arg-type]
+            evidence_refs=evidence_refs,
+            reason=reason,
+            actor=actor,
+            output=output,
+        )
+        return self._apply_reconciled_attempt(reconciled)
+
+    def resume_reconciled_attempt(self, attempt_id: str) -> dict[str, Any]:
+        attempt = self.ledger.get_attempt(attempt_id)
+        if attempt is None:
+            raise KeyError(f"attempt not found: {attempt_id}")
+        if attempt["reconciliation_json"] is None:
+            raise LedgerConflict("attempt has no persisted reconciliation")
+        if attempt["status"] == "unknown":
+            raise LedgerConflict("attempt reconciliation is not committed")
+        return self._apply_reconciled_attempt(attempt)
+
+    def _apply_reconciled_attempt(self, attempt: dict[str, Any]) -> dict[str, Any]:
+        reconciliation = json.loads(attempt["reconciliation_json"] or "{}")
+        conclusion = reconciliation.get("conclusion")
+        invocation = self.ledger.get_invocation(attempt["invocation_id"])
+        run = self.ledger.get_run(attempt["run_id"])
+        scope = self.ledger.get_scope(attempt["scope_id"])
+        if invocation is None or run is None or scope is None:
+            raise RunError("reconciled attempt references missing runtime state")
+        if run["status"] in {"succeeded", "failed", "cancelled"}:
+            return attempt
+        plan = self._plan(scope["workflow_id"])
+        node = plan.nodes.get(invocation["node_id"])
+        if node is None:
+            raise RunError("reconciled invocation node is missing from the frozen plan")
+        if conclusion == "confirmed_succeeded":
+            output = json.loads(attempt["output_json"] or "null")
+            if invocation["status"] != "succeeded":
+                self.ledger.finish_invocation(
+                    invocation["id"],
+                    status="succeeded",
+                    output=output,
+                )
+            next_node = node["definition"]["next"]
+            if run["current_node_id"] != invocation["node_id"]:
+                if (
+                    run["control_mode"] == "run"
+                    and run["current_node_id"] is not None
+                    and run["status"] not in {"succeeded", "failed", "cancelled"}
+                ):
+                    self._drive(
+                        run["id"],
+                        attempt["scope_id"],
+                        run["current_node_id"],
+                    )
+                return attempt
+            if run["control_mode"] == "pause":
+                self.ledger.update_run(
+                    run["id"],
+                    status="paused",
+                    control_mode="pause",
+                    current_node_id=next_node,
+                )
+                return attempt
+            self.ledger.update_run(
+                run["id"],
+                status="running",
+                current_node_id=next_node,
+            )
+            self._drive(run["id"], attempt["scope_id"], next_node)
+        elif conclusion == "confirmed_not_started":
+            max_attempts = int(
+                node["defaults"]["retry"].get("maxAttempts", 1)
+            )
+            if (
+                run["control_mode"] != "cancel"
+                and attempt["attempt_no"] < max_attempts
+            ):
+                latest_attempt = self.ledger.latest_attempt(invocation["id"])
+                if latest_attempt is None:
+                    raise RunError("reconciled invocation has no attempt history")
+                if latest_attempt["id"] == attempt["id"]:
+                    retry_attempt = self.ledger.create_attempt(
+                        invocation["id"],
+                        input_value=json.loads(invocation["input_json"]),
+                        dispatch_key=(
+                            f"{invocation['id']}:{attempt['attempt_no'] + 1}"
+                        ),
+                        effect_key=attempt["effect_key"],
+                        attempt_no=attempt["attempt_no"] + 1,
+                    )
+                else:
+                    retry_attempt = latest_attempt
+                    if retry_attempt["effect_key"] != attempt["effect_key"]:
+                        raise RunError(
+                            "reconciled retry changed the invocation effect key"
+                        )
+                if invocation["status"] != "running":
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="running",
+                    )
+                if run["control_mode"] == "pause":
+                    self.ledger.update_run(
+                        run["id"],
+                        status="paused",
+                        control_mode="pause",
+                        current_node_id=invocation["node_id"],
+                    )
+                else:
+                    self.ledger.update_run(
+                        run["id"],
+                        status="running",
+                        current_node_id=invocation["node_id"],
+                    )
+                    self._drive(
+                        run["id"],
+                        attempt["scope_id"],
+                        invocation["node_id"],
+                    )
+                return attempt
+            error = json.loads(attempt["error_json"] or "{}")
+            if run["control_mode"] == "cancel":
+                if invocation["status"] != "cancelled":
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="cancelled",
+                        error=error,
+                    )
+                self._cancel_scope(
+                    run["id"],
+                    attempt["scope_id"],
+                    invocation["node_id"],
+                    error,
+                )
+                return attempt
+            if invocation["status"] != "failed":
+                self.ledger.finish_invocation(
+                    invocation["id"],
+                    status="failed",
+                    error=error,
+                )
+            self._fail_scope(
+                run["id"],
+                attempt["scope_id"],
+                invocation["node_id"],
+                error,
+            )
+        elif conclusion in {
+            "confirmed_failed",
+            "confirmed_cancelled",
+        }:
+            error = json.loads(attempt["error_json"] or "{}")
+            if conclusion == "confirmed_failed":
+                if invocation["status"] != "failed":
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="failed",
+                        error=error,
+                    )
+                self._fail_scope(
+                    run["id"],
+                    attempt["scope_id"],
+                    invocation["node_id"],
+                    error,
+                )
+            else:
+                if invocation["status"] != "cancelled":
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="cancelled",
+                        error=error,
+                    )
+                self._cancel_scope(
+                    run["id"],
+                    attempt["scope_id"],
+                    invocation["node_id"],
+                    error,
+                )
+        return attempt
+
     def _resume_decided_request(self, request: dict[str, Any]) -> dict[str, Any]:
         invocation = self.ledger.get_invocation(request["invocation_id"])
         run = self.ledger.get_run(request["run_id"])
@@ -326,6 +567,7 @@ class Runner:
                         definition,
                         input_value,
                         plan,
+                        invocation=invocation,
                     )
                     if output is None:
                         return self.ledger.get_run(run_id)  # type: ignore[return-value]
@@ -522,25 +764,39 @@ class Runner:
         definition: dict[str, Any],
         scope_input: Any,
         plan: ExecutionPlan,
+        *,
+        invocation: dict[str, Any] | None = None,
     ) -> Any | None:
-        input_value = self._resolve_expr(
-            definition["input"],
-            scope_input,
-            self._outputs(scope_id),
-        )
+        if invocation is None:
+            input_value = self._resolve_expr(
+                definition["input"],
+                scope_input,
+                self._outputs(scope_id),
+            )
+        else:
+            input_value = json.loads(invocation["input_json"])
         self._validate_schema(input_value, definition["inputSchema"])
-        invocation = self.ledger.create_invocation(
-            run_id,
-            scope_id,
-            node_id,
-            input_value,
-        )
-        attempt = self.ledger.create_attempt(
-            invocation["id"],
-            input_value=input_value,
-            dispatch_key=f"{invocation['id']}:1",
-            effect_key=invocation["id"],
-        )
+        if invocation is None:
+            invocation = self.ledger.create_invocation(
+                run_id,
+                scope_id,
+                node_id,
+                input_value,
+            )
+        attempt = self.ledger.latest_attempt(invocation["id"])
+        if attempt is None:
+            attempt = self.ledger.create_attempt(
+                invocation["id"],
+                input_value=input_value,
+                dispatch_key=f"{invocation['id']}:1",
+                effect_key=invocation["id"],
+            )
+        elif attempt["status"] == "unknown":
+            raise LedgerConflict("unknown attempt requires reconciliation before dispatch")
+        elif attempt["status"] in {"succeeded", "failed", "cancelled"}:
+            raise RunError(
+                f"invocation has no dispatchable attempt: {attempt['status']}"
+            )
         try:
             self._validate_artifact_refs(run_id, input_value)
         except LedgerConflict as exc:
@@ -742,6 +998,42 @@ class Runner:
             error,
         )
 
+    def _cancel_scope(
+        self,
+        run_id: str,
+        scope_id: str,
+        node_id: str,
+        error: dict[str, Any],
+    ) -> dict[str, Any]:
+        scope = self.ledger.get_scope(scope_id)
+        if scope is None:
+            raise RunError("execution scope is missing")
+        if scope["status"] == "active":
+            self.ledger.finish_scope(scope_id, status="cancelled", error=error)
+        if scope["parent_invocation_id"] is None:
+            return self.ledger.update_run(
+                run_id,
+                status="cancelled",
+                control_mode="cancel",
+                current_node_id=node_id,
+                error=error,
+            )
+        parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
+        if parent_invocation is None:
+            raise RunError("parent invocation is missing")
+        if parent_invocation["status"] in {"planned", "ready", "running", "waiting"}:
+            self.ledger.finish_invocation(
+                parent_invocation["id"],
+                status="cancelled",
+                error=error,
+            )
+        return self._cancel_scope(
+            run_id,
+            parent_invocation["scope_id"],
+            parent_invocation["node_id"],
+            error,
+        )
+
     def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
         self.ledger.validate_artifact_refs(run_id, self._artifact_refs(value))
 
@@ -828,7 +1120,9 @@ class Runner:
         try:
             schema_validator(schema, path, self.package_dir).validate(value)
         except JsonSchemaValidationError as exc:
-            raise RunError(f"schema validation failed: {relative_path}: {exc.message}") from exc
+            raise SchemaValidationError(
+                f"schema validation failed: {relative_path}: {exc.message}"
+            ) from exc
 
     def _resolve_expr(
         self,

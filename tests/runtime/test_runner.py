@@ -18,6 +18,37 @@ from multiverse_workflow.runtime.runner import RunError, Runner
 ROOT = Path(__file__).parents[2]
 
 
+def _start_with_unknown_producer_attempt(runner: Runner) -> tuple[dict, dict, dict]:
+    drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        run = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(run["id"])[0]
+    invocation = runner.ledger.create_invocation(
+        run["id"],
+        scope["id"],
+        "produce",
+        {"goal": "write a release note"},
+    )
+    runner.ledger.finish_invocation(invocation["id"], status="running")
+    attempt = runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    runner.ledger.finish_attempt(attempt["id"], status="running")
+    unknown = runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    runner.ledger.update_run(
+        run["id"],
+        status="running",
+        current_node_id="produce",
+    )
+    return run, invocation, unknown
+
+
 def test_content_delivery_waits_for_review_and_finishes_after_approval(tmp_path: Path) -> None:
     runner = Runner(
         ROOT / "presets/content-delivery",
@@ -132,6 +163,339 @@ def test_cancelled_waiting_run_rejects_a_late_human_decision(tmp_path: Path) -> 
             subject_digest=request["subject_digest"],
             expected_version=cancelled_request["version"],
         )
+
+
+def test_reconciled_success_validates_output_and_resumes_same_invocation(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    attempt_ids_before = {
+        item["id"] for item in runner.ledger.list_attempts(waiting["id"])
+    }
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_succeeded",
+        evidence_refs=["evidence://provider/succeeded"],
+        reason="The provider returned the durable output.",
+        actor="example-reviewer",
+        output={"text": "Recovered deliverable.", "artifact_refs": []},
+    )
+
+    assert reconciled["status"] == "succeeded"
+    assert attempt_ids_before <= {
+        item["id"] for item in runner.ledger.list_attempts(waiting["id"])
+    }
+    assert runner.ledger.get_attempt(unknown["id"])["status"] == "succeeded"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "succeeded"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "waiting"
+    assert {
+        item["node_id"] for item in runner.ledger.list_invocations(waiting["id"])
+    } >= {"produce", "critique", "verify", "review"}
+
+
+def test_reconciled_failure_fails_the_invocation_without_dispatching_downstream(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    invocation_ids_before = {
+        item["id"] for item in runner.ledger.list_invocations(waiting["id"])
+    }
+    runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://provider/failed"],
+        reason="The provider confirmed failure.",
+        actor="example-reviewer",
+    )
+
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "failed"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "failed"
+    assert {
+        item["id"] for item in runner.ledger.list_invocations(waiting["id"])
+    } == invocation_ids_before
+
+
+def test_reconciled_cancellation_cancels_the_run_without_marking_success(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+
+    runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_cancelled",
+        evidence_refs=["evidence://provider/cancelled"],
+        reason="The provider confirmed the execution was stopped.",
+        actor="example-reviewer",
+    )
+
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "cancelled"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "cancelled"
+
+
+def test_reconciliation_cannot_replace_a_human_decision(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    invocation = next(
+        item
+        for item in runner.ledger.list_invocations(waiting["id"])
+        if item["node_id"] == "review"
+    )
+    attempt = runner.ledger.latest_attempt(invocation["id"])
+    assert attempt is not None
+    unknown = runner.ledger.finish_attempt(attempt["id"], status="unknown")
+
+    with pytest.raises(LedgerConflict, match="human"):
+        runner.reconcile_attempt(
+            unknown["id"],
+            expected_version=unknown["version"],
+            conclusion="confirmed_succeeded",
+            evidence_refs=["evidence://operator/review"],
+            reason="The provider returned a review-shaped result.",
+            actor="example-reviewer",
+            output={"decision": "approve", "comment": "Approved."},
+        )
+
+    assert runner.ledger.get_attempt(unknown["id"])["status"] == "unknown"
+    assert runner.pending_human_requests(waiting["id"])[0]["status"] == "pending"
+
+
+def test_reconciliation_cannot_revive_a_terminal_run(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    terminal = runner.ledger.update_run(
+        waiting["id"],
+        status="failed",
+        error={"code": "TEST_TERMINAL", "message": "Already failed."},
+    )
+
+    with pytest.raises(LedgerConflict, match="terminal"):
+        runner.reconcile_attempt(
+            unknown["id"],
+            expected_version=unknown["version"],
+            conclusion="confirmed_succeeded",
+            evidence_refs=["evidence://provider/succeeded"],
+            reason="Late success observation.",
+            actor="example-reviewer",
+            output={"text": "Recovered deliverable.", "artifact_refs": []},
+        )
+
+    assert runner.ledger.get_run(waiting["id"])["version"] == terminal["version"]
+    assert runner.ledger.get_run(waiting["id"])["status"] == "failed"
+    assert runner.ledger.get_attempt(unknown["id"])["status"] == "unknown"
+
+
+def test_reconciled_success_respects_a_paused_run_control_intent(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        waiting = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(waiting["id"])[0]
+    invocation = runner.ledger.create_invocation(
+        waiting["id"],
+        scope["id"],
+        "produce",
+        {"goal": "write a release note"},
+    )
+    runner.ledger.finish_invocation(invocation["id"], status="running")
+    attempt = runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    runner.ledger.finish_attempt(attempt["id"], status="running")
+    paused = runner.pause(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Hold downstream dispatch.",
+    )
+    unknown = runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_succeeded",
+        evidence_refs=["evidence://provider/succeeded"],
+        reason="The provider returned the durable output.",
+        actor="example-reviewer",
+        output={"text": "Recovered deliverable.", "artifact_refs": []},
+    )
+
+    assert paused["control_mode"] == "pause"
+    assert reconciled["status"] == "succeeded"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "paused"
+
+
+def test_reconciled_not_started_retries_same_invocation_with_new_dispatch_key(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        _write_retrying_content_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    attempts_before = runner.ledger.list_attempts(waiting["id"])
+
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_not_started",
+        evidence_refs=["evidence://provider/not-started"],
+        reason="The provider confirmed that the old submission was never accepted.",
+        actor="example-reviewer",
+    )
+
+    attempts = runner.ledger.list_attempts(waiting["id"])
+    assert reconciled["id"] == unknown["id"]
+    invocation_attempts = [
+        item for item in attempts if item["invocation_id"] == invocation["id"]
+    ]
+    assert len(invocation_attempts) == len(attempts_before) + 1
+    old_attempt, new_attempt = invocation_attempts[-2:]
+    assert old_attempt["id"] == unknown["id"]
+    assert old_attempt["status"] == "cancelled"
+    assert json.loads(old_attempt["reconciliation_json"])["conclusion"] == (
+        "confirmed_not_started"
+    )
+    assert new_attempt["attempt_no"] == old_attempt["attempt_no"] + 1
+    assert new_attempt["invocation_id"] == invocation["id"]
+    assert new_attempt["effect_key"] == old_attempt["effect_key"]
+    assert new_attempt["dispatch_key"] != old_attempt["dispatch_key"]
+    assert new_attempt["status"] == "succeeded"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "succeeded"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "waiting"
+
+
+def test_reconciled_not_started_does_not_exceed_frozen_max_attempts(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+
+    runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_not_started",
+        evidence_refs=["evidence://provider/not-started"],
+        reason="The provider confirmed that the old submission was never accepted.",
+        actor="example-reviewer",
+    )
+
+    assert len(runner.ledger.list_attempts(waiting["id"])) == 1
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "failed"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "failed"
+
+
+def test_reconciled_not_started_honors_cancel_control_intent(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        _write_retrying_content_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    cancelled = runner.cancel(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Stop the run before any retry.",
+    )
+
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_not_started",
+        evidence_refs=["evidence://provider/not-started"],
+        reason="The provider confirmed that the old submission was never accepted.",
+        actor="example-reviewer",
+    )
+
+    assert cancelled["control_mode"] == "cancel"
+    assert reconciled["status"] == "cancelled"
+    assert len(runner.ledger.list_attempts(waiting["id"])) == 1
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "cancelled"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "cancelled"
+
+
+def test_reconciled_not_started_preserves_pause_before_retry_dispatch(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        _write_retrying_content_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    paused = runner.pause(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Hold the retry until the release window.",
+    )
+
+    runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_not_started",
+        evidence_refs=["evidence://provider/not-started"],
+        reason="The provider confirmed that the old submission was never accepted.",
+        actor="example-reviewer",
+    )
+
+    attempts = runner.ledger.list_attempts(waiting["id"])
+    assert paused["control_mode"] == "pause"
+    assert len(attempts) == 2
+    assert attempts[-1]["attempt_no"] == 2
+    assert attempts[-1]["status"] == "created"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "running"
+    assert runner.ledger.get_run(waiting["id"])["status"] == "paused"
+
+    resumed = runner.resume(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Release window is open.",
+    )
+
+    assert resumed["status"] == "waiting"
+    assert runner.ledger.get_attempt(attempts[-1]["id"])["status"] == "succeeded"
 
 
 def test_rerun_creates_a_new_waiting_run_without_reusing_the_approval(tmp_path: Path) -> None:
@@ -877,6 +1241,26 @@ def _write_manual_input_package(root: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return package, binding
+
+
+def _write_retrying_content_package(root: Path) -> Path:
+    package = root / "retrying-content"
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    workflow_path = package / "workflows/delivery.yaml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    workflow = workflow.replace(
+        """      retry:
+        maxAttempts: 1
+      next: critique
+""",
+        """      retry:
+        maxAttempts: 2
+      next: critique
+""",
+        1,
+    )
+    workflow_path.write_text(workflow, encoding="utf-8")
+    return package
 
 
 def _write_repeat_package(root: Path, *, max_iterations: int = 3) -> Path:

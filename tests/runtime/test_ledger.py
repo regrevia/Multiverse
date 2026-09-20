@@ -57,6 +57,112 @@ def test_ledger_persists_run_scope_invocation_attempt_and_events(tmp_path: Path)
     assert json.loads(ledger.get_scope(scope["id"])["input_json"]) == {"goal": "write"}
 
 
+def test_ledger_reconciles_unknown_attempt_once_with_evidence(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-unknown",
+        effect_key="effect-unknown",
+    )
+    unknown = ledger.finish_attempt(attempt["id"], status="unknown")
+
+    reconciled = ledger.reconcile_attempt(
+        attempt["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://operator/123"],
+        reason="Provider confirmed a terminal failure.",
+        actor="example-reviewer",
+    )
+
+    assert reconciled["status"] == "failed"
+    assert reconciled["version"] == unknown["version"] + 1
+    assert json.loads(reconciled["reconciliation_json"]) == {
+        "conclusion": "confirmed_failed",
+        "evidenceRefs": ["evidence://operator/123"],
+        "reason": "Provider confirmed a terminal failure.",
+        "actor": "example-reviewer",
+    }
+    with pytest.raises(LedgerConflict, match="version"):
+        ledger.reconcile_attempt(
+            attempt["id"],
+            expected_version=unknown["version"],
+            conclusion="confirmed_cancelled",
+            evidence_refs=["evidence://operator/456"],
+            reason="Late duplicate.",
+            actor="example-reviewer",
+        )
+
+
+def test_unknown_attempt_enters_reconciling_and_blocks_the_run(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-blocked",
+        effect_key="effect-blocked",
+    )
+
+    unknown = ledger.finish_attempt(attempt["id"], status="unknown")
+
+    assert unknown["status"] == "unknown"
+    assert ledger.get_invocation(invocation["id"])["status"] == "reconciling"
+    assert ledger.get_run(run["id"])["status"] == "blocked"
+
+
+def test_attempt_terminal_state_cannot_be_overwritten_by_late_observation(
+    tmp_path: Path,
+) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    attempt = ledger.create_attempt(
+        invocation["id"],
+        input_value={},
+        dispatch_key="dispatch-terminal",
+        effect_key="effect-terminal",
+    )
+    finished = ledger.finish_attempt(attempt["id"], status="succeeded", output={"ok": True})
+
+    with pytest.raises(LedgerConflict, match="terminal"):
+        ledger.finish_attempt(attempt["id"], status="failed")
+
+    assert ledger.get_attempt(attempt["id"])["version"] == finished["version"]
+    assert ledger.get_attempt(attempt["id"])["status"] == "succeeded"
+
+
 def test_ledger_persists_child_scope_terminal_output(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "runtime.db")
     run = ledger.create_run(
@@ -205,6 +311,73 @@ def test_ledger_migrates_legacy_run_rerun_columns(tmp_path: Path) -> None:
     assert {"rerun_of", "rerun_reason"} <= columns
     assert rerun["rerun_of"] == source["id"]
     assert rerun["rerun_reason"] == "Repeat acceptance."
+
+
+def test_ledger_migrates_legacy_command_scope_and_rebuilds_idempotency_index(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "legacy-commands.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE commands (
+                id TEXT PRIMARY KEY,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                fingerprint TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                resource_version INTEGER,
+                error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO commands (
+                id, idempotency_key, fingerprint, operation, namespace,
+                resource_id, status, resource_version, error_json,
+                created_at, updated_at
+            ) VALUES (
+                'cmd_legacy', 'shared-key', 'fingerprint', 'run.create', 'local',
+                'run_legacy', 'completed', 2, NULL,
+                '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z'
+            );
+            """
+        )
+
+    ledger = Ledger(database)
+    migrated = ledger.get_command("cmd_legacy")
+    assert migrated is not None
+    assert migrated["subject"] == "local-user"
+
+    ledger.create_command(
+        command_id="cmd_same-key-different-scope",
+        idempotency_key="shared-key",
+        fingerprint="other-fingerprint",
+        operation="run.create",
+        namespace="local",
+        resource_id="run_other",
+        subject="another-user",
+    )
+    ledger.create_command(
+        command_id="cmd_same-key-different-operation",
+        idempotency_key="shared-key",
+        fingerprint="other-operation",
+        operation="run.pause",
+        namespace="local",
+        resource_id="run_legacy",
+        subject="local-user",
+    )
+
+    local_commands = ledger.list_commands_by_key(
+        "shared-key",
+        namespace="local",
+        subject="local-user",
+    )
+    assert {command["operation"] for command in local_commands} == {
+        "run.create",
+        "run.pause",
+    }
 
 
 def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> None:

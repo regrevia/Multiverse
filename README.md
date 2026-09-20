@@ -123,9 +123,29 @@ uv run mverse cancel <run-id> \
   --json
 ```
 
-These controls are limited to the local SQLite preview. They do not yet provide
-external execution cancellation, worker recovery, or reconciliation of an
-active external Attempt.
+These controls are limited to the local SQLite preview. They do not provide
+external execution cancellation or worker recovery. If an execution response
+is lost and its persisted Attempt is `unknown`, an authorized operator can
+reconcile it through the service boundary:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8787/api/v1/namespaces/local/attempts/<attempt-id>:reconcile \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer dev-token' \
+  -H 'Idempotency-Key: reconcile-1' \
+  -d '{
+    "expectedVersion": 2,
+    "conclusion": "confirmed_failed",
+    "evidenceRefs": ["evidence://provider/failed"],
+    "reason": "The provider confirmed the execution failed."
+  }'
+```
+
+Only `confirmed_succeeded`, `confirmed_failed`, `confirmed_cancelled`, and
+`confirmed_not_started` are accepted. A successful conclusion must include
+output that passes the frozen node schema; the authenticated subject is
+recorded and the request body cannot supply an actor.
 
 ### Inspector Snapshot
 

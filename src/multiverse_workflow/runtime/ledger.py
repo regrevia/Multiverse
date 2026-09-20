@@ -96,6 +96,7 @@ class Ledger:
         operation: str,
         namespace: str,
         resource_id: str,
+        subject: str = "local-user",
     ) -> dict[str, Any]:
         now = _now()
         with self._transaction() as connection:
@@ -103,9 +104,9 @@ class Ledger:
                 """
                 INSERT INTO commands (
                     id, idempotency_key, fingerprint, operation, namespace,
-                    resource_id, status, resource_version, error_json,
+                    subject, resource_id, status, resource_version, error_json,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'accepted', NULL, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', NULL, NULL, ?, ?)
                 """,
                 (
                     command_id,
@@ -113,6 +114,7 @@ class Ledger:
                     fingerprint,
                     operation,
                     namespace,
+                    subject,
                     resource_id,
                     now,
                     now,
@@ -126,11 +128,58 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
-    def get_command_by_key(self, idempotency_key: str) -> dict[str, Any] | None:
+    def get_command_by_key(
+        self,
+        idempotency_key: str,
+        *,
+        namespace: str | None = None,
+        subject: str | None = None,
+        operation: str | None = None,
+    ) -> dict[str, Any] | None:
+        if namespace is None or subject is None or operation is None:
+            row = self._connection.execute(
+                "SELECT * FROM commands WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            return _row(row)
         row = self._connection.execute(
-            "SELECT * FROM commands WHERE idempotency_key = ?", (idempotency_key,)
+            """
+            SELECT * FROM commands
+            WHERE idempotency_key = ? AND namespace = ?
+              AND subject = ? AND operation = ?
+            """,
+            (idempotency_key, namespace, subject, operation),
         ).fetchone()
         return _row(row)
+
+    def list_commands_by_key(
+        self,
+        idempotency_key: str,
+        *,
+        namespace: str | None = None,
+        subject: str | None = None,
+        operation: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["idempotency_key = ?"]
+        parameters: list[str] = [idempotency_key]
+        if namespace is not None:
+            clauses.append("namespace = ?")
+            parameters.append(namespace)
+        if subject is not None:
+            clauses.append("subject = ?")
+            parameters.append(subject)
+        if operation is not None:
+            clauses.append("operation = ?")
+            parameters.append(operation)
+        rows = self._connection.execute(
+            f"""
+            SELECT * FROM commands
+            WHERE {' AND '.join(clauses)}
+            ORDER BY created_at, id
+            """,
+            parameters,
+        ).fetchall()
+        return [command for row in rows if (command := _row(row)) is not None]
 
     def finish_command(
         self,
@@ -194,7 +243,8 @@ class Ledger:
                 active_attempt = connection.execute(
                     """
                     SELECT 1 FROM attempts
-                    WHERE run_id = ? AND status IN ('created', 'submitted', 'running')
+                    WHERE run_id = ?
+                      AND status IN ('created', 'submitted', 'running', 'unknown')
                     LIMIT 1
                     """,
                     (run_id,),
@@ -511,6 +561,10 @@ class Ledger:
     ) -> dict[str, Any]:
         with self._transaction() as connection:
             row = self._require_invocation(connection, invocation_id)
+            if row["status"] in {"succeeded", "failed", "cancelled", "skipped"}:
+                raise LedgerConflict(
+                    f"invocation is terminal: {row['status']}"
+                )
             version = int(row["version"]) + 1
             connection.execute(
                 """
@@ -561,8 +615,8 @@ class Ledger:
                 INSERT INTO attempts (
                     id, run_id, scope_id, invocation_id, attempt_no, status,
                     input_json, input_digest, dispatch_key, effect_key,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?)
+                    version, reconciliation_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, 1, NULL, ?, ?)
                 """,
                 (
                     attempt_id,
@@ -618,11 +672,22 @@ class Ledger:
     ) -> dict[str, Any]:
         with self._transaction() as connection:
             row = self._require_attempt(connection, attempt_id)
+            if row["status"] in {"succeeded", "failed", "cancelled"}:
+                raise LedgerConflict(f"attempt is terminal: {row['status']}")
+            if row["status"] == status:
+                return dict(row)
+            if row["status"] == "unknown" and status != "unknown":
+                raise LedgerConflict(
+                    "unknown attempt requires reconciliation before a terminal update"
+                )
+            if status == "unknown":
+                invocation = self._require_invocation(connection, row["invocation_id"])
+                run = self._require_run(connection, row["run_id"])
             connection.execute(
                 """
                 UPDATE attempts
                 SET status = ?, output_json = ?, error_json = ?,
-                    external_ref = ?, updated_at = ?
+                    external_ref = ?, version = version + 1, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -638,7 +703,151 @@ class Ledger:
                 connection,
                 row["run_id"],
                 "attempt.updated",
-                {"attemptId": attempt_id, "status": status},
+                {
+                    "attemptId": attempt_id,
+                    "status": status,
+                    "version": int(row["version"]) + 1,
+                },
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=attempt_id,
+            )
+            if status == "unknown":
+                invocation_version = int(invocation["version"]) + 1
+                connection.execute(
+                    """
+                    UPDATE invocations
+                    SET status = 'reconciling', version = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (invocation_version, _now(), invocation["id"]),
+                )
+                self._event(
+                    connection,
+                    row["run_id"],
+                    "invocation.updated",
+                    {
+                        "invocationId": invocation["id"],
+                        "status": "reconciling",
+                        "version": invocation_version,
+                    },
+                    scope_id=row["scope_id"],
+                    invocation_id=invocation["id"],
+                )
+                if run["status"] not in {
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                    "blocked",
+                }:
+                    run_version = int(run["version"]) + 1
+                    connection.execute(
+                        """
+                        UPDATE runs
+                        SET status = 'blocked', version = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (run_version, _now(), run["id"]),
+                    )
+                    self._event(
+                        connection,
+                        run["id"],
+                        "run.updated",
+                        {
+                            "status": "blocked",
+                            "controlMode": run["control_mode"],
+                            "currentNodeId": run["current_node_id"],
+                            "version": run_version,
+                            "reason": "unresolved attempt result",
+                        },
+                    )
+        return self.get_attempt(attempt_id)  # type: ignore[return-value]
+
+    def reconcile_attempt(
+        self,
+        attempt_id: str,
+        *,
+        expected_version: int,
+        conclusion: Literal[
+            "confirmed_succeeded",
+            "confirmed_failed",
+            "confirmed_cancelled",
+            "confirmed_not_started",
+        ],
+        evidence_refs: list[str],
+        reason: str,
+        actor: str,
+        output: Any = None,
+    ) -> dict[str, Any]:
+        if not evidence_refs or any(not ref.strip() for ref in evidence_refs):
+            raise LedgerConflict("reconciliation requires evidence references")
+        if not reason.strip() or not actor.strip():
+            raise LedgerConflict("reconciliation reason and actor are required")
+        if conclusion == "confirmed_succeeded" and output is None:
+            raise LedgerConflict("confirmed_succeeded requires output")
+        status_by_conclusion = {
+            "confirmed_succeeded": "succeeded",
+            "confirmed_failed": "failed",
+            "confirmed_cancelled": "cancelled",
+            "confirmed_not_started": "cancelled",
+        }
+        status = status_by_conclusion[conclusion]
+        reconciliation = {
+            "conclusion": conclusion,
+            "evidenceRefs": evidence_refs,
+            "reason": reason,
+            "actor": actor,
+        }
+        error = None
+        if conclusion == "confirmed_failed":
+            error = {"code": "RECONCILED_FAILURE", "message": reason}
+        elif conclusion == "confirmed_cancelled":
+            error = {"code": "RECONCILED_CANCELLED", "message": reason}
+        elif conclusion == "confirmed_not_started":
+            error = {"code": "RECONCILED_NOT_STARTED", "message": reason}
+        with self._transaction() as connection:
+            row = self._require_attempt(connection, attempt_id)
+            if int(row["version"]) != expected_version:
+                raise LedgerConflict("attempt version conflict")
+            if row["status"] != "unknown":
+                raise LedgerConflict(
+                    f"only an unknown attempt can be reconciled: {row['status']}"
+                )
+            version = int(row["version"]) + 1
+            connection.execute(
+                """
+                UPDATE attempts
+                SET status = ?, output_json = ?, error_json = ?,
+                    reconciliation_json = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    _json_or_none(output),
+                    _json_or_none(error),
+                    json.dumps(
+                        reconciliation,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    version,
+                    _now(),
+                    attempt_id,
+                ),
+            )
+            self._event(
+                connection,
+                row["run_id"],
+                "attempt.reconciled",
+                {
+                    "attemptId": attempt_id,
+                    "conclusion": conclusion,
+                    "status": status,
+                    "version": version,
+                    "evidenceRefs": evidence_refs,
+                    "reason": reason,
+                    "actor": actor,
+                },
                 scope_id=row["scope_id"],
                 invocation_id=row["invocation_id"],
                 attempt_id=attempt_id,
@@ -1013,10 +1222,11 @@ class Ledger:
             );
             CREATE TABLE IF NOT EXISTS commands (
                 id TEXT PRIMARY KEY,
-                idempotency_key TEXT NOT NULL UNIQUE,
+                idempotency_key TEXT NOT NULL,
                 fingerprint TEXT NOT NULL,
                 operation TEXT NOT NULL,
                 namespace TEXT NOT NULL,
+                subject TEXT NOT NULL DEFAULT 'local-user',
                 resource_id TEXT NOT NULL,
                 status TEXT NOT NULL,
                 resource_version INTEGER,
@@ -1067,6 +1277,8 @@ class Ledger:
                 output_json TEXT,
                 error_json TEXT,
                 external_ref TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                reconciliation_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(invocation_id, attempt_no)
@@ -1135,6 +1347,56 @@ class Ledger:
             row["name"]
             for row in self._connection.execute("PRAGMA table_info(human_decisions)").fetchall()
         }
+        command_columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(commands)").fetchall()
+        }
+        command_sql = self._connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'commands'"
+        ).fetchone()
+        if "subject" not in command_columns:
+            self._connection.execute(
+                "ALTER TABLE commands ADD COLUMN subject TEXT NOT NULL DEFAULT 'local-user'"
+            )
+            command_columns.add("subject")
+        if command_sql is not None and "idempotency_key TEXT NOT NULL UNIQUE" in (
+            command_sql["sql"] or ""
+        ):
+            self._connection.executescript(
+                """
+                CREATE TABLE commands_migrated (
+                    id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    namespace TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    resource_version INTEGER,
+                    error_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO commands_migrated (
+                    id, idempotency_key, fingerprint, operation, namespace,
+                    subject, resource_id, status, resource_version, error_json,
+                    created_at, updated_at
+                )
+                SELECT id, idempotency_key, fingerprint, operation, namespace,
+                       COALESCE(subject, 'local-user'), resource_id, status,
+                       resource_version, error_json, created_at, updated_at
+                FROM commands;
+                DROP TABLE commands;
+                ALTER TABLE commands_migrated RENAME TO commands;
+                """
+            )
+        self._connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS commands_scope_key
+            ON commands(namespace, subject, operation, idempotency_key)
+            """
+        )
         if "decision_json" not in human_decision_columns:
             self._connection.execute(
                 "ALTER TABLE human_decisions ADD COLUMN decision_json TEXT NOT NULL DEFAULT '{}'"
@@ -1149,6 +1411,16 @@ class Ledger:
         ):
             if column not in run_columns:
                 self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
+        attempt_columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(attempts)").fetchall()
+        }
+        for column, definition in (
+            ("version", "INTEGER NOT NULL DEFAULT 1"),
+            ("reconciliation_json", "TEXT"),
+        ):
+            if column not in attempt_columns:
+                self._connection.execute(f"ALTER TABLE attempts ADD COLUMN {column} {definition}")
         scope_columns = {
             row["name"] for row in self._connection.execute("PRAGMA table_info(scopes)").fetchall()
         }

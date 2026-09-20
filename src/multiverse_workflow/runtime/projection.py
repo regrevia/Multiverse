@@ -44,6 +44,11 @@ def build_run_projection(ledger: Ledger, run_id: str) -> dict[str, Any]:
                         if invocation is not None
                         else []
                     ),
+                    "attempts": _attempt_summaries(
+                        attempts_by_invocation.get(invocation["id"], [])
+                        if invocation is not None
+                        else []
+                    ),
                 }
             )
         for edge in scope_plan["edges"]:
@@ -142,12 +147,31 @@ def _latest_attempt_summary(attempts: list[dict[str, Any]]) -> dict[str, Any] | 
         "id": attempt["id"],
         "attemptNo": attempt["attempt_no"],
         "status": attempt["status"],
+        "version": attempt["version"],
         "inputDigest": attempt["input_digest"],
         "externalRef": attempt["external_ref"],
         "createdAt": attempt["created_at"],
         "updatedAt": attempt["updated_at"],
         "hasOutput": attempt["output_json"] is not None,
         "error": _error_code(attempt["error_json"]),
+        "reconciliation": _reconciliation_summary(attempt["reconciliation_json"]),
+    }
+
+
+def _attempt_summaries(attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_attempt_summary(attempt) for attempt in attempts]
+
+
+def _attempt_summary(attempt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": attempt["id"],
+        "attemptNo": attempt["attempt_no"],
+        "status": attempt["status"],
+        "version": attempt["version"],
+        "externalRef": attempt["external_ref"],
+        "createdAt": attempt["created_at"],
+        "updatedAt": attempt["updated_at"],
+        "reconciliation": _reconciliation_summary(attempt["reconciliation_json"]),
     }
 
 
@@ -201,8 +225,7 @@ def _node_type(definition: dict[str, Any], invocation: dict[str, Any] | None) ->
 def _node_status(scope: dict[str, Any], invocation: dict[str, Any] | None) -> str:
     if invocation is None:
         return "cancelled" if scope["status"] == "cancelled" else "pending"
-    status = invocation["status"]
-    return "failed" if status == "cancelled" else status
+    return str(invocation["status"])
 
 
 def _error_code(error_json: str | None) -> str | None:
@@ -210,3 +233,17 @@ def _error_code(error_json: str | None) -> str | None:
         return None
     error = json.loads(error_json)
     return error.get("code") if isinstance(error, dict) else None
+
+
+def _reconciliation_summary(reconciliation_json: str | None) -> dict[str, Any] | None:
+    if reconciliation_json is None:
+        return None
+    reconciliation = json.loads(reconciliation_json)
+    if not isinstance(reconciliation, dict):
+        return None
+    return {
+        "conclusion": reconciliation.get("conclusion"),
+        "evidenceRefs": reconciliation.get("evidenceRefs", []),
+        "reason": reconciliation.get("reason"),
+        "actor": reconciliation.get("actor"),
+    }
