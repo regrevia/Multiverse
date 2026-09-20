@@ -173,7 +173,7 @@ Success: no issues found in 27 source files
 
 Record only commands actually run and their observed results. Do not treat GitHub Actions or checklist state as test evidence.
 
-- [ ] **Step 3: Commit the milestone**
+- [x] **Step 3: Commit the milestone**
 
 ```bash
 git add src/multiverse_workflow/runtime/worker.py \
@@ -187,7 +187,9 @@ git add src/multiverse_workflow/runtime/worker.py \
 git commit -m "feat: add persistent local worker"
 ```
 
-- [ ] **Step 4: Push and verify the remote branch**
+Observed: commit `0b4ceda` (`feat: add persistent local worker`).
+
+- [x] **Step 4: Push and verify the remote branch**
 
 ```bash
 git push origin dev
@@ -197,3 +199,7 @@ git ls-remote origin refs/heads/dev
 ```
 
 The local and remote `dev` SHA must match. Existing untracked `inspector/pnpm-lock.yaml` and `inspector/pnpm-workspace.yaml` are not part of this commit and must remain untouched.
+
+Observed: `git push origin dev` succeeded. Local and remote `dev` both point to
+`0b4cedae3c8ae63d5ff4239f6391902fac60dd5c`. The two Inspector files remain
+untracked and were not added.
