@@ -46,7 +46,9 @@ production HTTP API, and Latent Handoff are not claimed as implemented yet.
 
 The `content-ollama` binding runs a real local Ollama model through the
 registered `builtin.ollama-deliverable.v1` executor. It records the model name,
-token counts when available, and an output digest as a Run event before the
+token counts when available, and an output digest as a Run event. The Runtime
+stores the model's text as a locally managed Artifact, verifies its digest, and
+only then writes the Runtime-owned Artifact ID into the node output for the
 existing verifier and human review steps.
 
 ```bash
@@ -61,7 +63,9 @@ uv run mverse run presets/content-delivery \
 This trusted-local preview requires a running Ollama service and the configured
 model (`qwen3.5:9b` in the example Binding). It is not a sandbox, does not
 support model-call recovery or cancellation, and does not claim full offline
-delivery support.
+delivery support. Generated Artifact references are currently authorized only
+within the same local Run and namespace; cross-subject Artifact ACLs are not
+implemented.
 
 ### Manual Artifact Trial
 

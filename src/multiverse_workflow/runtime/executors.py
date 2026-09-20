@@ -20,10 +20,18 @@ class HumanRequestSpec:
 
 
 @dataclass(frozen=True)
+class GeneratedArtifact:
+    name: str
+    media_type: str
+    content: bytes
+
+
+@dataclass(frozen=True)
 class ExecutionResult:
     output: Any | None = None
     human_request: HumanRequestSpec | None = None
     observations: list[dict[str, object]] | None = None
+    generated_artifact: GeneratedArtifact | None = None
 
 
 def execute_builtin(
@@ -66,7 +74,29 @@ def execute_builtin(
             result = generate_deliverable(input_value, config)
         except OllamaError as exc:
             raise ExecutorError(str(exc)) from exc
-        return ExecutionResult(output=result.output, observations=[result.observation])
+        artifact_name = config.get("artifactName", "deliverable.md")
+        artifact_media_type = config.get("artifactMediaType", "text/markdown")
+        artifact_max_bytes = config.get("artifactMaxBytes", 400_000)
+        if not isinstance(artifact_name, str) or not artifact_name.strip():
+            raise ExecutorError("ollama artifactName must be a non-empty string")
+        if not isinstance(artifact_media_type, str) or not artifact_media_type.strip():
+            raise ExecutorError("ollama artifactMediaType must be a non-empty string")
+        if not isinstance(artifact_max_bytes, int) or not 1 <= artifact_max_bytes <= 10_000_000:
+            raise ExecutorError(
+                "ollama artifactMaxBytes must be an integer from 1 to 10000000"
+            )
+        content = result.output["text"].encode("utf-8")
+        if len(content) > artifact_max_bytes:
+            raise ExecutorError("ollama artifact exceeds configured size limit")
+        return ExecutionResult(
+            output=result.output,
+            observations=[result.observation],
+            generated_artifact=GeneratedArtifact(
+                name=artifact_name,
+                media_type=artifact_media_type,
+                content=content,
+            ),
+        )
 
     if executor_ref == "builtin.human-review.v1":
         choices = config.get("choices", ["approve", "reject"])

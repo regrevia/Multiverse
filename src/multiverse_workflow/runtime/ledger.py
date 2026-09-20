@@ -487,6 +487,23 @@ class Ledger:
         source = source_path.expanduser().resolve()
         if not source.is_file():
             raise LedgerConflict(f"artifact source is not a file: {source_path}")
+        return self.register_artifact_content(
+            run_id=run_id,
+            content=source.read_bytes(),
+            name=name,
+            media_type=media_type,
+            invocation_id=invocation_id,
+        )
+
+    def register_artifact_content(
+        self,
+        *,
+        run_id: str,
+        content: bytes,
+        name: str,
+        media_type: str,
+        invocation_id: str | None = None,
+    ) -> dict[str, Any]:
         run = self.get_run(run_id)
         if run is None:
             raise KeyError(f"run not found: {run_id}")
@@ -494,7 +511,6 @@ class Ledger:
             invocation = self.get_invocation(invocation_id)
             if invocation is None or invocation["run_id"] != run_id:
                 raise LedgerConflict("artifact invocation is not part of run")
-        content = source.read_bytes()
         digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
         artifact_id = _new_id("artifact")
         destination = self._artifact_root / artifact_id

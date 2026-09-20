@@ -324,34 +324,76 @@ class Runner:
                 invocation_id=invocation["id"],
                 attempt_id=attempt["id"],
             )
-        if result.human_request is not None:
-            request_spec = result.human_request
-            subject_digest = _digest_json(input_value)
-            self.ledger.create_human_request(
-                run_id=run_id,
+        try:
+            if result.generated_artifact is not None and result.human_request is not None:
+                raise RunError(
+                    "an executor result cannot include both an artifact and a human request"
+                )
+            if result.human_request is not None:
+                request_spec = result.human_request
+                subject_digest = _digest_json(input_value)
+                self.ledger.create_human_request(
+                    run_id=run_id,
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    request_type=request_spec.request_type,
+                    title=request_spec.title,
+                    instructions=request_spec.instructions,
+                    input_value=input_value,
+                    subject_digest=subject_digest,
+                    choices=request_spec.choices,
+                    decision_schema=self._load_schema(definition["outputSchema"]),
+                    authorized_subjects=request_spec.authorized_subjects,
+                    expires_at=_timestamp(
+                        datetime.now(UTC)
+                        + timedelta(
+                            seconds=plan.nodes[node_id]["defaults"]["deadlineSeconds"]
+                        )
+                    )
+                )
+                self.ledger.finish_attempt(attempt["id"], status="waiting")
+                self.ledger.finish_invocation(invocation["id"], status="waiting")
+                self.ledger.update_run(run_id, status="waiting", current_node_id=node_id)
+                return None
+            output = result.output
+            self._validate_schema(output, definition["outputSchema"])
+            if result.generated_artifact is not None:
+                if not isinstance(output, dict):
+                    raise RunError("generated artifact requires an object output")
+                artifact_refs = output.get("artifact_refs", [])
+                if artifact_refs != []:
+                    raise LedgerConflict(
+                        "managed agent output must not provide artifact references"
+                    )
+                artifact = self.ledger.register_artifact_content(
+                    run_id=run_id,
+                    content=result.generated_artifact.content,
+                    name=result.generated_artifact.name,
+                    media_type=result.generated_artifact.media_type,
+                    invocation_id=invocation["id"],
+                )
+                output = dict(output)
+                output["artifact_refs"] = [artifact["id"]]
+            self._validate_artifact_refs(run_id, output)
+        except (LedgerConflict, OSError, RunError, TypeError) as exc:
+            error = {"code": "EXECUTOR_OUTPUT_INVALID", "message": str(exc)}
+            self.ledger.record_event(
+                run_id,
+                "executor.output.rejected",
+                error,
                 scope_id=scope_id,
                 invocation_id=invocation["id"],
-                request_type=request_spec.request_type,
-                title=request_spec.title,
-                instructions=request_spec.instructions,
-                input_value=input_value,
-                subject_digest=subject_digest,
-                choices=request_spec.choices,
-                decision_schema=self._load_schema(definition["outputSchema"]),
-                authorized_subjects=request_spec.authorized_subjects,
-                expires_at=_timestamp(
-                    datetime.now(UTC)
-                    + timedelta(
-                        seconds=plan.nodes[node_id]["defaults"]["deadlineSeconds"]
-                    )
-                ),
+                attempt_id=attempt["id"],
             )
-            self.ledger.finish_attempt(attempt["id"], status="waiting")
-            self.ledger.finish_invocation(invocation["id"], status="waiting")
-            self.ledger.update_run(run_id, status="waiting", current_node_id=node_id)
+            self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
+            self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
+            self.ledger.update_run(
+                run_id,
+                status="failed",
+                current_node_id=node_id,
+                error=error,
+            )
             return None
-        output = result.output
-        self._validate_schema(output, definition["outputSchema"])
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
         return output

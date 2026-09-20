@@ -10,7 +10,10 @@ spec:
       executorRef: builtin.ollama-deliverable.v1
       config:
         model: qwen3.5:9b
-        systemPrompt: Return only a concise deliverable JSON object with text and artifact_refs.
+        systemPrompt: Return only a concise deliverable JSON object with a non-empty text field and an empty artifact_refs array. Do not invent Artifact IDs; the Runtime creates the ArtifactRef after validation.
+        artifactName: agent-deliverable.md
+        artifactMediaType: text/markdown
+        artifactMaxBytes: 400000
         timeoutSeconds: 120
       secretRefs: {}
       grants:

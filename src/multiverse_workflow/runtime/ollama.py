@@ -78,6 +78,12 @@ def generate_deliverable(
         raise OllamaError("ollama response content is not JSON") from exc
     if not isinstance(output, dict):
         raise OllamaError("ollama response content must be a JSON object")
+    text = output.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise OllamaError("ollama response requires a non-empty text field")
+    artifact_refs = output.get("artifact_refs", [])
+    if artifact_refs != []:
+        raise OllamaError("ollama response must not provide artifact references")
     encoded_output = json.dumps(output, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return OllamaDeliverable(
         output=output,
