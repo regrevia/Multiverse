@@ -118,7 +118,7 @@ git diff --check
 
 Expected: all commands exit with status 0.
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 ```bash
 git add README.md docs/authoring/AUTHORING_GUIDE.md \
