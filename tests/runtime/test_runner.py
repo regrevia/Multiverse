@@ -51,7 +51,9 @@ def _start_with_unknown_producer_attempt(runner: Runner) -> tuple[dict, dict, di
     runner.ledger.update_run(
         run["id"],
         status="running",
+        current_scope_id=scope["id"],
         current_node_id="produce",
+        current_invocation_id=None,
     )
     return run, invocation, unknown
 
@@ -473,6 +475,35 @@ def test_reconciled_resume_uses_the_persisted_plan_for_next_node(
     assert driven == [(waiting["id"], root_scope["id"], "critique")]
 
 
+def test_reconciled_resume_rejects_a_run_without_persisted_continuation(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, _invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    runner.ledger.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://provider/failed"],
+        reason="The provider confirmed the failure.",
+        actor="example-reviewer",
+    )
+    runner.ledger.update_run(
+        waiting["id"],
+        status="running",
+        current_scope_id=None,
+        current_node_id="produce",
+        current_invocation_id=None,
+    )
+
+    with pytest.raises(RunError, match="matching persisted continuation"):
+        runner.resume_reconciled_attempt(unknown["id"])
+
+
 def test_reconciled_success_does_not_drive_a_different_current_node_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -495,7 +526,9 @@ def test_reconciled_success_does_not_drive_a_different_current_node_scope(
     runner.ledger.update_run(
         waiting["id"],
         status="running",
+        current_scope_id=runner.ledger.list_scopes(waiting["id"])[0]["id"],
         current_node_id="review",
+        current_invocation_id=None,
     )
     driven: list[tuple[str, str, str]] = []
 
@@ -507,6 +540,49 @@ def test_reconciled_success_does_not_drive_a_different_current_node_scope(
     runner.resume_reconciled_attempt(unknown["id"])
 
     assert driven == []
+
+
+def test_resume_uses_the_persisted_scope_for_the_current_node(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    root_scope = runner.ledger.list_scopes(waiting["id"])[0]
+    sibling_scope = runner.ledger.create_scope(
+        waiting["id"],
+        "delivery",
+        path=["root", "alternate"],
+        input_value={"goal": "alternate"},
+    )
+    runner.ledger.update_run(
+        waiting["id"],
+        status="paused",
+        control_mode="pause",
+        current_scope_id=root_scope["id"],
+        current_node_id="review",
+    )
+
+    driven: list[tuple[str, str, str]] = []
+
+    def record_drive(run_id: str, scope_id: str, node_id: str) -> dict[str, object]:
+        driven.append((run_id, scope_id, node_id))
+        return runner.ledger.get_run(run_id)  # type: ignore[return-value]
+
+    monkeypatch.setattr(runner, "_drive", record_drive)
+    resumed = runner.resume(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Resume the persisted continuation.",
+    )
+
+    assert resumed["status"] == "running"
+    assert sibling_scope["id"] != root_scope["id"]
+    assert driven == [(waiting["id"], root_scope["id"], "review")]
 
 
 def test_reconciled_not_started_retries_same_invocation_with_new_dispatch_key(

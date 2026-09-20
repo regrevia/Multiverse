@@ -62,8 +62,11 @@ class Ledger:
                     id, namespace, deployment_id, workflow_id, package_digest, binding_digest,
                     plan_json, input_json, input_digest, status, control_mode,
                     deadline_at, version, current_node_id, rerun_of, rerun_reason,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL, ?, ?, ?, ?)
+                    current_scope_id, current_invocation_id, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL,
+                    ?, ?, NULL, NULL, ?, ?
+                )
                 """,
                 (
                     run_id,
@@ -397,6 +400,8 @@ class Ledger:
         *,
         status: str,
         current_node_id: str | None = None,
+        current_scope_id: str | None | object = _UNSET,
+        current_invocation_id: str | None | object = _UNSET,
         control_mode: str | None = None,
         output: Any = None,
         error: Any = None,
@@ -417,10 +422,61 @@ class Ledger:
                 if next_attempt_at is _UNSET
                 else next_attempt_at
             )
+            persisted_scope_id = (
+                row["current_scope_id"]
+                if current_scope_id is _UNSET
+                else current_scope_id
+            )
+            persisted_invocation_id = (
+                row["current_invocation_id"]
+                if current_invocation_id is _UNSET
+                else current_invocation_id
+            )
+            if (
+                current_invocation_id is _UNSET
+                and (
+                    current_node_id != row["current_node_id"]
+                    or persisted_scope_id != row["current_scope_id"]
+                )
+                ):
+                persisted_invocation_id = None
+            if persisted_scope_id is None and persisted_invocation_id is not None:
+                raise LedgerConflict(
+                    "continuation invocation requires a continuation scope"
+                )
+            if persisted_scope_id is not None:
+                scope = connection.execute(
+                    "SELECT id, run_id FROM scopes WHERE id = ?",
+                    (persisted_scope_id,),
+                ).fetchone()
+                if scope is None or scope["run_id"] != run_id:
+                    raise LedgerConflict("continuation scope does not belong to run")
+            if persisted_invocation_id is not None:
+                invocation = connection.execute(
+                    """
+                    SELECT id, run_id, scope_id, node_id
+                    FROM invocations
+                    WHERE id = ?
+                    """,
+                    (persisted_invocation_id,),
+                ).fetchone()
+                if invocation is None or invocation["run_id"] != run_id:
+                    raise LedgerConflict(
+                        "continuation invocation does not belong to run"
+                    )
+                if invocation["scope_id"] != persisted_scope_id:
+                    raise LedgerConflict(
+                        "continuation invocation does not belong to scope"
+                    )
+                if invocation["node_id"] != current_node_id:
+                    raise LedgerConflict(
+                        "continuation invocation node does not match current node"
+                    )
             connection.execute(
                 """
                 UPDATE runs
                 SET status = ?, control_mode = ?, current_node_id = ?,
+                    current_scope_id = ?, current_invocation_id = ?,
                     output_json = ?, error_json = ?, next_attempt_at = ?,
                     version = ?, updated_at = ?
                 WHERE id = ?
@@ -429,6 +485,8 @@ class Ledger:
                     status,
                     next_control_mode,
                     current_node_id,
+                    persisted_scope_id,
+                    persisted_invocation_id,
                     _json_or_none(output),
                     _json_or_none(error),
                     persisted_next_attempt_at,
@@ -445,6 +503,8 @@ class Ledger:
                     "status": status,
                     "controlMode": next_control_mode,
                     "currentNodeId": current_node_id,
+                    "currentScopeId": persisted_scope_id,
+                    "currentInvocationId": persisted_invocation_id,
                     "version": version,
                 },
             )
@@ -836,7 +896,9 @@ class Ledger:
                         {
                             "status": "blocked",
                             "controlMode": run["control_mode"],
+                            "currentScopeId": run["current_scope_id"],
                             "currentNodeId": run["current_node_id"],
+                            "currentInvocationId": run["current_invocation_id"],
                             "version": run_version,
                             "reason": "unresolved attempt result",
                         },
@@ -916,11 +978,20 @@ class Ledger:
             connection.execute(
                 """
                 UPDATE runs
-                SET status = 'retry_wait', current_node_id = ?,
+                SET status = 'retry_wait', current_scope_id = ?,
+                    current_node_id = ?, current_invocation_id = ?,
                     next_attempt_at = ?, version = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (current_node_id, next_attempt_at, run_version, now, run["id"]),
+                (
+                    attempt["scope_id"],
+                    current_node_id,
+                    invocation["id"],
+                    next_attempt_at,
+                    run_version,
+                    now,
+                    run["id"],
+                ),
             )
             self._event(
                 connection,
@@ -929,7 +1000,9 @@ class Ledger:
                 {
                     "status": "retry_wait",
                     "controlMode": run["control_mode"],
+                    "currentScopeId": attempt["scope_id"],
                     "currentNodeId": current_node_id,
+                    "currentInvocationId": invocation["id"],
                     "nextAttemptAt": next_attempt_at,
                     "version": run_version,
                 },
@@ -1805,6 +1878,8 @@ class Ledger:
                 next_attempt_at TEXT,
                 version INTEGER NOT NULL,
                 current_node_id TEXT,
+                current_scope_id TEXT REFERENCES scopes(id),
+                current_invocation_id TEXT REFERENCES invocations(id),
                 rerun_of TEXT REFERENCES runs(id),
                 rerun_reason TEXT,
                 output_json TEXT,
@@ -2051,6 +2126,8 @@ class Ledger:
             ("rerun_of", "TEXT"),
             ("rerun_reason", "TEXT"),
             ("next_attempt_at", "TEXT"),
+            ("current_scope_id", "TEXT"),
+            ("current_invocation_id", "TEXT"),
         ):
             if column not in run_columns:
                 self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
@@ -2076,7 +2153,138 @@ class Ledger:
         ):
             if column not in scope_columns:
                 self._connection.execute(f"ALTER TABLE scopes ADD COLUMN {column} {definition}")
+        self._migrate_legacy_run_continuations()
         self._connection.commit()
+
+    def _migrate_legacy_run_continuations(self) -> None:
+        """Recover unambiguous active-run pointers from pre-continuation schemas."""
+        active_statuses = (
+            "queued",
+            "running",
+            "waiting",
+            "paused",
+            "stopping",
+            "retry_wait",
+        )
+        placeholders = ", ".join("?" for _ in active_statuses)
+        rows = self._connection.execute(
+            f"""
+            SELECT id, status, current_node_id, version
+            FROM runs
+            WHERE current_scope_id IS NULL
+              AND current_node_id IS NOT NULL
+              AND status IN ({placeholders})
+            """,
+            active_statuses,
+        ).fetchall()
+        for row in rows:
+            run_id = str(row["id"])
+            node_id = str(row["current_node_id"])
+            scopes = self._connection.execute(
+                """
+                SELECT id
+                FROM scopes
+                WHERE run_id = ? AND status = 'active'
+                ORDER BY created_at, id
+                """,
+                (run_id,),
+            ).fetchall()
+            if len(scopes) != 1:
+                matching_scopes = self._connection.execute(
+                    """
+                    SELECT DISTINCT scope_id
+                    FROM invocations
+                    WHERE run_id = ? AND node_id = ?
+                    """,
+                    (run_id, node_id),
+                ).fetchall()
+                if len(matching_scopes) == 1:
+                    scope_id = str(matching_scopes[0]["scope_id"])
+                else:
+                    self._block_legacy_continuation(
+                        run_id,
+                        int(row["version"]),
+                        "multiple or missing active scopes",
+                    )
+                    continue
+            else:
+                scope_id = str(scopes[0]["id"])
+
+            invocations = self._connection.execute(
+                """
+                SELECT id
+                FROM invocations
+                WHERE run_id = ? AND scope_id = ? AND node_id = ?
+                ORDER BY created_at, id
+                """,
+                (run_id, scope_id, node_id),
+            ).fetchall()
+            if len(invocations) > 1:
+                self._block_legacy_continuation(
+                    run_id,
+                    int(row["version"]),
+                    "multiple invocations for the current node",
+                )
+                continue
+            invocation_id = (
+                str(invocations[0]["id"]) if invocations else None
+            )
+            now = _now()
+            version = int(row["version"]) + 1
+            self._connection.execute(
+                """
+                UPDATE runs
+                SET current_scope_id = ?, current_invocation_id = ?,
+                    version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (scope_id, invocation_id, version, now, run_id),
+            )
+            self._event(
+                self._connection,
+                run_id,
+                "run.continuation.migrated",
+                {
+                    "currentScopeId": scope_id,
+                    "currentNodeId": node_id,
+                    "currentInvocationId": invocation_id,
+                    "version": version,
+                },
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+            )
+
+    def _block_legacy_continuation(
+        self,
+        run_id: str,
+        current_version: int,
+        reason: str,
+    ) -> None:
+        now = _now()
+        version = current_version + 1
+        error = {
+            "code": "CONTINUATION_MIGRATION_REQUIRED",
+            "message": "Legacy run continuation cannot be recovered safely.",
+            "details": {"reason": reason},
+        }
+        self._connection.execute(
+            """
+            UPDATE runs
+            SET status = 'blocked', error_json = ?, version = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (_json(error), version, now, run_id),
+        )
+        self._event(
+            self._connection,
+            run_id,
+            "run.blocked",
+            {
+                "status": "blocked",
+                "reason": "continuation migration required",
+                "version": version,
+            },
+        )
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:

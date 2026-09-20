@@ -368,7 +368,9 @@ def test_reconciled_retry_command_is_resumed_after_process_interruption(
     application.runner.ledger.update_run(
         created.resource_id,
         status="running",
+        current_scope_id=scope["id"],
         current_node_id="produce",
+        current_invocation_id=invocation["id"],
     )
     request = AttemptReconcileRequest(
         expectedVersion=unknown["version"],

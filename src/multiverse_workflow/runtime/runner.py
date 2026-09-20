@@ -103,13 +103,11 @@ class Runner:
                 if retry_wait["worker_id"] != worker_id:
                     return run
                 claimed_wait = retry_wait
-        node_id = run["current_node_id"]
-        if node_id is None:
-            raise RunError("retry_wait run has no current node")
+        scope_id, node_id, _invocation_id = self._continuation(run)
         try:
             resumed = self._drive(
                 run_id,
-                self._active_scope_for_node(run_id, node_id)["id"],
+                scope_id,
                 node_id,
             )
         except Exception:
@@ -234,7 +232,9 @@ class Runner:
         self.ledger.update_run(
             run["id"],
             status="running",
+            current_scope_id=scope["id"],
             current_node_id=workflow.spec.entry,
+            current_invocation_id=None,
         )
         return self._drive(run["id"], scope["id"], workflow.spec.entry)
 
@@ -279,10 +279,10 @@ class Runner:
             reason=reason,
             command_id=command_id,
         )
-        node_id = resumed["current_node_id"]
+        scope_id, node_id, _invocation_id = self._continuation(resumed)
         if node_id is None:
             return resumed
-        return self._drive(run_id, self._active_scope_for_node(run_id, node_id)["id"], node_id)
+        return self._drive(run_id, scope_id, node_id)
 
     def cancel(
         self,
@@ -432,7 +432,11 @@ class Runner:
             raise LedgerConflict(
                 f"attempt invocation is not reconciling: {invocation['status']}"
             )
-        if run["current_node_id"] != invocation["node_id"]:
+        if (
+            run["current_scope_id"] != attempt["scope_id"]
+            or run["current_node_id"] != invocation["node_id"]
+            or run["current_invocation_id"] not in {None, invocation["id"]}
+        ):
             raise LedgerConflict("attempt is not the current run node")
         self._require_matching_definition(run, self._plan(run["workflow_id"]))
         plan = self._frozen_plan(run, scope["workflow_id"])
@@ -491,6 +495,17 @@ class Runner:
             raise RunError("reconciled attempt references missing runtime state")
         if run["status"] in {"succeeded", "failed", "cancelled"}:
             return attempt
+        if (
+            run["current_scope_id"] is None
+            or run["current_node_id"] is None
+        ):
+            raise RunError("run has no matching persisted continuation for reconciliation")
+        if (
+            run["current_scope_id"] != attempt["scope_id"]
+            or run["current_node_id"] != invocation["node_id"]
+            or run["current_invocation_id"] not in {None, invocation["id"]}
+        ):
+            return attempt
         plan = self._frozen_plan(run, scope["workflow_id"])
         node = plan.nodes.get(invocation["node_id"])
         if node is None:
@@ -515,20 +530,28 @@ class Runner:
                 )
                 return attempt
             next_node = node["definition"]["next"]
-            if run["current_node_id"] != invocation["node_id"]:
+            if (
+                run["current_scope_id"] != attempt["scope_id"]
+                or run["current_node_id"] != invocation["node_id"]
+                or run["current_invocation_id"] not in {None, invocation["id"]}
+            ):
                 return attempt
             if run["control_mode"] == "pause":
                 self.ledger.update_run(
                     run["id"],
                     status="paused",
                     control_mode="pause",
+                    current_scope_id=attempt["scope_id"],
                     current_node_id=next_node,
+                    current_invocation_id=None,
                 )
                 return attempt
             self.ledger.update_run(
                 run["id"],
                 status="running",
+                current_scope_id=attempt["scope_id"],
                 current_node_id=next_node,
+                current_invocation_id=None,
             )
             self._drive(run["id"], attempt["scope_id"], next_node)
         elif conclusion == "confirmed_not_started":
@@ -569,13 +592,17 @@ class Runner:
                         run["id"],
                         status="paused",
                         control_mode="pause",
+                        current_scope_id=attempt["scope_id"],
                         current_node_id=invocation["node_id"],
+                        current_invocation_id=invocation["id"],
                     )
                 else:
                     self.ledger.update_run(
                         run["id"],
                         status="running",
+                        current_scope_id=attempt["scope_id"],
                         current_node_id=invocation["node_id"],
+                        current_invocation_id=invocation["id"],
                     )
                     self._drive(
                         run["id"],
@@ -700,21 +727,31 @@ class Runner:
         run = self.ledger.get_run(run["id"])
         if run is None:
             raise RunError("human request run is missing")
+        if run["current_scope_id"] is None or run["current_node_id"] is None:
+            raise RunError("run has no persisted continuation for human decision")
         node = plan.nodes[invocation["node_id"]]
         next_node = node["definition"]["next"]
         if run["status"] in {"succeeded", "failed", "cancelled"}:
             self.ledger.complete_human_progress_intent(request["id"])
             return run
-        if run["current_node_id"] != invocation["node_id"]:
+        continuation_scope_id = run["current_scope_id"]
+        continuation_node_id = run["current_node_id"]
+        continuation_invocation_id = run["current_invocation_id"]
+        if (
+            continuation_scope_id != invocation["scope_id"]
+            or continuation_node_id != invocation["node_id"]
+            or continuation_invocation_id not in {None, invocation["id"]}
+        ):
             if (
                 run["status"] == "running"
                 and run["control_mode"] == "run"
-                and run["current_node_id"] is not None
+                and continuation_scope_id is not None
+                and continuation_node_id is not None
             ):
                 resumed = self._drive(
                     run["id"],
-                    invocation["scope_id"],
-                    run["current_node_id"],
+                    continuation_scope_id,
+                    continuation_node_id,
                 )
                 self.ledger.complete_human_progress_intent(request["id"])
                 return resumed
@@ -725,7 +762,9 @@ class Runner:
                 run["id"],
                 status="paused",
                 control_mode="pause",
+                current_scope_id=invocation["scope_id"],
                 current_node_id=next_node,
+                current_invocation_id=None,
             )
             paused = self.ledger.get_run(run["id"])
             if paused is None:
@@ -735,7 +774,9 @@ class Runner:
         self.ledger.update_run(
             run["id"],
             status="running",
+            current_scope_id=invocation["scope_id"],
             current_node_id=next_node,
+            current_invocation_id=None,
         )
         resumed = self._drive(run["id"], invocation["scope_id"], next_node)
         self.ledger.complete_human_progress_intent(request["id"])
@@ -757,7 +798,9 @@ class Runner:
             self.ledger.update_run(
                 run_id,
                 status="running",
+                current_scope_id=scope_id,
                 current_node_id=node_id,
+                current_invocation_id=None,
                 next_attempt_at=None,
             )
         plan = self._frozen_plan(run, scope["workflow_id"])
@@ -769,6 +812,24 @@ class Runner:
                 raise KeyError(f"run not found: {run_id}")
             if current_run["control_mode"] != "run":
                 return current_run
+            current_invocation = self.ledger.get_invocation_for_node(scope_id, node_id)
+            if (
+                current_run["current_scope_id"] != scope_id
+                or current_run["current_node_id"] != node_id
+                or current_run["current_invocation_id"]
+                != (current_invocation["id"] if current_invocation is not None else None)
+            ):
+                current_run = self.ledger.update_run(
+                    run_id,
+                    status=current_run["status"],
+                    current_scope_id=scope_id,
+                    current_node_id=node_id,
+                    current_invocation_id=(
+                        current_invocation["id"]
+                        if current_invocation is not None
+                        else None
+                    ),
+                )
             node = plan.nodes[node_id]
             definition = node["definition"]
             if node["type"] == "call":
@@ -777,7 +838,9 @@ class Runner:
                     return self.ledger.update_run(
                         run_id,
                         status="waiting",
+                        current_scope_id=scope_id,
                         current_node_id=node_id,
+                        current_invocation_id=invocation["id"],
                     )
                 if invocation is not None and invocation["status"] == "succeeded":
                     output = json.loads(invocation["output_json"])
@@ -796,7 +859,13 @@ class Runner:
                 node_outputs = self._outputs(scope_id)
                 node_outputs[node_id] = output
                 node_id = definition["next"]
-                self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                self.ledger.update_run(
+                    run_id,
+                    status="running",
+                    current_scope_id=scope_id,
+                    current_node_id=node_id,
+                    current_invocation_id=None,
+                )
                 continue
 
             if node["type"] == "switch":
@@ -820,7 +889,13 @@ class Runner:
                         scope_id=scope_id,
                     )
                 node_id = next_node
-                self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                self.ledger.update_run(
+                    run_id,
+                    status="running",
+                    current_scope_id=scope_id,
+                    current_node_id=node_id,
+                    current_invocation_id=None,
+                )
                 continue
 
             if node["type"] == "repeat":
@@ -841,6 +916,16 @@ class Runner:
                         child_input,
                     )
                     self.ledger.finish_invocation(invocation["id"], status="running")
+                    current_run = self.ledger.get_run(run_id)
+                    if current_run is None:
+                        raise RunError("run disappeared while creating repeat invocation")
+                    self.ledger.update_run(
+                        run_id,
+                        status=current_run["status"],
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=invocation["id"],
+                    )
                     return self._start_repeat_iteration(
                         run_id,
                         scope,
@@ -853,7 +938,13 @@ class Runner:
 
                 if invocation["status"] == "succeeded":
                     node_id = definition["next"]
-                    self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                    self.ledger.update_run(
+                        run_id,
+                        status="running",
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=None,
+                    )
                     continue
                 if invocation["status"] != "running":
                     error = json.loads(invocation["error_json"] or "{}")
@@ -880,7 +971,9 @@ class Runner:
                     return self.ledger.update_run(
                         run_id,
                         status="waiting",
+                        current_scope_id=scope_id,
                         current_node_id=node_id,
+                        current_invocation_id=invocation["id"],
                     )
                 if child_scope["status"] != "succeeded" or child_scope["output_json"] is None:
                     error = json.loads(child_scope["error_json"] or "{}")
@@ -937,7 +1030,13 @@ class Runner:
                         output=iteration_output,
                     )
                     node_id = definition["next"]
-                    self.ledger.update_run(run_id, status="running", current_node_id=node_id)
+                    self.ledger.update_run(
+                        run_id,
+                        status="running",
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=None,
+                    )
                     continue
                 if iteration_index >= definition["maxIterations"]:
                     error = {
@@ -1012,6 +1111,16 @@ class Runner:
                 scope_id,
                 node_id,
                 input_value,
+            )
+            current_run = self.ledger.get_run(run_id)
+            if current_run is None:
+                raise RunError("run disappeared while creating invocation")
+            self.ledger.update_run(
+                run_id,
+                status=current_run["status"],
+                current_scope_id=scope_id,
+                current_node_id=node_id,
+                current_invocation_id=invocation["id"],
             )
         attempt = self.ledger.latest_attempt(invocation["id"])
         if attempt is None:
@@ -1104,7 +1213,13 @@ class Runner:
                 )
                 self.ledger.finish_attempt(attempt["id"], status="waiting")
                 self.ledger.finish_invocation(invocation["id"], status="waiting")
-                self.ledger.update_run(run_id, status="waiting", current_node_id=node_id)
+                self.ledger.update_run(
+                    run_id,
+                    status="waiting",
+                    current_scope_id=scope_id,
+                    current_node_id=node_id,
+                    current_invocation_id=invocation["id"],
+                )
                 return None
             output = result.output
             self._validate_schema(output, definition["outputSchema"])
@@ -1261,7 +1376,9 @@ class Runner:
             return self.ledger.update_run(
                 run_id,
                 status="succeeded",
+                current_scope_id=scope_id,
                 current_node_id=node_id,
+                current_invocation_id=None,
                 output=output,
             )
         parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
@@ -1315,12 +1432,16 @@ class Runner:
                     run_id,
                     status="paused",
                     control_mode="pause",
+                    current_scope_id=scope_id,
                     current_node_id=error_target,
+                    current_invocation_id=None,
                 )
             self.ledger.update_run(
                 run_id,
                 status="running",
+                current_scope_id=scope_id,
                 current_node_id=error_target,
+                current_invocation_id=None,
             )
             return self._drive(run_id, scope_id, error_target)
         if scope["status"] == "active":
@@ -1329,7 +1450,9 @@ class Runner:
             return self.ledger.update_run(
                 run_id,
                 status="failed",
+                current_scope_id=scope_id,
                 current_node_id=node_id,
+                current_invocation_id=None,
                 error=error,
             )
         parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
@@ -1368,7 +1491,9 @@ class Runner:
                 run_id,
                 status="cancelled",
                 control_mode="cancel",
+                current_scope_id=scope_id,
                 current_node_id=node_id,
+                current_invocation_id=None,
                 error=error,
             )
         parent_invocation = self.ledger.get_invocation(scope["parent_invocation_id"])
@@ -1437,15 +1562,39 @@ class Runner:
         run = self.ledger.get_run(run_id)
         if run is None:
             raise KeyError(f"run not found: {run_id}")
-        scopes = [
-            scope
-            for scope in self.ledger.list_scopes(run_id)
-            if scope["status"] == "active"
-        ]
-        for scope in reversed(scopes):
-            if node_id in self._frozen_plan(run, scope["workflow_id"]).nodes:
-                return scope
-        raise RunError(f"no active scope can resume node: {node_id}")
+        scope_id = run["current_scope_id"]
+        if scope_id is None:
+            raise RunError("run has no persisted continuation scope")
+        if run["current_node_id"] != node_id:
+            raise RunError("run continuation node does not match requested node")
+        scope = self.ledger.get_scope(scope_id)
+        if scope is None:
+            raise RunError("run continuation scope is missing")
+        if scope["status"] != "active":
+            raise RunError("run continuation scope is not active")
+        if node_id not in self._frozen_plan(run, scope["workflow_id"]).nodes:
+            raise RunError(f"node is not in the persisted continuation scope: {node_id}")
+        return scope
+
+    def _continuation(self, run: dict[str, Any]) -> tuple[str, str, str | None]:
+        scope_id = run["current_scope_id"]
+        node_id = run["current_node_id"]
+        if scope_id is None or node_id is None:
+            raise RunError("run has no persisted continuation")
+        invocation_id = run["current_invocation_id"]
+        if invocation_id is not None:
+            invocation = self.ledger.get_invocation(invocation_id)
+            if (
+                invocation is None
+                or invocation["run_id"] != run["id"]
+                or invocation["scope_id"] != scope_id
+                or invocation["node_id"] != node_id
+            ):
+                raise RunError("run has an invalid persisted continuation invocation")
+            current = self.ledger.get_invocation_for_node(scope_id, node_id)
+            if current is None or current["id"] != invocation_id:
+                raise RunError("run has an ambiguous persisted continuation invocation")
+        return scope_id, node_id, invocation_id
 
     def _plan(self, workflow_id: str) -> ExecutionPlan:
         try:

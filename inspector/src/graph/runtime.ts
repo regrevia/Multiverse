@@ -27,7 +27,9 @@ type RuntimeRun = {
   bindingDigest: string | null;
   status: RuntimeStatus;
   controlMode: RuntimeStatus;
+  currentScopeId: string | null;
   currentNodeId: string | null;
+  currentInvocationId: string | null;
   version: number;
   deadlineAt: string;
   createdAt: string;
@@ -301,7 +303,9 @@ function isRun(value: unknown): value is RuntimeProjection["run"] {
       "updatedAt",
     ]) &&
     (value.bindingDigest === null || typeof value.bindingDigest === "string") &&
+    (value.currentScopeId === null || typeof value.currentScopeId === "string") &&
     (value.currentNodeId === null || typeof value.currentNodeId === "string") &&
+    (value.currentInvocationId === null || typeof value.currentInvocationId === "string") &&
     typeof value.version === "number"
     &&
     (value.rerunOf === null || typeof value.rerunOf === "string") &&

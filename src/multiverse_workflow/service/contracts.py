@@ -108,6 +108,11 @@ class RunSummary(ServiceModel):
     status: str = Field(min_length=1)
     control_mode: str = Field(alias="controlMode", min_length=1)
     version: int = Field(ge=1)
+    current_scope_id: str | None = Field(default=None, alias="currentScopeId")
     current_node_id: str | None = Field(default=None, alias="currentNodeId")
+    current_invocation_id: str | None = Field(
+        default=None,
+        alias="currentInvocationId",
+    )
     created_at: str = Field(alias="createdAt", min_length=1)
     updated_at: str = Field(alias="updatedAt", min_length=1)

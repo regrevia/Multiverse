@@ -44,17 +44,80 @@ def test_ledger_persists_run_scope_invocation_attempt_and_events(tmp_path: Path)
         output={"text": "done"},
     )
     ledger.finish_invocation(invocation["id"], status="succeeded", output={"text": "done"})
-    ledger.update_run(run["id"], status="waiting", current_node_id="review")
+    ledger.update_run(
+        run["id"],
+        status="waiting",
+        current_scope_id=scope["id"],
+        current_node_id="review",
+        current_invocation_id=None,
+    )
 
     loaded = ledger.get_run(run["id"])
     assert loaded is not None
     assert loaded["status"] == "waiting"
     assert loaded["current_node_id"] == "review"
+    assert loaded["current_scope_id"] == scope["id"]
+    assert loaded["current_invocation_id"] is None
     assert loaded["version"] == 2
     assert ledger.list_events(run["id"])[-1]["type"] == "run.updated"
     assert ledger.get_attempt(attempt["id"])["status"] == "succeeded"
     assert json.loads(ledger.get_attempt(attempt["id"])["output_json"]) == {"text": "done"}
     assert json.loads(ledger.get_scope(scope["id"])["input_json"]) == {"goal": "write"}
+
+
+def test_ledger_rejects_mismatched_run_continuation_identity(tmp_path: Path) -> None:
+    ledger = Ledger(tmp_path / "runtime.db")
+    run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    other_run = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    scope = ledger.create_scope(run["id"], "delivery", path=["root"])
+    other_scope = ledger.create_scope(other_run["id"], "delivery", path=["root"])
+    invocation = ledger.create_invocation(run["id"], scope["id"], "produce", {})
+    other_invocation = ledger.create_invocation(
+        other_run["id"],
+        other_scope["id"],
+        "produce",
+        {},
+    )
+
+    with pytest.raises(LedgerConflict, match="scope does not belong"):
+        ledger.update_run(
+            run["id"],
+            status="running",
+            current_scope_id=other_scope["id"],
+            current_node_id="produce",
+        )
+    with pytest.raises(LedgerConflict, match="invocation does not belong"):
+        ledger.update_run(
+            run["id"],
+            status="running",
+            current_scope_id=scope["id"],
+            current_node_id="produce",
+            current_invocation_id=other_invocation["id"],
+        )
+    with pytest.raises(LedgerConflict, match="node does not match"):
+        ledger.update_run(
+            run["id"],
+            status="running",
+            current_scope_id=scope["id"],
+            current_node_id="review",
+            current_invocation_id=invocation["id"],
+        )
 
 
 def test_ledger_reconciles_unknown_attempt_once_with_evidence(tmp_path: Path) -> None:
@@ -308,9 +371,167 @@ def test_ledger_migrates_legacy_run_rerun_columns(tmp_path: Path) -> None:
         rerun_reason="Repeat acceptance.",
     )
 
-    assert {"rerun_of", "rerun_reason"} <= columns
+    assert {
+        "rerun_of",
+        "rerun_reason",
+        "current_scope_id",
+        "current_invocation_id",
+    } <= columns
     assert rerun["rerun_of"] == source["id"]
     assert rerun["rerun_reason"] == "Repeat acceptance."
+
+
+def test_ledger_migrates_active_legacy_run_continuation(tmp_path: Path) -> None:
+    database = tmp_path / "legacy-active-run.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE runs (
+                id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                package_digest TEXT NOT NULL,
+                binding_digest TEXT,
+                plan_json TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                control_mode TEXT NOT NULL,
+                deadline_at TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                current_node_id TEXT,
+                output_json TEXT,
+                error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE scopes (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                parent_scope_id TEXT,
+                parent_invocation_id TEXT,
+                workflow_id TEXT NOT NULL,
+                path_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE invocations (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                output_json TEXT,
+                error_json TEXT,
+                version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO runs (
+                id, namespace, workflow_id, package_digest, binding_digest,
+                plan_json, input_json, input_digest, status, control_mode,
+                deadline_at, version, current_node_id, output_json, error_json,
+                created_at, updated_at
+            ) VALUES (
+                'run_active', 'local', 'delivery', 'sha256:package', NULL,
+                '{}', '{}', 'sha256:input', 'waiting', 'run',
+                '2099-01-01T00:00:00Z', 2, 'review', NULL, NULL,
+                '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z'
+            );
+            INSERT INTO scopes (
+                id, run_id, parent_scope_id, parent_invocation_id,
+                workflow_id, path_json, status, created_at
+            ) VALUES (
+                'scope_active', 'run_active', NULL, NULL, 'delivery',
+                '["root"]', 'active', '2026-09-20T00:00:00Z'
+            );
+            INSERT INTO invocations (
+                id, run_id, scope_id, node_id, status, input_json, input_digest,
+                output_json, error_json, version, created_at, updated_at
+            ) VALUES (
+                'inv_review', 'run_active', 'scope_active', 'review', 'waiting',
+                '{}', 'sha256:input', NULL, NULL, 1,
+                '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z'
+            );
+            """
+        )
+
+    ledger = Ledger(database)
+    migrated = ledger.get_run("run_active")
+
+    assert migrated is not None
+    assert migrated["current_scope_id"] == "scope_active"
+    assert migrated["current_invocation_id"] == "inv_review"
+    assert migrated["status"] == "waiting"
+
+
+def test_ledger_blocks_legacy_run_when_continuation_is_ambiguous(tmp_path: Path) -> None:
+    database = tmp_path / "legacy-ambiguous-run.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE runs (
+                id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                package_digest TEXT NOT NULL,
+                binding_digest TEXT,
+                plan_json TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                control_mode TEXT NOT NULL,
+                deadline_at TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                current_node_id TEXT,
+                output_json TEXT,
+                error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE scopes (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                parent_scope_id TEXT,
+                parent_invocation_id TEXT,
+                workflow_id TEXT NOT NULL,
+                path_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO runs (
+                id, namespace, workflow_id, package_digest, binding_digest,
+                plan_json, input_json, input_digest, status, control_mode,
+                deadline_at, version, current_node_id, output_json, error_json,
+                created_at, updated_at
+            ) VALUES (
+                'run_ambiguous', 'local', 'delivery', 'sha256:package', NULL,
+                '{}', '{}', 'sha256:input', 'running', 'run',
+                '2099-01-01T00:00:00Z', 2, 'review', NULL, NULL,
+                '2026-09-20T00:00:00Z', '2026-09-20T00:00:00Z'
+            );
+            INSERT INTO scopes (
+                id, run_id, parent_scope_id, parent_invocation_id,
+                workflow_id, path_json, status, created_at
+            ) VALUES
+                ('scope_a', 'run_ambiguous', NULL, NULL, 'delivery',
+                 '["root","a"]', 'active', '2026-09-20T00:00:00Z'),
+                ('scope_b', 'run_ambiguous', NULL, NULL, 'delivery',
+                 '["root","b"]', 'active', '2026-09-20T00:00:01Z');
+            """
+        )
+
+    ledger = Ledger(database)
+    migrated = ledger.get_run("run_ambiguous")
+
+    assert migrated is not None
+    assert migrated["status"] == "blocked"
+    assert migrated["current_scope_id"] is None
+    assert json.loads(migrated["error_json"])["code"] == (
+        "CONTINUATION_MIGRATION_REQUIRED"
+    )
 
 
 def test_ledger_migrates_legacy_command_scope_and_rebuilds_idempotency_index(
