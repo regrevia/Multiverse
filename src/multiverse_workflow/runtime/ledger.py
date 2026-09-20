@@ -1667,6 +1667,33 @@ class Ledger:
                     raise KeyError(f"wait not found: {wait_id}")
         return self.get_wait(wait_id)  # type: ignore[return-value]
 
+    def requeue_stale_waits(
+        self,
+        *,
+        now: str,
+        older_than: str,
+        namespace: str | None = None,
+    ) -> int:
+        clauses = [
+            "status = 'claimed'",
+            "claimed_at IS NOT NULL",
+            "claimed_at <= ?",
+        ]
+        parameters: list[Any] = [older_than]
+        if namespace is not None:
+            clauses.append("namespace = ?")
+            parameters.append(namespace)
+        with self._transaction() as connection:
+            updated = connection.execute(
+                f"""
+                UPDATE waits
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL, updated_at = ?
+                WHERE {' AND '.join(clauses)}
+                """,
+                [now, *parameters],
+            )
+            return updated.rowcount
+
     def decide_human_request(
         self,
         request_id: str,

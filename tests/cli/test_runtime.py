@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from multiverse_workflow.cli.main import app
 from multiverse_workflow.runtime.ledger import Ledger
+from multiverse_workflow.runtime.runner import Runner
 
 ROOT = Path(__file__).parents[2]
 CLI = CliRunner()
@@ -130,6 +132,65 @@ def test_cli_submits_a_structured_human_decision_file(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.stdout
     assert json.loads(result.stdout)["id"] == waiting["id"]
+
+
+def test_cli_worker_once_processes_pending_progress_intent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = tmp_path / "runtime.db"
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+    )
+    waiting = runner.start({"goal": "ship the release"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+    original_drive = runner._drive
+    monkeypatch.setattr(
+        runner,
+        "_drive",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated worker interruption")
+        ),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="simulated worker interruption"):
+            runner.decide(
+                request["id"],
+                choice="approve",
+                comment="Approved.",
+                actor="example-reviewer",
+                subject_digest=request["subject_digest"],
+                expected_version=request["version"],
+                idempotency_key="cli-worker-recovery",
+            )
+    finally:
+        monkeypatch.setattr(runner, "_drive", original_drive)
+        runner.close()
+
+    result = CLI.invoke(
+        app,
+        [
+            "worker",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--db",
+            str(database),
+            "--worker-id",
+            "cli-worker",
+            "--once",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["cycles"] == 1
+    assert payload["workerId"] == "cli-worker"
+    assert payload["processed"][0]["run_id"] == waiting["id"]
+    assert Ledger(database).get_run(waiting["id"])["status"] == "succeeded"
 
 
 def test_cli_pause_resume_and_cancel_commands_use_run_versions(tmp_path: Path) -> None:

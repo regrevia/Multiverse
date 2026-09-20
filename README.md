@@ -112,6 +112,36 @@ Invocation state, and releases the wait if execution fails. It is a bounded
 single-process recovery loop; it is not a distributed queue, an external
 outbox, or proof that an unknown external side effect has stopped.
 
+### Persistent Local Worker
+
+For a continuously running local preview, use the persistent Worker. It owns
+the SQLite database lock, recovers stale wait claims after a process restart,
+and polls the same durable waits used by `sweep()`:
+
+```bash
+uv run mverse worker \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --worker-id local-worker \
+  --poll-interval 1
+```
+
+Use `--once --json` for a bounded health check or a test cycle:
+
+```bash
+uv run mverse worker presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --worker-id local-worker \
+  --once --json
+```
+
+This is a local SQLite development preview with one active Worker per
+database. It does not provide PostgreSQL coordination, multiple active
+Workers, a distributed queue, an external outbox, or proof that an unknown
+external side effect has stopped.
+
 ### Local Run Controls
 
 Paused local runs stop new downstream dispatch. A valid HumanRequest decision

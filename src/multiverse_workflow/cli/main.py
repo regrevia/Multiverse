@@ -11,6 +11,7 @@ from multiverse_workflow.compiler import compile_package, executor_capabilities
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.runner import RunError, Runner
+from multiverse_workflow.runtime.worker import LocalWorker, WorkerLockError
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 artifact_app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -193,6 +194,95 @@ def sweep(
                 f"{record.get('run_id', record.get('request_id', ''))} "
                 f"{record.get('status', 'unknown')}"
             )
+
+
+@app.command()
+def worker(
+    package: Annotated[
+        Path | None,
+        typer.Argument(exists=True, file_okay=False),
+    ] = None,
+    package_option: Annotated[
+        Path | None,
+        typer.Option("--package", exists=True, file_okay=False),
+    ] = None,
+    binding: Annotated[
+        Path | None,
+        typer.Option("--binding", exists=True, dir_okay=False),
+    ] = None,
+    worker_id: Annotated[str, typer.Option("--worker-id")] = "local-worker",
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    namespace: Annotated[str, typer.Option("--namespace")] = "local",
+    poll_interval: Annotated[
+        float,
+        typer.Option("--poll-interval", min=0),
+    ] = 1.0,
+    limit: Annotated[int, typer.Option("--limit", min=1)] = 100,
+    claim_timeout: Annotated[
+        float,
+        typer.Option("--claim-timeout", min=0),
+    ] = 60.0,
+    once: Annotated[bool, typer.Option("--once")] = False,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Run the local single-active SQLite Worker."""
+    selected_package = package_option or package
+    if selected_package is None:
+        _emit_error("package is required", as_json)
+        raise typer.Exit(code=2)
+    if binding is None:
+        _emit_error("binding is required", as_json)
+        raise typer.Exit(code=2)
+    try:
+        local_worker = LocalWorker.from_paths(
+            package_dir=selected_package,
+            binding_path=binding,
+            database_path=db,
+            worker_id=worker_id,
+            namespace=namespace,
+            poll_interval=poll_interval,
+            limit=limit,
+            claim_timeout_seconds=claim_timeout,
+        )
+    except (OSError, RunError, ValueError, WorkerLockError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+
+    try:
+        if once:
+            processed = local_worker.run_once()
+            payload = {
+                "cycles": 1,
+                "processed": processed,
+                "workerId": worker_id,
+            }
+            if as_json:
+                typer.echo(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            elif processed:
+                for record in processed:
+                    typer.echo(
+                        f"{record.get('kind', 'wait')}: "
+                        f"{record.get('run_id', record.get('request_id', ''))} "
+                        f"{record.get('status', 'unknown')}"
+                    )
+            else:
+                typer.echo("worker idle")
+            return
+        local_worker.run_forever()
+    except (KeyError, LedgerConflict, RunError, ValueError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+    except KeyboardInterrupt:
+        if as_json:
+            typer.echo(
+                json.dumps(
+                    {"cycles": "stopped", "processed": [], "workerId": worker_id},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+    finally:
+        local_worker.close()
 
 
 @app.command()
