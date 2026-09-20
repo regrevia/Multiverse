@@ -96,6 +96,48 @@ def test_repeated_decision_command_does_not_replay_downstream_nodes(tmp_path: Pa
     assert len(runner.ledger.list_events(first["id"])) == event_count
 
 
+def test_repeated_decision_resumes_a_persisted_decision_after_process_exit(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runtime.db"
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+    runner.ledger.decide_human_request(
+        request["id"],
+        choice="approve",
+        comment="Approved.",
+        expected_version=request["version"],
+        subject_digest=request["subject_digest"],
+        actor="example-reviewer",
+        idempotency_key="decision-after-exit",
+    )
+
+    resumed = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+    )
+    finished = resumed.decide(
+        request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=request["subject_digest"],
+        expected_version=request["version"],
+        idempotency_key="decision-after-exit",
+    )
+
+    assert finished["status"] == "succeeded"
+    invocation = resumed.ledger.get_invocation(request["invocation_id"])
+    assert invocation is not None
+    assert invocation["status"] == "succeeded"
+
+
 def test_unavailable_adapter_is_rejected_before_a_run_is_recorded(tmp_path: Path) -> None:
     database = tmp_path / "runtime.db"
     runner = Runner(

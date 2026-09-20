@@ -104,10 +104,7 @@ class Runner:
             if previous is not None:
                 if previous["request_id"] != request_id:
                     raise LedgerConflict("idempotency key belongs to another request")
-                run = self.ledger.get_run(request["run_id"])
-                if run is None:
-                    raise RunError("human request run is missing")
-                return run
+                return self._resume_decided_request(request)
         request_type = request["request_type"]
         invocation = self.ledger.get_invocation(request["invocation_id"])
         if invocation is None:
@@ -153,23 +150,39 @@ class Runner:
             actor=actor,
             idempotency_key=idempotency_key or f"decision-{uuid.uuid4().hex}",
         )
+        return self._resume_decided_request(request)
+
+    def _resume_decided_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        invocation = self.ledger.get_invocation(request["invocation_id"])
+        run = self.ledger.get_run(request["run_id"])
+        if invocation is None:
+            raise RunError("human request invocation is missing")
+        if run is None:
+            raise RunError("human request run is missing")
+        plan = self._plan(run["workflow_id"])
+        self._require_matching_definition(run, plan)
+        if invocation["status"] == "succeeded":
+            return run
+        if invocation["status"] != "waiting":
+            raise RunError(f"human request invocation cannot resume: {invocation['status']}")
         attempt = self.ledger.latest_attempt(invocation["id"])
-        decision = self.ledger.get_human_decision(request_id)
+        decision = self.ledger.get_human_decision(request["id"])
         if attempt is None or decision is None:
             raise RunError("human decision ledger records are incomplete")
-        if request_type in {"approval", "review"}:
+        if request["request_type"] in {"approval", "review"}:
             output = {"decision": decision["choice"], "comment": decision["comment"]}
         else:
             output = json.loads(decision["decision_json"])
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+        node = plan.nodes[invocation["node_id"]]
         next_node = node["definition"]["next"]
         self.ledger.update_run(
-            request["run_id"],
+            run["id"],
             status="running",
             current_node_id=next_node,
         )
-        return self._drive(request["run_id"], invocation["scope_id"], next_node)
+        return self._drive(run["id"], invocation["scope_id"], next_node)
 
     def _drive(self, run_id: str, scope_id: str, node_id: str) -> dict[str, Any]:
         run = self.ledger.get_run(run_id)
