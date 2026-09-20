@@ -7,6 +7,7 @@ import typer
 from multiverse_workflow import __version__
 from multiverse_workflow.compiler import compile_package, executor_capabilities
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
+from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.runner import RunError, Runner
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -108,13 +109,27 @@ def run(
 def inspect(
     run_id: Annotated[str, typer.Argument()],
     db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    graph: Annotated[bool, typer.Option("--graph")] = False,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Inspect one persisted local run."""
-    record = Ledger(db).get_run(run_id)
+    ledger = Ledger(db)
+    record = ledger.get_run(run_id)
     if record is None:
         _emit_error(f"run not found: {run_id}", as_json)
         raise typer.Exit(code=2)
+    if graph:
+        if not as_json:
+            _emit_error("--graph requires --json", as_json)
+            raise typer.Exit(code=2)
+        typer.echo(
+            json.dumps(
+                build_run_projection(ledger, run_id),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        return
     _emit_record(record, as_json)
 
 

@@ -28,13 +28,15 @@ The checked-in preview currently supports:
 - local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
 - machine-readable `artifact register` command
+- read-only JSON Inspector snapshots with scopes, nodes, events, HumanRequests, and Artifacts
 
 The preview does not claim support for HTTP Job execution, Local Process
 registration, LangGraph persistence, parallel or general nested workflow
 execution, deployment or import, production HTTP APIs, remote Artifact
 upload/registration, UI forms, or Latent Handoff. Local Run controls do not yet
 provide command receipts, active external Attempt cancellation, reconciliation,
-or worker crash recovery.
+or worker crash recovery. Inspector snapshots are local point-in-time DTOs;
+they do not provide HTTP, SSE, pagination, authorization, or embedded SDK APIs.
 
 ## Authoring Loop
 
@@ -92,6 +94,15 @@ Inspect a persisted run:
 ```bash
 uv run mverse inspect <run-id> \
   --db .multiverse/runtime.db \
+  --json
+```
+
+Export its graph projection:
+
+```bash
+uv run mverse inspect <run-id> \
+  --db .multiverse/runtime.db \
+  --graph \
   --json
 ```
 

@@ -7,6 +7,7 @@ import pytest
 
 from multiverse_workflow.runtime.executors import ExecutionResult, GeneratedArtifact
 from multiverse_workflow.runtime.ledger import LedgerConflict
+from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.registry import (
     ExecutorDescriptor,
     ExecutorRegistry,
@@ -253,6 +254,48 @@ def test_repeat_fails_when_the_iteration_limit_is_reached(
         ["root", "repair", "2"],
     ]
     assert all(scope["status"] == "succeeded" for scope in scopes[1:])
+
+
+def test_repeat_projection_keeps_each_child_scope_and_its_frozen_nodes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_round(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        round_number = input_value["round"] + 1
+        return ExecutionResult(
+            output={
+                "round": round_number,
+                "completeAfter": input_value["completeAfter"],
+                "valid": round_number >= input_value["completeAfter"],
+            }
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_round)
+    runner = Runner(
+        _write_repeat_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    finished = runner.start({"round": 0, "completeAfter": 2})
+
+    projection = build_run_projection(runner.ledger, finished["id"])
+    child_scopes = [scope for scope in projection["scopes"] if len(scope["path"]) > 1]
+    node_ids = {node["id"] for node in projection["nodes"]}
+
+    assert len(child_scopes) == 2
+    assert all(f"{scope['id']}:work" in node_ids for scope in child_scopes)
+    assert all(f"{scope['id']}:complete" in node_ids for scope in child_scopes)
 
 
 def test_repeat_creates_a_new_human_request_for_each_iteration(tmp_path: Path) -> None:

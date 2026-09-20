@@ -78,7 +78,13 @@ class Runner:
             workflow_id=workflow_id,
             package_digest=plan.package_digest,
             binding_digest=plan.binding_digest,
-            plan=plan.as_dict(),
+            plan={
+                "rootWorkflowId": workflow_id,
+                "workflows": {
+                    candidate_id: candidate_plan.as_dict()
+                    for candidate_id, candidate_plan in self._plans.items()
+                },
+            },
             input_value=input_value,
             deadline_at=_timestamp(deadline),
             rerun_of=rerun_of,

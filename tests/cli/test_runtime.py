@@ -209,6 +209,38 @@ def test_cli_pause_resume_and_cancel_commands_use_run_versions(tmp_path: Path) -
     assert json.loads(cancel_result.stdout)["status"] == "cancelled"
 
 
+def test_cli_inspect_graph_exports_a_runtime_projection(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    request_input = tmp_path / "request.json"
+    request_input.write_text(json.dumps({"goal": "ship the release"}), encoding="utf-8")
+    run_result = CLI.invoke(
+        app,
+        [
+            "run",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--input",
+            str(request_input),
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    waiting = json.loads(run_result.stdout)
+
+    result = CLI.invoke(
+        app,
+        ["inspect", waiting["id"], "--db", str(database), "--graph", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    projection = json.loads(result.stdout)
+    assert projection["protocolVersion"] == "multiverse/v0.1"
+    assert projection["run"]["id"] == waiting["id"]
+    assert projection["nodes"]
+
+
 def test_cli_runs_manual_input_artifact_trial_end_to_end(tmp_path: Path) -> None:
     database = tmp_path / "runtime.db"
     request_input = tmp_path / "request.json"

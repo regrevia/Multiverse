@@ -78,6 +78,19 @@ These controls are limited to the local SQLite preview. They do not yet provide
 durable command receipts, external execution cancellation, worker recovery, or
 reconciliation of an active external Attempt.
 
+### Inspector Snapshot
+
+Export a read-only graph and audit snapshot for the Inspector or another local
+viewer. The snapshot uses stable Scope and node identities and contains no
+execution command or Artifact content endpoint.
+
+```bash
+uv run mverse inspect <run-id> \
+  --db .multiverse/runtime.db \
+  --graph \
+  --json
+```
+
 ### Trusted Local Ollama Agent Trial
 
 The `content-ollama` binding runs a real local Ollama model through the

@@ -401,6 +401,17 @@ class Ledger:
         ).fetchall()
         return [invocation for row in rows if (invocation := _row(row)) is not None]
 
+    def list_attempts(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM attempts
+            WHERE run_id = ?
+            ORDER BY created_at, attempt_no
+            """,
+            (run_id,),
+        ).fetchall()
+        return [attempt for row in rows if (attempt := _row(row)) is not None]
+
     def list_scope_invocations(self, scope_id: str) -> list[dict[str, Any]]:
         rows = self._connection.execute(
             "SELECT * FROM invocations WHERE scope_id = ? ORDER BY created_at, id",
@@ -724,6 +735,13 @@ class Ledger:
             "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
         ).fetchone()
         return _row(row)
+
+    def list_artifacts(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at, id",
+            (run_id,),
+        ).fetchall()
+        return [artifact for row in rows if (artifact := _row(row)) is not None]
 
     def validate_artifact_refs(self, run_id: str, artifact_refs: list[str]) -> None:
         run = self.get_run(run_id)
