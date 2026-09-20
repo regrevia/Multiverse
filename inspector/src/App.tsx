@@ -15,9 +15,11 @@ import {
   PanelRight,
   Play,
   Plus,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
+  Upload,
   UserRound,
   Workflow,
   Zap,
@@ -32,9 +34,16 @@ import {
   type NodeStatus,
   visibleGraph,
 } from "./graph/model";
+import { translatePositions, type GraphPosition } from "./graph/layout";
+import { mapRuntimeProjection, parseRuntimeProjection } from "./graph/runtime";
 
 type Point = { x: number; y: number };
 type PanelMode = "audit" | "agent";
+type NodeDrag = {
+  ids: string[];
+  pointer: Point;
+  starts: Record<string, GraphPosition>;
+};
 
 const statusLabels: Record<NodeStatus, string> = {
   succeeded: "已完成",
@@ -84,20 +93,35 @@ function App() {
   const [zoom, setZoom] = useState(0.84);
   const [pan, setPan] = useState<Point>({ x: 24, y: 28 });
   const [dragStart, setDragStart] = useState<Point | null>(null);
+  const [nodePositions, setNodePositions] = useState<Record<string, GraphPosition>>({});
+  const [nodeDrag, setNodeDrag] = useState<NodeDrag | null>(null);
+  const nodeMovedRef = useRef(false);
   const [agentEvents, setAgentEvents] = useState([
     "智能体已开始一次细化尝试",
     "已为 draft → refine 选择标准交接",
     "运行证据仍绑定在当前作用域",
   ]);
+  const [importState, setImportState] = useState<
+    { kind: "demo" | "reading" | "success" | "error"; message: string }
+  >({ kind: "demo", message: "演示数据" });
   const viewportRef = useRef<HTMLDivElement>(null);
+  const snapshotInputRef = useRef<HTMLInputElement>(null);
   const visible = useMemo(
     () => visibleGraph(graph, collapsedGroups),
     [graph, collapsedGroups],
   );
+  const renderedNodes = useMemo(
+    () =>
+      visible.nodes.map((node) => ({
+        ...node,
+        ...(nodePositions[node.id] ?? {}),
+      })),
+    [nodePositions, visible.nodes],
+  );
   const selectedNode =
-    visible.nodes.find((node) => node.id === selectedId) ??
+    renderedNodes.find((node) => node.id === selectedId) ??
     graph.nodes.find((node) => node.id === selectedId) ??
-    visible.nodes[0];
+    renderedNodes[0];
 
   function toggleGroup(groupId: string) {
     setCollapsedGroups((current) => {
@@ -149,6 +173,34 @@ function App() {
     applyPatchText(nextText);
   }
 
+  async function importSnapshot(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    setImportState({ kind: "reading", message: "读取中" });
+    try {
+      const projection = parseRuntimeProjection(JSON.parse(await file.text()));
+      const nextGraph = mapRuntimeProjection(projection);
+      setGraph(nextGraph);
+      setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
+      setSelectedId(nextGraph.groups[0]?.id ?? nextGraph.nodes[0]?.id ?? "");
+      setPanelMode("audit");
+      setZoom(0.84);
+      setPan({ x: 24, y: 28 });
+      setNodePositions({});
+      setNodeDrag(null);
+      setImportState({ kind: "success", message: file.name });
+    } catch (error) {
+      setImportState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "快照读取失败",
+      });
+    } finally {
+      input.value = "";
+    }
+  }
+
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -156,23 +208,70 @@ function App() {
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (nodeDrag) {
+      const delta = {
+        x: (event.clientX - nodeDrag.pointer.x) / zoom,
+        y: (event.clientY - nodeDrag.pointer.y) / zoom,
+      };
+      if (Math.abs(delta.x) > 2 || Math.abs(delta.y) > 2) {
+        nodeMovedRef.current = true;
+      }
+      setNodePositions((current) => ({
+        ...current,
+        ...translatePositions(nodeDrag.starts, nodeDrag.ids, delta),
+      }));
+      return;
+    }
     if (!dragStart) return;
     setPan({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y });
   }
 
   function onPointerUp() {
     setDragStart(null);
+    setNodeDrag(null);
+  }
+
+  function positionFor(id: string): GraphPosition {
+    const stored = nodePositions[id];
+    if (stored) return stored;
+    const graphItem =
+      graph.nodes.find((node) => node.id === id) ??
+      graph.groups.find((group) => group.id === id);
+    return graphItem ? { x: graphItem.x, y: graphItem.y } : { x: 0, y: 0 };
+  }
+
+  function startNodeDrag(
+    event: React.PointerEvent<HTMLButtonElement>,
+    node: GraphNode,
+  ) {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    nodeMovedRef.current = false;
+    const memberIds = graph.groups.find((group) => group.id === node.id)?.memberIds ?? [];
+    const ids = node.type === "group" ? [node.id, ...memberIds] : [node.id];
+    setNodeDrag({
+      ids,
+      pointer: { x: event.clientX, y: event.clientY },
+      starts: Object.fromEntries(ids.map((id) => [id, positionFor(id)])),
+    });
   }
 
   function onWheel(event: React.WheelEvent<HTMLDivElement>) {
     setZoom((value) => Math.min(1.24, Math.max(0.58, value - event.deltaY * 0.0008)));
   }
 
-  const nodeMap = new Map(visible.nodes.map((node) => [node.id, node]));
+  const nodeMap = new Map(renderedNodes.map((node) => [node.id, node]));
 
   return (
     <main className="app-shell">
       <header className="topbar">
+        <input
+          ref={snapshotInputRef}
+          className="visually-hidden"
+          type="file"
+          accept=".json,application/json"
+          onChange={importSnapshot}
+        />
         <div className="brand-lockup">
           <div className="brand-mark"><Workflow size={18} strokeWidth={2.5} /></div>
           <div>
@@ -187,7 +286,17 @@ function App() {
           <span className="version-tag">v{graph.packageVersion}</span>
         </div>
         <div className="topbar-actions">
-          <div className="live-state"><span className="live-dot" /> 实时预览</div>
+          <div className="live-state">
+            <span className="live-dot" /> {importState.kind === "success" ? "本地快照" : "实时预览"}
+          </div>
+          <button
+            className="icon-button"
+            title="导入运行快照"
+            aria-label="导入运行快照"
+            onClick={() => snapshotInputRef.current?.click()}
+          >
+            <Upload size={17} />
+          </button>
           <button className="icon-button" title="搜索证据"><Search size={17} /></button>
           <button className="icon-button" title="打开面板"><PanelRight size={17} /></button>
           <div className="avatar">R</div>
@@ -234,6 +343,11 @@ function App() {
               </button>
             </div>
           </div>
+          {importState.kind === "error" && (
+            <div className="snapshot-error" role="alert">
+              <AlertCircle size={15} /> {importState.message}
+            </div>
+          )}
 
           <div className="canvas-toolbar">
             <div className="canvas-controls">
@@ -241,6 +355,7 @@ function App() {
               <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
               <button className="icon-button small" title="放大" onClick={() => setZoom((value) => Math.min(1.24, value + 0.1))}><Plus size={15} /></button>
               <button className="icon-button small" title="适配画布" onClick={() => { setZoom(0.84); setPan({ x: 24, y: 28 }); }}><Maximize2 size={15} /></button>
+              <button className="icon-button small" title="恢复自动布局" onClick={() => setNodePositions({})}><RotateCcw size={14} /></button>
             </div>
           </div>
 
@@ -275,14 +390,21 @@ function App() {
                   );
                 })}
               </svg>
-              {visible.nodes.filter((node) => node.type === "group").map((node) => {
+              {renderedNodes.filter((node) => node.type === "group").map((node) => {
                 const isCollapsed = collapsedGroups.has(node.id);
                 return (
                   <button
                     key={node.id}
                     className={`scope-card ${isCollapsed ? "collapsed" : "expanded"}`}
                     style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
-                    onClick={() => toggleGroup(node.id)}
+                    onPointerDown={(event) => startNodeDrag(event, node)}
+                    onClick={() => {
+                      if (nodeMovedRef.current) {
+                        nodeMovedRef.current = false;
+                        return;
+                      }
+                      toggleGroup(node.id);
+                    }}
                   >
                     <span className="scope-head"><span><Layers3 size={14} /> {node.title}</span>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</span>
                     <span className="scope-subtitle">{node.subtitle}</span>
@@ -290,12 +412,13 @@ function App() {
                   </button>
                 );
               })}
-              {visible.nodes.filter((node) => node.type !== "group").map((node) => (
+              {renderedNodes.filter((node) => node.type !== "group").map((node) => (
                 <NodeCard
                   key={node.id}
                   node={node}
                   selected={selectedId === node.id}
                   onClick={() => setSelectedId(node.id)}
+                  onPointerDown={(event) => startNodeDrag(event, node)}
                 />
               ))}
             </div>
@@ -334,10 +457,25 @@ function App() {
   );
 }
 
-function NodeCard({ node, selected, onClick }: { node: GraphNode; selected: boolean; onClick: () => void }) {
+function NodeCard({
+  node,
+  selected,
+  onClick,
+  onPointerDown,
+}: {
+  node: GraphNode;
+  selected: boolean;
+  onClick: () => void;
+  onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}) {
   const Icon = node.type === "human" ? UserRound : node.type === "end" ? Check : node.type === "switch" ? GitBranch : Box;
   return (
-    <button className={`node-card ${selected ? "selected" : ""} status-${node.status}`} style={{ left: node.x, top: node.y, width: node.width, height: node.height }} onClick={onClick}>
+    <button
+      className={`node-card ${selected ? "selected" : ""} status-${node.status}`}
+      style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+    >
       <span className="node-topline"><span className="node-type"><Icon size={14} /> {nodeTypeLabels[node.type]}</span><StatusIcon status={node.status} /></span>
       <strong>{node.title}</strong>
       <span className="node-subtitle">{node.subtitle}</span>

@@ -106,6 +106,12 @@ uv run mverse inspect <run-id> \
   --json
 ```
 
+将命令输出保存为 JSON 后，在 `inspector` 顶部点击导入图标即可载入审计图。
+导入只替换查看器的本地视图，不调用 Runtime 命令；内容代表导出时刻，
+不会自动跟随运行变化，也不提供 HTTP、SSE、分页或授权能力。
+画布节点和作用域支持本地拖动排布，排布不会写回 Runtime；恢复布局图标
+会清除本次查看器会话中的坐标覆盖。
+
 Submit a review decision:
 
 ```bash

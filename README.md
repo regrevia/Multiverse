@@ -91,6 +91,12 @@ uv run mverse inspect <run-id> \
   --json
 ```
 
+在 `inspector` 中点击顶部的导入图标，选择上述 JSON 文件即可查看运行图。
+导入内容是本地、只读、时间点快照；查看器不会通过文件导入触发运行、
+暂停、恢复、取消或重新运行。
+查看器中的节点和作用域可以在画布上拖动调整，仅影响当前浏览器视图；
+点击画布工具栏的恢复布局图标可以回到自动布局。
+
 ### Trusted Local Ollama Agent Trial
 
 The `content-ollama` binding runs a real local Ollama model through the

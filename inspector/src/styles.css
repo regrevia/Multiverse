@@ -27,6 +27,7 @@ button { border: 0; cursor: pointer; }
 .live-state { display: flex; align-items: center; gap: 7px; margin-right: 12px; color: #5d7485; font-size: 12px; }
 .live-dot { width: 7px; height: 7px; display: block; border-radius: 50%; background: #2eabb0; box-shadow: 0 0 0 4px rgba(46,171,176,.14); }
 .avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #203144; color: #fff; font-size: 12px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #d4dee7; border-radius: 7px; background: #fbfdff; color: #607589; transition: transform .2s ease, border-color .2s ease, color .2s ease; }
 .icon-button:hover { border-color: #8dbbc7; color: #203144; transform: translateY(-1px); }
 .icon-button.small { width: 27px; height: 27px; border-color: #d9e2e9; background: rgba(251,253,255,.7); }
@@ -50,6 +51,7 @@ button { border: 0; cursor: pointer; }
 .stage-header { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
 .stage-header h1 { margin: 0; font-size: 31px; line-height: 1.05; letter-spacing: -.03em; font-weight: 600; }
 .stage-actions { display: flex; gap: 8px; margin-top: 9px; }
+.snapshot-error { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: #b35d68; font-size: 11px; }
 .action-button { width: 34px; height: 34px; }
 .primary-action { border-color: #203144; background: #203144; color: #f4f9fc; }
 .primary-action:hover { border-color: #203144; color: #f4f9fc; }
