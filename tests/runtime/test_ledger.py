@@ -149,6 +149,64 @@ def test_ledger_migrates_legacy_scope_columns(tmp_path: Path) -> None:
     assert migrated["error_json"] is None
 
 
+def test_ledger_migrates_legacy_run_rerun_columns(tmp_path: Path) -> None:
+    database = tmp_path / "legacy.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE runs (
+                id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                package_digest TEXT NOT NULL,
+                binding_digest TEXT,
+                plan_json TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                control_mode TEXT NOT NULL,
+                deadline_at TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                current_node_id TEXT,
+                output_json TEXT,
+                error_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+
+    ledger = Ledger(database)
+    columns = {
+        row["name"]
+        for row in ledger._connection.execute("PRAGMA table_info(runs)").fetchall()
+    }
+    source = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+    )
+    rerun = ledger.create_run(
+        namespace="local",
+        workflow_id="delivery",
+        package_digest="sha256:package",
+        binding_digest=None,
+        plan={},
+        input_value={},
+        deadline_at="2099-01-01T00:00:00Z",
+        rerun_of=source["id"],
+        rerun_reason="Repeat acceptance.",
+    )
+
+    assert {"rerun_of", "rerun_reason"} <= columns
+    assert rerun["rerun_of"] == source["id"]
+    assert rerun["rerun_reason"] == "Repeat acceptance."
+
+
 def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "runtime.db")
     run = ledger.create_run(

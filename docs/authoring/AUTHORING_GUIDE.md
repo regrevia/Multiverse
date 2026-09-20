@@ -23,6 +23,7 @@ The checked-in preview currently supports:
 - builtin local executors
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
+- version-checked local pause, resume, cancel, and terminal-run rerun commands
 - `input` human requests with direct output-schema JSON submissions
 - local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
@@ -31,7 +32,9 @@ The checked-in preview currently supports:
 The preview does not claim support for HTTP Job execution, Local Process
 registration, LangGraph persistence, parallel or general nested workflow
 execution, deployment or import, production HTTP APIs, remote Artifact
-upload/registration, UI forms, or Latent Handoff.
+upload/registration, UI forms, or Latent Handoff. Local Run controls do not yet
+provide command receipts, active external Attempt cancellation, reconciliation,
+or worker crash recovery.
 
 ## Authoring Loop
 

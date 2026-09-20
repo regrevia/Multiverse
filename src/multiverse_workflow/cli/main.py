@@ -119,6 +119,104 @@ def inspect(
 
 
 @app.command()
+def pause(
+    run_id: Annotated[str, typer.Argument()],
+    expected_version: Annotated[int, typer.Option("--expected-version")],
+    reason: Annotated[str, typer.Option("--reason")],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Pause new local dispatch for a Run."""
+    try:
+        record = Ledger(db).control_run(
+            run_id,
+            operation="pause",
+            expected_version=expected_version,
+            reason=reason,
+        )
+    except (KeyError, LedgerConflict) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=3) from exc
+    _emit_record(record, as_json)
+
+
+@app.command()
+def resume(
+    run_id: Annotated[str, typer.Argument()],
+    package: Annotated[Path, typer.Option("--package", exists=True, file_okay=False)],
+    binding: Annotated[Path, typer.Option("--binding", exists=True, dir_okay=False)],
+    expected_version: Annotated[int, typer.Option("--expected-version")],
+    reason: Annotated[str, typer.Option("--reason")],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Resume local dispatch for a paused Run."""
+    try:
+        record = Runner(package, binding_path=binding, database_path=db).resume(
+            run_id,
+            expected_version=expected_version,
+            reason=reason,
+        )
+    except LedgerConflict as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=3) from exc
+    except (KeyError, RunError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+    _emit_record(record, as_json)
+
+
+@app.command()
+def cancel(
+    run_id: Annotated[str, typer.Argument()],
+    expected_version: Annotated[int, typer.Option("--expected-version")],
+    reason: Annotated[str, typer.Option("--reason")],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Cancel a local Run that has no active external Attempt."""
+    try:
+        record = Ledger(db).control_run(
+            run_id,
+            operation="cancel",
+            expected_version=expected_version,
+            reason=reason,
+        )
+    except (KeyError, LedgerConflict) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=3) from exc
+    _emit_record(record, as_json)
+
+
+@app.command()
+def rerun(
+    run_id: Annotated[str, typer.Argument()],
+    package: Annotated[Path, typer.Option("--package", exists=True, file_okay=False)],
+    binding: Annotated[Path, typer.Option("--binding", exists=True, dir_okay=False)],
+    reason: Annotated[str, typer.Option("--reason")],
+    db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Create a separate local Run from a terminal Run's frozen input."""
+    try:
+        record = Runner(package, binding_path=binding, database_path=db).rerun(
+            run_id,
+            reason=reason,
+        )
+    except LedgerConflict as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=3) from exc
+    except (KeyError, RunError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
+    _emit_record(record, as_json)
+    if record["status"] == "waiting":
+        raise typer.Exit(code=4)
+    if record["status"] == "failed":
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def decide(
     request_id: Annotated[str, typer.Argument()],
     package: Annotated[Path, typer.Argument(exists=False, file_okay=False)],

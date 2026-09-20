@@ -44,6 +44,40 @@ and general nested workflow execution, deployment/import, outbox/inbox
 recovery, the production HTTP API, and Latent Handoff are not claimed as
 implemented yet.
 
+### Local Run Controls
+
+Paused local runs stop new downstream dispatch. A valid HumanRequest decision
+can still be recorded while paused, but only `resume` continues the persisted
+flow. `cancel` invalidates pending local HumanRequests and prevents late
+decisions from reviving the Run. `rerun` creates a new Run using the source
+Run's frozen input and records its source; it does not copy an approval.
+
+```bash
+uv run mverse pause <run-id> \
+  --db .multiverse/runtime.db \
+  --expected-version <version> \
+  --reason "hold for review" \
+  --json
+
+uv run mverse resume <run-id> \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --expected-version <version> \
+  --reason "continue" \
+  --json
+
+uv run mverse cancel <run-id> \
+  --db .multiverse/runtime.db \
+  --expected-version <version> \
+  --reason "withdrawn" \
+  --json
+```
+
+These controls are limited to the local SQLite preview. They do not yet provide
+durable command receipts, external execution cancellation, worker recovery, or
+reconciliation of an active external Attempt.
+
 ### Trusted Local Ollama Agent Trial
 
 The `content-ollama` binding runs a real local Ollama model through the

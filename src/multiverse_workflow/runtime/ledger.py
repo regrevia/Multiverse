@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 
 class LedgerConflict(RuntimeError):
@@ -40,6 +40,8 @@ class Ledger:
         plan: dict[str, Any],
         input_value: Any,
         deadline_at: str,
+        rerun_of: str | None = None,
+        rerun_reason: str | None = None,
     ) -> dict[str, Any]:
         run_id = _new_id("run")
         now = _now()
@@ -50,8 +52,9 @@ class Ledger:
                 INSERT INTO runs (
                     id, namespace, workflow_id, package_digest, binding_digest,
                     plan_json, input_json, input_digest, status, control_mode,
-                    deadline_at, version, current_node_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL, ?, ?)
+                    deadline_at, version, current_node_id, rerun_of, rerun_reason,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, NULL, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -63,6 +66,8 @@ class Ledger:
                     input_json,
                     _digest(input_json),
                     deadline_at,
+                    rerun_of,
+                    rerun_reason,
                     now,
                     now,
                 ),
@@ -72,6 +77,109 @@ class Ledger:
                 run_id,
                 "run.created",
                 {"status": "queued", "workflowId": workflow_id},
+            )
+        return self.get_run(run_id)  # type: ignore[return-value]
+
+    def control_run(
+        self,
+        run_id: str,
+        *,
+        operation: Literal["pause", "resume", "cancel"],
+        expected_version: int,
+        reason: str,
+    ) -> dict[str, Any]:
+        if not reason.strip():
+            raise LedgerConflict("control reason must not be empty")
+        with self._transaction() as connection:
+            run = self._require_run(connection, run_id)
+            if int(run["version"]) != expected_version:
+                raise LedgerConflict("run version conflict")
+            if operation == "pause":
+                if run["status"] not in {"queued", "running", "waiting"}:
+                    raise LedgerConflict(f"run cannot be paused from status: {run['status']}")
+                status = "paused"
+                control_mode = "pause"
+                event_type = "run.paused"
+            elif operation == "resume":
+                if run["status"] != "paused" or run["control_mode"] != "pause":
+                    raise LedgerConflict("only a paused run can resume")
+                status = "running"
+                control_mode = "run"
+                event_type = "run.resumed"
+            else:
+                if run["status"] in {"succeeded", "failed", "cancelled"}:
+                    raise LedgerConflict("run is already terminal")
+                active_attempt = connection.execute(
+                    """
+                    SELECT 1 FROM attempts
+                    WHERE run_id = ? AND status IN ('created', 'submitted', 'running')
+                    LIMIT 1
+                    """,
+                    (run_id,),
+                ).fetchone()
+                connection.execute(
+                    """
+                    UPDATE human_requests
+                    SET status = 'cancelled', version = version + 1, updated_at = ?
+                    WHERE run_id = ? AND status = 'pending'
+                    """,
+                    (_now(), run_id),
+                )
+                if active_attempt is None:
+                    cancellation_error = _json(
+                        {"code": "RUN_CANCELLED", "message": reason}
+                    )
+                    connection.execute(
+                        """
+                        UPDATE attempts
+                        SET status = 'cancelled', error_json = ?, updated_at = ?
+                        WHERE run_id = ? AND status IN ('created', 'waiting')
+                        """,
+                        (cancellation_error, _now(), run_id),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE invocations
+                        SET status = 'cancelled', error_json = ?, version = version + 1,
+                            updated_at = ?
+                        WHERE run_id = ? AND status IN ('planned', 'running', 'waiting')
+                        """,
+                        (cancellation_error, _now(), run_id),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE scopes
+                        SET status = 'cancelled', error_json = ?
+                        WHERE run_id = ? AND status = 'active'
+                        """,
+                        (cancellation_error, run_id),
+                    )
+                    status = "cancelled"
+                    event_type = "run.cancelled"
+                else:
+                    status = "stopping"
+                    event_type = "run.cancel_requested"
+                control_mode = "cancel"
+            version = int(run["version"]) + 1
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = ?, control_mode = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (status, control_mode, version, _now(), run_id),
+            )
+            self._event(
+                connection,
+                run_id,
+                event_type,
+                {
+                    "operation": operation,
+                    "reason": reason,
+                    "status": status,
+                    "controlMode": control_mode,
+                    "version": version,
+                },
             )
         return self.get_run(run_id)  # type: ignore[return-value]
 
@@ -686,7 +794,7 @@ class Ledger:
             if int(request["version"]) != expected_version:
                 raise LedgerConflict("human request version conflict")
             if request["status"] != "pending":
-                raise LedgerConflict("human request is already decided")
+                raise LedgerConflict("human request is not pending")
             if request["subject_digest"] != subject_digest:
                 raise LedgerConflict("human request subject conflict")
             if actor not in json.loads(request["authorized_subjects_json"]):
@@ -766,6 +874,8 @@ class Ledger:
                 deadline_at TEXT NOT NULL,
                 version INTEGER NOT NULL,
                 current_node_id TEXT,
+                rerun_of TEXT REFERENCES runs(id),
+                rerun_reason TEXT,
                 output_json TEXT,
                 error_json TEXT,
                 created_at TEXT NOT NULL,
@@ -886,6 +996,15 @@ class Ledger:
             self._connection.execute(
                 "ALTER TABLE human_decisions ADD COLUMN decision_json TEXT NOT NULL DEFAULT '{}'"
             )
+        run_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        for column, definition in (
+            ("rerun_of", "TEXT"),
+            ("rerun_reason", "TEXT"),
+        ):
+            if column not in run_columns:
+                self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
         scope_columns = {
             row["name"] for row in self._connection.execute("PRAGMA table_info(scopes)").fetchall()
         }

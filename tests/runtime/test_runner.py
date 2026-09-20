@@ -68,6 +68,99 @@ def test_content_delivery_rejection_follows_explicit_failed_end(tmp_path: Path) 
     assert json.loads(finished["error_json"])["code"] == "DELIVERABLE_REJECTED"
 
 
+def test_paused_run_records_human_decision_without_dispatching_downstream(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    paused = runner.pause(
+        waiting["id"],
+        expected_version=waiting["version"],
+        reason="Wait for the release window.",
+    )
+    request = runner.pending_human_requests(waiting["id"])[0]
+
+    decided = runner.decide(
+        request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=request["subject_digest"],
+        expected_version=request["version"],
+    )
+
+    assert paused["status"] == "paused"
+    assert paused["control_mode"] == "pause"
+    assert decided["status"] == "paused"
+    assert runner.resume(
+        decided["id"],
+        expected_version=decided["version"],
+        reason="Release window is open.",
+    )["status"] == "succeeded"
+
+
+def test_cancelled_waiting_run_rejects_a_late_human_decision(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+
+    cancelled = runner.cancel(
+        waiting["id"],
+        expected_version=waiting["version"],
+        reason="Release was withdrawn.",
+    )
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["control_mode"] == "cancel"
+    cancelled_request = runner.ledger.get_human_request(request["id"])
+    assert cancelled_request["status"] == "cancelled"
+    with pytest.raises(LedgerConflict, match="not pending"):
+        runner.decide(
+            request["id"],
+            choice="approve",
+            comment="Too late.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=cancelled_request["version"],
+        )
+
+
+def test_rerun_creates_a_new_waiting_run_without_reusing_the_approval(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting = runner.start({"goal": "write a release note"})
+    first_request = runner.pending_human_requests(waiting["id"])[0]
+    finished = runner.decide(
+        first_request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=first_request["subject_digest"],
+        expected_version=first_request["version"],
+    )
+
+    rerun = runner.rerun(finished["id"], reason="Run the acceptance flow again.")
+    requests = runner.pending_human_requests(rerun["id"])
+
+    assert finished["status"] == "succeeded"
+    assert rerun["status"] == "waiting"
+    assert rerun["id"] != finished["id"]
+    assert rerun["rerun_of"] == finished["id"]
+    assert len(requests) == 1
+    assert requests[0]["id"] != first_request["id"]
+
+
 def test_repeat_runs_each_iteration_in_an_independent_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

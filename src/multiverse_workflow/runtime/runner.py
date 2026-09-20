@@ -56,7 +56,14 @@ class Runner:
             )
         self.ledger = Ledger(database_path)
 
-    def start(self, input_value: Any, workflow_id: str | None = None) -> dict[str, Any]:
+    def start(
+        self,
+        input_value: Any,
+        workflow_id: str | None = None,
+        *,
+        rerun_of: str | None = None,
+        rerun_reason: str | None = None,
+    ) -> dict[str, Any]:
         workflow_id = workflow_id or next(iter(self._plans))
         plan = self._plan(workflow_id)
         workflow = self._workflows[workflow_id]
@@ -74,6 +81,8 @@ class Runner:
             plan=plan.as_dict(),
             input_value=input_value,
             deadline_at=_timestamp(deadline),
+            rerun_of=rerun_of,
+            rerun_reason=rerun_reason,
         )
         scope = self.ledger.create_scope(
             run["id"],
@@ -93,6 +102,58 @@ class Runner:
 
     def inspect(self, run_id: str) -> dict[str, Any] | None:
         return self.ledger.get_run(run_id)
+
+    def pause(self, run_id: str, *, expected_version: int, reason: str) -> dict[str, Any]:
+        return self.ledger.control_run(
+            run_id,
+            operation="pause",
+            expected_version=expected_version,
+            reason=reason,
+        )
+
+    def resume(self, run_id: str, *, expected_version: int, reason: str) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        self._require_matching_definition(run, self._plan(run["workflow_id"]))
+        resumed = self.ledger.control_run(
+            run_id,
+            operation="resume",
+            expected_version=expected_version,
+            reason=reason,
+        )
+        node_id = resumed["current_node_id"]
+        if node_id is None:
+            return resumed
+        return self._drive(run_id, self._active_scope_for_node(run_id, node_id)["id"], node_id)
+
+    def cancel(self, run_id: str, *, expected_version: int, reason: str) -> dict[str, Any]:
+        return self.ledger.control_run(
+            run_id,
+            operation="cancel",
+            expected_version=expected_version,
+            reason=reason,
+        )
+
+    def rerun(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        input_value: Any | None = None,
+    ) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if run["status"] not in {"succeeded", "failed", "cancelled"}:
+            raise LedgerConflict("only a terminal run can be rerun")
+        self._require_matching_definition(run, self._plan(run["workflow_id"]))
+        return self.start(
+            json.loads(run["input_json"]) if input_value is None else input_value,
+            workflow_id=run["workflow_id"],
+            rerun_of=run_id,
+            rerun_reason=reason,
+        )
 
     def decide(
         self,
@@ -201,6 +262,14 @@ class Runner:
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
         node = plan.nodes[invocation["node_id"]]
         next_node = node["definition"]["next"]
+        if run["control_mode"] == "pause":
+            self.ledger.update_run(
+                run["id"],
+                status="paused",
+                control_mode="pause",
+                current_node_id=next_node,
+            )
+            return self.ledger.get_run(run["id"])  # type: ignore[return-value]
         self.ledger.update_run(
             run["id"],
             status="running",
@@ -215,10 +284,17 @@ class Runner:
         scope = self.ledger.get_scope(scope_id)
         if scope is None:
             raise RunError("execution scope is missing")
+        if run["control_mode"] != "run":
+            return run
         plan = self._plan(scope["workflow_id"])
         input_json = scope["input_json"] or run["input_json"]
         input_value = json.loads(input_json)
         while True:
+            current_run = self.ledger.get_run(run_id)
+            if current_run is None:
+                raise KeyError(f"run not found: {run_id}")
+            if current_run["control_mode"] != "run":
+                return current_run
             node = plan.nodes[node_id]
             definition = node["definition"]
             if node["type"] == "call":
@@ -697,6 +773,17 @@ class Runner:
             if invocation["status"] == "succeeded" and invocation["output_json"] is not None:
                 outputs[invocation["node_id"]] = json.loads(invocation["output_json"])
         return outputs
+
+    def _active_scope_for_node(self, run_id: str, node_id: str) -> dict[str, Any]:
+        scopes = [
+            scope
+            for scope in self.ledger.list_scopes(run_id)
+            if scope["status"] == "active"
+        ]
+        for scope in reversed(scopes):
+            if node_id in self._plan(scope["workflow_id"]).nodes:
+                return scope
+        raise RunError(f"no active scope can resume node: {node_id}")
 
     def _plan(self, workflow_id: str) -> ExecutionPlan:
         try:

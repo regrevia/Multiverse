@@ -132,6 +132,83 @@ def test_cli_submits_a_structured_human_decision_file(tmp_path: Path) -> None:
     assert json.loads(result.stdout)["id"] == waiting["id"]
 
 
+def test_cli_pause_resume_and_cancel_commands_use_run_versions(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
+    request_input = tmp_path / "request.json"
+    request_input.write_text(json.dumps({"goal": "ship the release"}), encoding="utf-8")
+    waiting_result = CLI.invoke(
+        app,
+        [
+            "run",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--input",
+            str(request_input),
+            "--db",
+            str(database),
+            "--json",
+        ],
+    )
+    waiting = json.loads(waiting_result.stdout)
+
+    pause_result = CLI.invoke(
+        app,
+        [
+            "pause",
+            waiting["id"],
+            "--db",
+            str(database),
+            "--expected-version",
+            str(waiting["version"]),
+            "--reason",
+            "Wait for the release window.",
+            "--json",
+        ],
+    )
+    paused = json.loads(pause_result.stdout)
+    resume_result = CLI.invoke(
+        app,
+        [
+            "resume",
+            paused["id"],
+            "--package",
+            str(ROOT / "presets/content-delivery"),
+            "--binding",
+            str(ROOT / "examples/bindings/content-local.yaml"),
+            "--db",
+            str(database),
+            "--expected-version",
+            str(paused["version"]),
+            "--reason",
+            "Release window is open.",
+            "--json",
+        ],
+    )
+    resumed = json.loads(resume_result.stdout)
+    cancel_result = CLI.invoke(
+        app,
+        [
+            "cancel",
+            resumed["id"],
+            "--db",
+            str(database),
+            "--expected-version",
+            str(resumed["version"]),
+            "--reason",
+            "Release was withdrawn.",
+            "--json",
+        ],
+    )
+
+    assert pause_result.exit_code == 0, pause_result.stdout
+    assert paused["status"] == "paused"
+    assert resume_result.exit_code == 0, resume_result.stdout
+    assert resumed["status"] == "waiting"
+    assert cancel_result.exit_code == 0, cancel_result.stdout
+    assert json.loads(cancel_result.stdout)["status"] == "cancelled"
+
+
 def test_cli_runs_manual_input_artifact_trial_end_to_end(tmp_path: Path) -> None:
     database = tmp_path / "runtime.db"
     request_input = tmp_path / "request.json"
