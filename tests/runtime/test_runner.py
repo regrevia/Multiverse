@@ -1,6 +1,7 @@
 import json
 import shutil
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -536,6 +537,112 @@ def test_reconciled_not_started_preserves_pause_before_retry_dispatch(
 
     assert resumed["status"] == "waiting"
     assert runner.ledger.get_attempt(attempts[-1]["id"])["status"] == "succeeded"
+
+
+def test_retry_wait_is_persisted_and_resumes_after_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    package = _write_scheduled_retry_package(tmp_path)
+    original_execute = runner_module.execute_builtin
+    producer_calls = 0
+
+    def fail_first_producer(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        nonlocal producer_calls
+        if executor_ref == "example.content-fixture.v1" and isinstance(input_value, dict):
+            if "goal" in input_value:
+                producer_calls += 1
+                if producer_calls == 1:
+                    raise ExecutorError("transient provider failure")
+        return original_execute(executor_ref, input_value, config)
+
+    monkeypatch.setattr(runner_module, "execute_builtin", fail_first_producer)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    waiting = runner.start({"goal": "write a release note"})
+
+    assert waiting["status"] == "retry_wait"
+    assert waiting["next_attempt_at"] is not None
+    first_attempt = runner.ledger.list_attempts(waiting["id"])[0]
+    assert first_attempt["status"] == "failed"
+    assert first_attempt["next_attempt_at"] == waiting["next_attempt_at"]
+    assert runner.ledger.list_invocations(waiting["id"])[0]["status"] == "retry_wait"
+
+    runner.close()
+    restarted = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    assert restarted.resume_due(waiting["id"])["status"] == "retry_wait"
+
+    due = _timestamp(datetime.now(UTC) - timedelta(seconds=1))
+    restarted.ledger.update_run(
+        waiting["id"],
+        status="retry_wait",
+        current_node_id="produce",
+        next_attempt_at=due,
+    )
+    resumed = restarted.resume_due(waiting["id"])
+
+    assert resumed["status"] == "waiting"
+    producer = restarted.ledger.get_invocation_for_node(
+        restarted.ledger.list_scopes(waiting["id"])[0]["id"],
+        "produce",
+    )
+    assert producer is not None
+    attempts = [
+        attempt
+        for attempt in restarted.ledger.list_attempts(waiting["id"])
+        if attempt["invocation_id"] == producer["id"]
+    ]
+    assert [attempt["attempt_no"] for attempt in attempts] == [1, 2]
+    assert attempts[1]["status"] == "succeeded"
+    assert any(
+        event["type"] == "retry.scheduled"
+        for event in restarted.ledger.list_events(waiting["id"])
+    )
+
+
+def test_retry_wait_honors_cancel_control_intent(tmp_path: Path) -> None:
+    runner = Runner(
+        _write_scheduled_retry_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        waiting = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = drive  # type: ignore[method-assign]
+    runner.ledger.update_run(
+        waiting["id"],
+        status="retry_wait",
+        current_node_id="produce",
+        next_attempt_at=_timestamp(datetime.now(UTC) + timedelta(seconds=60)),
+    )
+
+    cancelled = runner.cancel(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Stop before retry dispatch.",
+    )
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["control_mode"] == "cancel"
+    assert cancelled["next_attempt_at"] is None
+    assert runner.resume_due(waiting["id"])["status"] == "cancelled"
 
 
 def test_determined_executor_failure_routes_through_on_error_with_error_output(
@@ -1456,6 +1563,26 @@ def _write_retrying_content_package(root: Path) -> Path:
     return package
 
 
+def _write_scheduled_retry_package(root: Path) -> Path:
+    package = _write_retrying_content_package(root)
+    workflow_path = package / "workflows/delivery.yaml"
+    workflow = workflow_path.read_text(encoding="utf-8").replace(
+        """      retry:
+        maxAttempts: 2
+""",
+        """      retry:
+        maxAttempts: 2
+        initialDelaySeconds: 60
+        backoffMultiplier: 2
+        maxDelaySeconds: 120
+        retryableCodes: [EXECUTOR_FAILED]
+""",
+        1,
+    )
+    workflow_path.write_text(workflow, encoding="utf-8")
+    return package
+
+
 def _write_on_error_package(root: Path) -> Path:
     package = root / "on-error-package"
     shutil.copytree(ROOT / "presets/content-delivery", package)
@@ -1841,3 +1968,7 @@ def test_input_human_request_rejects_an_unknown_artifact(tmp_path: Path) -> None
             subject_digest=request["subject_digest"],
             expected_version=request["version"],
         )
+
+
+def _timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

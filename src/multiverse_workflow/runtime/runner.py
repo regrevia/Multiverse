@@ -62,6 +62,26 @@ class Runner:
             )
         self.ledger = Ledger(database_path)
 
+    def close(self) -> None:
+        self.ledger.close()
+
+    def resume_due(self, run_id: str) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if run["status"] != "retry_wait" or run["next_attempt_at"] is None:
+            return run
+        if run["next_attempt_at"] > _timestamp(datetime.now(UTC)):
+            return run
+        node_id = run["current_node_id"]
+        if node_id is None:
+            raise RunError("retry_wait run has no current node")
+        return self._drive(
+            run_id,
+            self._active_scope_for_node(run_id, node_id)["id"],
+            node_id,
+        )
+
     def start(
         self,
         input_value: Any,
@@ -555,6 +575,16 @@ class Runner:
             raise RunError("execution scope is missing")
         if run["control_mode"] != "run":
             return run
+        if run["status"] == "retry_wait":
+            next_attempt_at = run["next_attempt_at"]
+            if next_attempt_at is not None and next_attempt_at > _timestamp(datetime.now(UTC)):
+                return run
+            self.ledger.update_run(
+                run_id,
+                status="running",
+                current_node_id=node_id,
+                next_attempt_at=None,
+            )
         plan = self._plan(scope["workflow_id"])
         input_json = scope["input_json"] or run["input_json"]
         input_value = json.loads(input_json)
@@ -808,6 +838,15 @@ class Runner:
                 dispatch_key=f"{invocation['id']}:1",
                 effect_key=invocation["id"],
             )
+        elif invocation["status"] == "retry_wait" and attempt["status"] == "failed":
+            attempt = self.ledger.create_attempt(
+                invocation["id"],
+                input_value=input_value,
+                dispatch_key=f"{invocation['id']}:{attempt['attempt_no'] + 1}",
+                effect_key=attempt["effect_key"],
+                attempt_no=attempt["attempt_no"] + 1,
+            )
+            self.ledger.finish_invocation(invocation["id"], status="running")
         elif attempt["status"] == "unknown":
             raise LedgerConflict("unknown attempt requires reconciliation before dispatch")
         elif attempt["status"] in {"succeeded", "failed", "cancelled"}:
@@ -832,6 +871,16 @@ class Runner:
         except ExecutorError as exc:
             error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
             self._record_call_failure(attempt, invocation, error)
+            if self._schedule_retry(
+                run_id,
+                scope_id,
+                node_id,
+                definition,
+                invocation,
+                attempt,
+                error,
+            ):
+                return None
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
         for observation in result.observations or []:
@@ -905,6 +954,16 @@ class Runner:
                 attempt_id=attempt["id"],
             )
             self._record_call_failure(attempt, invocation, error)
+            if self._schedule_retry(
+                run_id,
+                scope_id,
+                node_id,
+                definition,
+                invocation,
+                attempt,
+                error,
+            ):
+                return None
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
@@ -930,6 +989,37 @@ class Runner:
             output=envelope,
             error=error,
         )
+
+    def _schedule_retry(
+        self,
+        run_id: str,
+        scope_id: str,
+        node_id: str,
+        definition: dict[str, Any],
+        invocation: dict[str, Any],
+        attempt: dict[str, Any],
+        error: dict[str, Any],
+    ) -> bool:
+        retry = definition["retry"]
+        retryable_codes = retry.get("retryableCodes", [])
+        max_attempts = int(retry.get("maxAttempts", 1))
+        if error.get("code") not in retryable_codes or attempt["attempt_no"] >= max_attempts:
+            return False
+        delay = min(
+            float(retry.get("initialDelaySeconds", 2))
+            * float(retry.get("backoffMultiplier", 2))
+            ** (attempt["attempt_no"] - 1),
+            float(retry.get("maxDelaySeconds", 30)),
+        )
+        next_attempt_at = datetime.now(UTC) + timedelta(seconds=delay)
+        self.ledger.schedule_retry(
+            attempt["id"],
+            current_node_id=node_id,
+            next_attempt_at=_timestamp(next_attempt_at),
+            error=error,
+            delay_seconds=delay,
+        )
+        return True
 
     def _load_schema(self, relative_path: str) -> dict[str, Any]:
         path = (self.package_dir / relative_path).resolve()

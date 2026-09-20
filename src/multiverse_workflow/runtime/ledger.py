@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+_UNSET = object()
+
 
 class LedgerConflict(RuntimeError):
     """A persisted command cannot be applied to the current resource version."""
@@ -297,9 +299,10 @@ class Ledger:
                 """
                 UPDATE runs
                 SET status = ?, control_mode = ?, version = ?, updated_at = ?
+                    , next_attempt_at = CASE WHEN ? = 'cancel' THEN NULL ELSE next_attempt_at END
                 WHERE id = ?
                 """,
-                (status, control_mode, version, _now(), run_id),
+                (status, control_mode, version, _now(), operation, run_id),
             )
             self._event(
                 connection,
@@ -328,6 +331,7 @@ class Ledger:
         control_mode: str | None = None,
         output: Any = None,
         error: Any = None,
+        next_attempt_at: str | None | object = _UNSET,
     ) -> dict[str, Any]:
         now = _now()
         with self._transaction() as connection:
@@ -339,11 +343,17 @@ class Ledger:
                 raise KeyError(f"run not found: {run_id}")
             version = int(row["version"]) + 1
             next_control_mode = control_mode or row["control_mode"]
+            persisted_next_attempt_at = (
+                row["next_attempt_at"]
+                if next_attempt_at is _UNSET
+                else next_attempt_at
+            )
             connection.execute(
                 """
                 UPDATE runs
                 SET status = ?, control_mode = ?, current_node_id = ?,
-                    output_json = ?, error_json = ?, version = ?, updated_at = ?
+                    output_json = ?, error_json = ?, next_attempt_at = ?,
+                    version = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -352,6 +362,7 @@ class Ledger:
                     current_node_id,
                     _json_or_none(output),
                     _json_or_none(error),
+                    persisted_next_attempt_at,
                     version,
                     now,
                     run_id,
@@ -761,6 +772,116 @@ class Ledger:
                             "reason": "unresolved attempt result",
                         },
                     )
+        return self.get_attempt(attempt_id)  # type: ignore[return-value]
+
+    def schedule_retry(
+        self,
+        attempt_id: str,
+        *,
+        current_node_id: str,
+        next_attempt_at: str,
+        error: dict[str, Any],
+        delay_seconds: float,
+    ) -> dict[str, Any]:
+        envelope = error_output(error)
+        with self._transaction() as connection:
+            attempt = self._require_attempt(connection, attempt_id)
+            if attempt["status"] in {"succeeded", "cancelled"}:
+                raise LedgerConflict(f"attempt is terminal: {attempt['status']}")
+            invocation = self._require_invocation(connection, attempt["invocation_id"])
+            run = self._require_run(connection, attempt["run_id"])
+            attempt_version = int(attempt["version"]) + 1
+            invocation_version = int(invocation["version"]) + 1
+            run_version = int(run["version"]) + 1
+            now = _now()
+            connection.execute(
+                """
+                UPDATE attempts
+                SET status = 'failed', output_json = ?, error_json = ?,
+                    next_attempt_at = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    _json(envelope),
+                    _json(error),
+                    next_attempt_at,
+                    attempt_version,
+                    now,
+                    attempt_id,
+                ),
+            )
+            self._event(
+                connection,
+                run["id"],
+                "attempt.updated",
+                {
+                    "attemptId": attempt_id,
+                    "status": "failed",
+                    "version": attempt_version,
+                    "nextAttemptAt": next_attempt_at,
+                },
+                scope_id=attempt["scope_id"],
+                invocation_id=attempt["invocation_id"],
+                attempt_id=attempt_id,
+            )
+            connection.execute(
+                """
+                UPDATE invocations
+                SET status = 'retry_wait', error_json = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (_json(error), invocation_version, now, invocation["id"]),
+            )
+            self._event(
+                connection,
+                run["id"],
+                "invocation.updated",
+                {
+                    "invocationId": invocation["id"],
+                    "status": "retry_wait",
+                    "version": invocation_version,
+                },
+                scope_id=invocation["scope_id"],
+                invocation_id=invocation["id"],
+            )
+            connection.execute(
+                """
+                UPDATE runs
+                SET status = 'retry_wait', current_node_id = ?,
+                    next_attempt_at = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (current_node_id, next_attempt_at, run_version, now, run["id"]),
+            )
+            self._event(
+                connection,
+                run["id"],
+                "run.updated",
+                {
+                    "status": "retry_wait",
+                    "controlMode": run["control_mode"],
+                    "currentNodeId": current_node_id,
+                    "nextAttemptAt": next_attempt_at,
+                    "version": run_version,
+                },
+            )
+            self._event(
+                connection,
+                run["id"],
+                "retry.scheduled",
+                {
+                    "nodeId": current_node_id,
+                    "invocationId": invocation["id"],
+                    "attemptId": attempt_id,
+                    "attemptNo": attempt["attempt_no"],
+                    "nextAttemptAt": next_attempt_at,
+                    "delaySeconds": delay_seconds,
+                    "errorCode": error.get("code"),
+                },
+                scope_id=attempt["scope_id"],
+                invocation_id=attempt["invocation_id"],
+                attempt_id=attempt_id,
+            )
         return self.get_attempt(attempt_id)  # type: ignore[return-value]
 
     def reconcile_attempt(
@@ -1215,6 +1336,7 @@ class Ledger:
                 status TEXT NOT NULL,
                 control_mode TEXT NOT NULL,
                 deadline_at TEXT NOT NULL,
+                next_attempt_at TEXT,
                 version INTEGER NOT NULL,
                 current_node_id TEXT,
                 rerun_of TEXT REFERENCES runs(id),
@@ -1281,6 +1403,7 @@ class Ledger:
                 output_json TEXT,
                 error_json TEXT,
                 external_ref TEXT,
+                next_attempt_at TEXT,
                 version INTEGER NOT NULL DEFAULT 1,
                 reconciliation_json TEXT,
                 created_at TEXT NOT NULL,
@@ -1412,6 +1535,7 @@ class Ledger:
             ("deployment_id", "TEXT"),
             ("rerun_of", "TEXT"),
             ("rerun_reason", "TEXT"),
+            ("next_attempt_at", "TEXT"),
         ):
             if column not in run_columns:
                 self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
@@ -1420,6 +1544,7 @@ class Ledger:
             for row in self._connection.execute("PRAGMA table_info(attempts)").fetchall()
         }
         for column, definition in (
+            ("next_attempt_at", "TEXT"),
             ("version", "INTEGER NOT NULL DEFAULT 1"),
             ("reconciliation_json", "TEXT"),
         ):
