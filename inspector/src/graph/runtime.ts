@@ -10,27 +10,30 @@ type RuntimeStatus = string;
 
 export type RuntimeProjection = {
   protocolVersion: string;
-  run: {
-    id: string;
-    workflow_id: string;
-    package_digest: string;
-    binding_digest: string | null;
-    status: RuntimeStatus;
-    control_mode: RuntimeStatus;
-    current_node_id: string | null;
-    version: number;
-    deadline_at: string;
-    created_at: string;
-    updated_at: string;
-    rerun_of: string | null;
-    rerun_reason: string | null;
-  };
+  run: RuntimeRun;
   scopes: RuntimeScope[];
   nodes: RuntimeNode[];
   edges: RuntimeEdge[];
   events: RuntimeEvent[];
   humanRequests: RuntimeHumanRequest[];
   artifacts: RuntimeArtifact[];
+};
+
+type RuntimeRun = {
+  id: string;
+  deploymentId: string;
+  workflowId: string;
+  packageDigest: string;
+  bindingDigest: string | null;
+  status: RuntimeStatus;
+  controlMode: RuntimeStatus;
+  currentNodeId: string | null;
+  version: number;
+  deadlineAt: string;
+  createdAt: string;
+  updatedAt: string;
+  rerunOf: string | null;
+  rerunReason: string | null;
 };
 
 type RuntimeScope = {
@@ -58,12 +61,31 @@ type RuntimeAttempt = {
   id: string;
   attemptNo: number;
   status: RuntimeStatus;
+  version: number;
   inputDigest: string;
   externalRef: string | null;
   createdAt: string;
   updatedAt: string;
   hasOutput: boolean;
   error: string | null;
+};
+
+type RuntimeAttemptHistory = {
+  id: string;
+  attemptNo: number;
+  status: RuntimeStatus;
+  version: number;
+  externalRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reconciliation: RuntimeReconciliation | null;
+};
+
+type RuntimeReconciliation = {
+  conclusion: string | null;
+  evidenceRefs: string[];
+  reason: string | null;
+  actor: string | null;
 };
 
 type RuntimeNode = {
@@ -75,6 +97,7 @@ type RuntimeNode = {
   status: RuntimeStatus;
   invocation: RuntimeInvocation | null;
   latestAttempt: RuntimeAttempt | null;
+  attempts: RuntimeAttemptHistory[];
 };
 
 type RuntimeEdge = {
@@ -175,9 +198,9 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
   const rootScope = projection.scopes.find((scope) => scope.path.length === 1);
   return {
     packageName: rootScope?.workflowId ?? "运行快照",
-    packageVersion: projection.run.package_digest.slice(0, 16),
+    packageVersion: projection.run.packageDigest.slice(0, 16),
     runId: projection.run.id,
-    updatedAt: projection.run.updated_at,
+    updatedAt: projection.run.updatedAt,
     nodes,
     edges,
     groups: [...scopeGroups.values()],
@@ -268,15 +291,21 @@ function isRun(value: unknown): value is RuntimeProjection["run"] {
     isRecord(value) &&
     hasStrings(value, [
       "id",
-      "workflow_id",
-      "package_digest",
+      "deploymentId",
+      "workflowId",
+      "packageDigest",
       "status",
-      "control_mode",
-      "deadline_at",
-      "created_at",
-      "updated_at",
+      "controlMode",
+      "deadlineAt",
+      "createdAt",
+      "updatedAt",
     ]) &&
+    (value.bindingDigest === null || typeof value.bindingDigest === "string") &&
+    (value.currentNodeId === null || typeof value.currentNodeId === "string") &&
     typeof value.version === "number"
+    &&
+    (value.rerunOf === null || typeof value.rerunOf === "string") &&
+    (value.rerunReason === null || typeof value.rerunReason === "string")
   );
 }
 
@@ -294,7 +323,9 @@ function isNode(value: unknown): value is RuntimeNode {
     isRecord(value) &&
     hasStrings(value, ["id", "scopeId", "nodeId", "title", "type", "status"]) &&
     (value.invocation === null || isInvocation(value.invocation)) &&
-    (value.latestAttempt === null || isAttempt(value.latestAttempt))
+    (value.latestAttempt === null || isAttempt(value.latestAttempt)) &&
+    Array.isArray(value.attempts) &&
+    value.attempts.every(isAttemptHistory)
   );
 }
 
@@ -313,9 +344,32 @@ function isAttempt(value: unknown): value is RuntimeAttempt {
     isRecord(value) &&
     hasStrings(value, ["id", "status", "inputDigest", "createdAt", "updatedAt"]) &&
     typeof value.attemptNo === "number" &&
+    typeof value.version === "number" &&
     typeof value.hasOutput === "boolean" &&
     (value.externalRef === null || typeof value.externalRef === "string") &&
     (value.error === null || typeof value.error === "string")
+  );
+}
+
+function isAttemptHistory(value: unknown): value is RuntimeAttemptHistory {
+  return (
+    isRecord(value) &&
+    hasStrings(value, ["id", "status", "createdAt", "updatedAt"]) &&
+    typeof value.attemptNo === "number" &&
+    typeof value.version === "number" &&
+    (value.externalRef === null || typeof value.externalRef === "string") &&
+    (value.reconciliation === null || isReconciliation(value.reconciliation))
+  );
+}
+
+function isReconciliation(value: unknown): value is RuntimeReconciliation {
+  return (
+    isRecord(value) &&
+    (value.conclusion === null || typeof value.conclusion === "string") &&
+    Array.isArray(value.evidenceRefs) &&
+    value.evidenceRefs.every((item) => typeof item === "string") &&
+    (value.reason === null || typeof value.reason === "string") &&
+    (value.actor === null || typeof value.actor === "string")
   );
 }
 

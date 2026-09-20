@@ -5,18 +5,19 @@ const snapshot = {
   protocolVersion: "multiverse/v0.1",
   run: {
     id: "run_123",
-    workflow_id: "delivery",
-    package_digest: "sha256:package",
-    binding_digest: "sha256:binding",
+    deploymentId: "deployment_123",
+    workflowId: "delivery",
+    packageDigest: "sha256:package",
+    bindingDigest: "sha256:binding",
     status: "waiting",
-    control_mode: "run",
-    current_node_id: "review",
+    controlMode: "run",
+    currentNodeId: "review",
     version: 7,
-    deadline_at: "2026-09-21T00:00:00Z",
-    created_at: "2026-09-20T00:00:00Z",
-    updated_at: "2026-09-20T00:01:00Z",
-    rerun_of: null,
-    rerun_reason: null,
+    deadlineAt: "2026-09-21T00:00:00Z",
+    createdAt: "2026-09-20T00:00:00Z",
+    updatedAt: "2026-09-20T00:01:00Z",
+    rerunOf: null,
+    rerunReason: null,
   },
   scopes: [
     {
@@ -51,6 +52,7 @@ const snapshot = {
         id: "attempt_produce",
         attemptNo: 1,
         status: "succeeded",
+        version: 1,
         inputDigest: "sha256:produce-input",
         externalRef: null,
         createdAt: "2026-09-20T00:00:00Z",
@@ -58,6 +60,7 @@ const snapshot = {
         hasOutput: true,
         error: null,
       },
+      attempts: [],
     },
     {
       id: "scope_root:review",
@@ -80,6 +83,7 @@ const snapshot = {
         id: "attempt_review",
         attemptNo: 1,
         status: "waiting",
+        version: 1,
         inputDigest: "sha256:review-input",
         externalRef: null,
         createdAt: "2026-09-20T00:00:02Z",
@@ -87,6 +91,7 @@ const snapshot = {
         hasOutput: false,
         error: null,
       },
+      attempts: [],
     },
   ],
   edges: [
@@ -142,6 +147,8 @@ describe("runtime projection mapper", () => {
     const graph = mapRuntimeProjection(snapshot);
 
     expect(graph.runId).toBe("run_123");
+    expect(graph.packageName).toBe("delivery");
+    expect(graph.updatedAt).toBe("2026-09-20T00:01:00Z");
     expect(graph.nodes.find((node) => node.id === "scope_root:review")?.status).toBe(
       "waiting",
     );
@@ -153,6 +160,29 @@ describe("runtime projection mapper", () => {
 
   it("rejects JSON that is not a runtime projection", () => {
     expect(() => parseRuntimeProjection({ run: { id: "not-enough" } })).toThrow(
+      "不是有效的 Runtime 运行快照",
+    );
+  });
+
+  it("rejects the retired snake_case run shape instead of silently diverging", () => {
+    const legacySnapshot = structuredClone(snapshot) as Record<string, unknown>;
+    legacySnapshot.run = {
+      id: "run_legacy",
+      workflow_id: "delivery",
+      package_digest: "sha256:package",
+      binding_digest: null,
+      status: "waiting",
+      control_mode: "run",
+      current_node_id: null,
+      version: 1,
+      deadline_at: "2026-09-21T00:00:00Z",
+      created_at: "2026-09-20T00:00:00Z",
+      updated_at: "2026-09-20T00:01:00Z",
+      rerun_of: null,
+      rerun_reason: null,
+    };
+
+    expect(() => parseRuntimeProjection(legacySnapshot)).toThrow(
       "不是有效的 Runtime 运行快照",
     );
   });
