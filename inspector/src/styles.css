@@ -26,6 +26,9 @@ button { border: 0; cursor: pointer; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .live-state { display: flex; align-items: center; gap: 7px; margin-right: 12px; color: #5d7485; font-size: 12px; }
 .live-dot { width: 7px; height: 7px; display: block; border-radius: 50%; background: #2eabb0; box-shadow: 0 0 0 4px rgba(46,171,176,.14); }
+.live-dot.demo { background: #94a8b7; box-shadow: 0 0 0 4px rgba(148,168,183,.14); }
+.live-dot.loading, .live-dot.reconnecting, .live-dot.polling { background: #b27c49; box-shadow: 0 0 0 4px rgba(178,124,73,.14); }
+.live-dot.error { background: #b95d68; box-shadow: 0 0 0 4px rgba(185,93,104,.14); }
 .avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #203144; color: #fff; font-size: 12px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #d4dee7; border-radius: 7px; background: #fbfdff; color: #607589; transition: transform .2s ease, border-color .2s ease, color .2s ease; }
@@ -85,6 +88,12 @@ button { border: 0; cursor: pointer; }
 .status-icon.waiting { color: #b27c49; }
 .status-icon.pending { color: #94a8b7; }
 .status-icon.failed { color: #b95d68; }
+.status-icon.unknown { color: #a16c85; }
+.status-icon.reconciling { color: #8b709e; animation: pulse 1.5s ease-in-out infinite; }
+.status-icon.blocked { color: #9b6f4e; }
+.status-icon.paused { color: #7f8fa0; }
+.status-icon.stopping { color: #b27c49; }
+.status-icon.cancelled, .status-icon.skipped { color: #8999a6; }
 .scope-card { z-index: 1; display: flex; flex-direction: column; gap: 7px; padding: 13px 15px; border: 1px dashed #a9c0cb; border-radius: 12px; background: rgba(211,231,237,.34); color: #38596a; }
 .scope-card.expanded { pointer-events: auto; background: rgba(215,234,239,.2); }
 .scope-card.collapsed { z-index: 3; justify-content: center; border-style: solid; background: #e0f0f2; box-shadow: 0 8px 20px rgba(49,104,119,.12); }
@@ -138,6 +147,14 @@ button { border: 0; cursor: pointer; }
 .agent-events { display: grid; gap: 10px; margin-top: 28px; }
 .agent-event { align-items: flex-start; gap: 8px; color: #607589; font-size: 11px; line-height: 1.35; }
 .agent-event > span { width: 5px; height: 5px; flex: 0 0 auto; margin-top: 5px; border-radius: 50%; background: #47aab3; }
+
+.connection-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(24,42,57,.18); }
+.connection-dialog { width: min(460px, 100%); padding: 22px; border: 1px solid #ccd9e2; border-radius: 9px; background: #f8fbfd; box-shadow: 0 20px 55px rgba(25,48,66,.18); }
+.connection-dialog input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid #d0dce5; border-radius: 6px; outline: none; background: #fff; color: #40586d; font-size: 12px; }
+.connection-dialog input:focus { border-color: #72adb9; box-shadow: 0 0 0 3px rgba(114,173,185,.16); }
+.connection-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.connection-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 22px; }
+.connection-actions .apply-button { width: auto; margin-top: 0; }
 
 @keyframes pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes edge-flow { to { stroke-dashoffset: -22; } }

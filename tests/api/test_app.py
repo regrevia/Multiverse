@@ -81,6 +81,20 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
 
 
 @pytest.mark.anyio
+async def test_runtime_allows_local_inspector_origin(settings: ServiceSettings) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/health/live",
+            headers={"Origin": "http://127.0.0.1:4173"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:4173"
+
+
+@pytest.mark.anyio
 async def test_event_payload_keys_are_not_camelized_or_overwritten(
     settings: ServiceSettings,
 ) -> None:

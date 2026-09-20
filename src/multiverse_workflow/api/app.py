@@ -8,6 +8,7 @@ from typing import Any, cast
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.cors import CORSMiddleware
 
 from multiverse_workflow.service.application import RuntimeApplication
 from multiverse_workflow.service.contracts import (
@@ -25,6 +26,13 @@ from .dependencies import LocalPrincipal, Scope, ServiceSettings
 
 def create_app(settings: ServiceSettings) -> FastAPI:
     app = FastAPI(title="Multiverse Runtime Service", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
+    )
     runtime = settings.create_application()
     app.state.settings = settings
     app.state.runtime = runtime

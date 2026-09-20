@@ -1,4 +1,16 @@
-export type NodeStatus = "succeeded" | "running" | "waiting" | "pending" | "failed";
+export type NodeStatus =
+  | "succeeded"
+  | "running"
+  | "waiting"
+  | "pending"
+  | "failed"
+  | "unknown"
+  | "reconciling"
+  | "blocked"
+  | "paused"
+  | "stopping"
+  | "cancelled"
+  | "skipped";
 
 export type GraphNode = {
   id: string;
@@ -42,6 +54,8 @@ export type AuditGraph = {
   packageVersion: string;
   runId: string;
   updatedAt: string;
+  runStatus: string;
+  lastEventSeq: number;
   nodes: GraphNode[];
   edges: GraphEdge[];
   groups: GraphGroup[];
@@ -59,6 +73,8 @@ export const demoGraph: AuditGraph = {
   packageVersion: "0.1.0",
   runId: "run_7f4b9d2",
   updatedAt: "刚刚",
+  runStatus: "running",
+  lastEventSeq: 0,
   groups: [
     {
       id: "production",

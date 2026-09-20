@@ -188,4 +188,18 @@ describe("runtime projection mapper", () => {
       "不是有效的 Runtime 运行快照",
     );
   });
+
+  it("keeps unknown and cancelled facts distinct from failed", () => {
+    const next = structuredClone(snapshot);
+    next.nodes[0].status = "unknown";
+    next.nodes[1].status = "cancelled";
+    const graph = mapRuntimeProjection(next);
+
+    expect(graph.nodes.find((node) => node.id === "scope_root:produce")?.status).toBe(
+      "unknown",
+    );
+    expect(graph.nodes.find((node) => node.id === "scope_root:review")?.status).toBe(
+      "cancelled",
+    );
+  });
 });

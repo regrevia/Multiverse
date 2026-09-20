@@ -48,6 +48,10 @@ class ServiceSettings:
     )
     sse_poll_interval: float = 0.25
     sse_idle_timeout: float = 30.0
+    cors_origins: tuple[str, ...] = (
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    )
 
     def __post_init__(self) -> None:
         if not self.deployment_id.strip():

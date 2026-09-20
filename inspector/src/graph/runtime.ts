@@ -203,6 +203,8 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
     packageVersion: projection.run.packageDigest.slice(0, 16),
     runId: projection.run.id,
     updatedAt: projection.run.updatedAt,
+    runStatus: projection.run.status,
+    lastEventSeq: projection.events.at(-1)?.seq ?? 0,
     nodes,
     edges,
     groups: [...scopeGroups.values()],
@@ -259,7 +261,19 @@ function toNodeStatus(status: RuntimeStatus): NodeStatus {
   if (status === "succeeded") return "succeeded";
   if (status === "running" || status === "waiting") return status;
   if (status === "pending" || status === "planned" || status === "ready") return "pending";
-  return "failed";
+  if (
+    status === "failed" ||
+    status === "unknown" ||
+    status === "reconciling" ||
+    status === "blocked" ||
+    status === "paused" ||
+    status === "stopping" ||
+    status === "cancelled" ||
+    status === "skipped"
+  ) {
+    return status;
+  }
+  return "unknown";
 }
 
 function toNodeType(type: string, humanRequest: RuntimeHumanRequest | undefined): GraphNode["type"] {

@@ -9,22 +9,28 @@ import {
   Clock3,
   Code2,
   GitBranch,
+  HelpCircle,
   Layers3,
   Maximize2,
   Minus,
   PanelRight,
+  PauseCircle,
   Play,
   Plus,
   RotateCcw,
   Search,
   Send,
   ShieldCheck,
+  SkipForward,
+  Square,
+  SquareDashedMousePointer,
+  StopCircle,
   Upload,
   UserRound,
   Workflow,
   Zap,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyAgentPatch,
   demoGraph,
@@ -34,8 +40,18 @@ import {
   type NodeStatus,
   visibleGraph,
 } from "./graph/model";
-import { translatePositions, type GraphPosition } from "./graph/layout";
+import {
+  preserveGraphPositions,
+  translatePositions,
+  type GraphPosition,
+} from "./graph/layout";
 import { mapRuntimeProjection, parseRuntimeProjection } from "./graph/runtime";
+import {
+  RuntimeClient,
+  type RuntimeClientConfig,
+  type RuntimeEvent,
+  type WatchStatus,
+} from "./runtime/client";
 
 type Point = { x: number; y: number };
 type PanelMode = "audit" | "agent";
@@ -51,6 +67,13 @@ const statusLabels: Record<NodeStatus, string> = {
   waiting: "等待处理",
   pending: "待执行",
   failed: "失败",
+  unknown: "结果未知",
+  reconciling: "核对中",
+  blocked: "已阻塞",
+  paused: "已暂停",
+  stopping: "停止中",
+  cancelled: "已取消",
+  skipped: "已跳过",
 };
 
 const nodeTypeLabels: Record<GraphNode["type"], string> = {
@@ -67,6 +90,28 @@ const statusIcons: Record<NodeStatus, typeof Check> = {
   waiting: UserRound,
   pending: CircleDashed,
   failed: AlertCircle,
+  unknown: HelpCircle,
+  reconciling: Search,
+  blocked: ShieldCheck,
+  paused: PauseCircle,
+  stopping: StopCircle,
+  cancelled: Square,
+  skipped: SkipForward,
+};
+
+type ConnectionState =
+  | { kind: "demo"; message: string }
+  | { kind: "loading"; message: string }
+  | { kind: "live"; message: string }
+  | { kind: "reconnecting"; message: string }
+  | { kind: "polling"; message: string }
+  | { kind: "error"; message: string };
+
+type RuntimeConnectionDraft = {
+  baseUrl: string;
+  namespace: string;
+  runId: string;
+  token: string;
 };
 
 function App() {
@@ -104,8 +149,25 @@ function App() {
   const [importState, setImportState] = useState<
     { kind: "demo" | "reading" | "success" | "error"; message: string }
   >({ kind: "demo", message: "演示数据" });
+  const [connection, setConnection] = useState<RuntimeConnectionDraft>(() => ({
+    baseUrl: import.meta.env.VITE_RUNTIME_BASE_URL ?? "",
+    namespace: import.meta.env.VITE_RUNTIME_NAMESPACE ?? "local",
+    runId: import.meta.env.VITE_RUNTIME_RUN_ID ?? "",
+    token: "",
+  }));
+  const [connectionDraft, setConnectionDraft] = useState(connection);
+  const [showConnection, setShowConnection] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>(
+    connection.baseUrl && connection.runId && connection.token
+      ? { kind: "loading", message: "正在连接 Runtime" }
+      : { kind: "demo", message: "演示数据" },
+  );
+  const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
+  const [lastEventSeq, setLastEventSeq] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const snapshotInputRef = useRef<HTMLInputElement>(null);
+  const nodePositionsRef = useRef(nodePositions);
+  nodePositionsRef.current = nodePositions;
   const visible = useMemo(
     () => visibleGraph(graph, collapsedGroups),
     [graph, collapsedGroups],
@@ -123,6 +185,55 @@ function App() {
     graph.nodes.find((node) => node.id === selectedId) ??
     renderedNodes[0];
 
+  useEffect(() => {
+    if (!connection.baseUrl || !connection.namespace || !connection.runId || !connection.token) {
+      return;
+    }
+    const client = new RuntimeClient(connection as RuntimeClientConfig);
+    const controller = new AbortController();
+    setConnectionState({ kind: "loading", message: "正在读取 Runtime 快照" });
+    client
+      .getGraph(controller.signal)
+      .then((projection) => {
+        const nextGraph = mapRuntimeProjection(projection);
+        const projectionCursor = projection.events.at(-1)?.seq ?? 0;
+        setGraph(nextGraph);
+        setRuntimeEvents(projection.events);
+        setLastEventSeq(projectionCursor);
+        setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
+        setSelectedId(nextGraph.nodes[0]?.id ?? nextGraph.groups[0]?.id ?? "");
+        setImportState({ kind: "success", message: "Runtime 快照" });
+        return projectionCursor;
+      })
+      .then((projectionCursor) =>
+        client.watchRun({
+          after: projectionCursor,
+          signal: controller.signal,
+          onSnapshot: (projection) => {
+            const nextGraph = mapRuntimeProjection(projection);
+            setGraph((current) => ({
+              ...nextGraph,
+              ...preserveGraphPositions(current, nextGraph, nodePositionsRef.current),
+            }));
+            setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
+          },
+          onEvent: (event) => {
+            setRuntimeEvents((current) => mergeEvents(current, event));
+            setLastEventSeq((current) => Math.max(current, event.seq));
+          },
+          onStatus: (status) => setConnectionState(connectionStateFor(status)),
+        }),
+      )
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setConnectionState({
+          kind: "error",
+          message: error instanceof Error ? error.message : "Runtime 连接失败",
+        });
+      });
+    return () => controller.abort();
+  }, [connection.baseUrl, connection.namespace, connection.runId, connection.token]);
+
   function toggleGroup(groupId: string) {
     setCollapsedGroups((current) => {
       const next = new Set(current);
@@ -130,6 +241,12 @@ function App() {
       else next.add(groupId);
       return next;
     });
+  }
+
+  function connectRuntime(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setConnection(connectionDraft);
+    setShowConnection(false);
   }
 
   function focusNode(node: GraphNode) {
@@ -287,7 +404,7 @@ function App() {
         </div>
         <div className="topbar-actions">
           <div className="live-state">
-            <span className="live-dot" /> {importState.kind === "success" ? "本地快照" : "实时预览"}
+            <span className={`live-dot ${connectionState.kind}`} /> {connectionState.message}
           </div>
           <button
             className="icon-button"
@@ -299,6 +416,17 @@ function App() {
           </button>
           <button className="icon-button" title="搜索证据"><Search size={17} /></button>
           <button className="icon-button" title="打开面板"><PanelRight size={17} /></button>
+          <button
+            className="icon-button"
+            title="连接 Runtime"
+            aria-label="连接 Runtime"
+            onClick={() => {
+              setConnectionDraft(connection);
+              setShowConnection(true);
+            }}
+          >
+            <SquareDashedMousePointer size={17} />
+          </button>
           <div className="avatar">R</div>
         </div>
       </header>
@@ -314,8 +442,8 @@ function App() {
           <div className="rail-section rail-bottom">
             <p className="rail-title">运行</p>
             <div className="run-id">{graph.runId}</div>
-            <div className="run-meta"><span className="status-dot running" /> 细化进行中</div>
-            <div className="run-meta"><ShieldCheck size={14} /> 摘要已锁定</div>
+            <div className="run-meta"><StatusIcon status={statusForRun(graph.runStatus)} /> {statusLabels[statusForRun(graph.runStatus)]}</div>
+            <div className="run-meta"><ShieldCheck size={14} /> 事件序号 {lastEventSeq || graph.lastEventSeq}</div>
           </div>
         </aside>
 
@@ -427,9 +555,14 @@ function App() {
           <div className="timeline">
             <div className="timeline-heading"><span><Clock3 size={15} /> 证据时间线</span></div>
             <div className="timeline-track">
-              <TimelineEvent time="09:42:11" title="草稿交付物已完成" tone="success" />
-              <TimelineEvent time="09:42:12" title="细化已开始" tone="active" />
-              <TimelineEvent time="—" title="人工审核" tone="muted" />
+              {(runtimeEvents.length ? runtimeEvents.slice(-3) : demoTimeline).map((event) => (
+                <TimelineEvent
+                  key={typeof event === "string" ? event : event.seq}
+                  time={typeof event === "string" ? "—" : formatEventTime(event.occurredAt)}
+                  title={typeof event === "string" ? event : event.type}
+                  tone={typeof event === "string" ? "muted" : eventTone(event.type)}
+                />
+              ))}
             </div>
           </div>
         </section>
@@ -453,6 +586,37 @@ function App() {
           )}
         </aside>
       </div>
+      {showConnection && (
+        <div className="connection-backdrop" role="presentation" onMouseDown={() => setShowConnection(false)}>
+          <form className="connection-dialog" onSubmit={connectRuntime} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="panel-heading">
+              <div>
+                <h2>连接 Runtime</h2>
+                <p>令牌只保留在当前页面内，不写入 URL 或本地存储。</p>
+              </div>
+              <button type="button" className="icon-button small" title="关闭" onClick={() => setShowConnection(false)}>×</button>
+            </div>
+            <label className="field-label" htmlFor="runtime-base-url">服务地址</label>
+            <input id="runtime-base-url" value={connectionDraft.baseUrl} onChange={(event) => setConnectionDraft({ ...connectionDraft, baseUrl: event.target.value })} placeholder="http://127.0.0.1:8080" />
+            <div className="connection-grid">
+              <div>
+                <label className="field-label" htmlFor="runtime-namespace">命名空间</label>
+                <input id="runtime-namespace" value={connectionDraft.namespace} onChange={(event) => setConnectionDraft({ ...connectionDraft, namespace: event.target.value })} />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="runtime-run-id">运行 ID</label>
+                <input id="runtime-run-id" value={connectionDraft.runId} onChange={(event) => setConnectionDraft({ ...connectionDraft, runId: event.target.value })} />
+              </div>
+            </div>
+            <label className="field-label" htmlFor="runtime-token">Bearer 令牌</label>
+            <input id="runtime-token" type="password" value={connectionDraft.token} onChange={(event) => setConnectionDraft({ ...connectionDraft, token: event.target.value })} autoComplete="off" />
+            <div className="connection-actions">
+              <button type="button" className="icon-button" title="取消" onClick={() => setShowConnection(false)}>×</button>
+              <button type="submit" className="apply-button">连接并查看</button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
@@ -543,5 +707,35 @@ function StatusIcon({ status }: { status: NodeStatus }) {
   const Icon = statusIcons[status];
   return <Icon className={`status-icon ${status}`} size={15} />;
 }
+
+function mergeEvents(current: RuntimeEvent[], incoming: RuntimeEvent): RuntimeEvent[] {
+  const bySeq = new Map(current.map((event) => [event.seq, event]));
+  bySeq.set(incoming.seq, incoming);
+  return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+}
+
+function connectionStateFor(status: WatchStatus): ConnectionState {
+  if (status === "live") return { kind: "live", message: "Runtime 实时连接" };
+  if (status === "reconnecting") return { kind: "reconnecting", message: "正在重连 Runtime" };
+  if (status === "polling") return { kind: "polling", message: "轮询 Runtime 事件" };
+  return { kind: "loading", message: "正在连接 Runtime" };
+}
+
+function statusForRun(status: string): NodeStatus {
+  return status in statusLabels ? (status as NodeStatus) : "unknown";
+}
+
+function formatEventTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? "—" : date.toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function eventTone(type: string): "success" | "active" | "muted" {
+  if (type.includes("succeeded") || type.includes("completed")) return "success";
+  if (type.includes("running") || type.includes("created") || type.includes("waiting")) return "active";
+  return "muted";
+}
+
+const demoTimeline = ["演示数据：草稿交付物已完成", "演示数据：细化已开始", "演示数据：人工审核"];
 
 export default App;
