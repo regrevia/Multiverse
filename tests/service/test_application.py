@@ -194,6 +194,72 @@ def test_control_replay_uses_the_original_transition_record(tmp_path: Path) -> N
     assert command["transition"] == "run.paused"
 
 
+def test_control_replay_keeps_original_resource_version_after_later_transition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    current = application.get_run("local", created.resource_id)
+    pause_request = RunControlRequest(
+        expectedVersion=current["version"],
+        reason="Pause before the release window.",
+    )
+    original_finish_command = application.runner.ledger.finish_command
+
+    def interrupt_before_receipt(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated process interruption")
+
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        interrupt_before_receipt,
+    )
+    with pytest.raises(RuntimeError, match="interruption"):
+        application.control_run(
+            "local",
+            created.resource_id,
+            "pause",
+            pause_request,
+            idempotency_key="pause-recover",
+        )
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        original_finish_command,
+    )
+
+    paused = application.get_run("local", created.resource_id)
+    resumed = application.control_run(
+        "local",
+        created.resource_id,
+        "resume",
+        RunControlRequest(
+            expectedVersion=paused["version"],
+            reason="Resume to process the pending review.",
+        ),
+        idempotency_key="resume-after-pause",
+    )
+    replayed = application.control_run(
+        "local",
+        created.resource_id,
+        "pause",
+        pause_request,
+        idempotency_key="pause-recover",
+    )
+
+    assert resumed.resource_version > paused["version"]
+    assert replayed.resource_version == paused["version"]
+    command = application.runner.ledger.get_command_by_key(
+        "pause-recover",
+        namespace="local",
+        subject="local-user",
+        operation="run.pause",
+    )
+    assert command is not None
+    assert command["resource_version"] == paused["version"]
+
+
 def test_run_create_command_records_the_created_resource_transition(
     tmp_path: Path,
 ) -> None:

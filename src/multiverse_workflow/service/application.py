@@ -387,16 +387,23 @@ class RuntimeApplication:
                 error={"message": str(exc)},
             )
             raise state_conflict(str(exc)) from exc
+        command = self.runner.ledger.get_command(command_id)
+        applied_version = (
+            command["after_version"]
+            if command is not None and command["after_version"] is not None
+            else int(run["version"])
+        )
         self.runner.ledger.finish_command(
             command_id,
             status="completed",
-            resource_version=int(run["version"]),
+            resource_version=int(applied_version),
         )
         return self._receipt(
             f"run.{operation}",
             run,
             request_id=command_id,
             status="completed",
+            resource_version=int(applied_version),
         )
 
     def list_human_requests(
@@ -630,6 +637,7 @@ class RuntimeApplication:
         status: Literal["accepted", "completed"] = "accepted",
         fallback: dict[str, Any] | None = None,
         request_id: str | None = None,
+        resource_version: int | None = None,
     ) -> CommandReceipt:
         source = run or fallback
         if source is None:
@@ -639,5 +647,9 @@ class RuntimeApplication:
             status=status,
             resourceId=str(source["id"]),
             operation=operation,
-            resourceVersion=int(source["version"]),
+            resourceVersion=(
+                resource_version
+                if resource_version is not None
+                else int(source["version"])
+            ),
         )
