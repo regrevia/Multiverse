@@ -19,6 +19,20 @@ spec:
       grants:
         - action: content.produce
           resource: namespace:demo
+    critic:
+      adapter: builtin
+      executorRef: builtin.ollama-deliverable.v1
+      config:
+        model: qwen3.5:9b
+        systemPrompt: Review the candidate deliverable in the task input. Return only a concise audit note in a non-empty text field and an empty artifact_refs array. Do not approve or reject the workflow and do not invent Artifact IDs.
+        artifactName: agent-review.md
+        artifactMediaType: text/markdown
+        artifactMaxBytes: 400000
+        timeoutSeconds: 120
+      secretRefs: {}
+      grants:
+        - action: content.review
+          resource: namespace:demo
     verifier:
       adapter: builtin
       executorRef: builtin.nonempty-deliverable.v1

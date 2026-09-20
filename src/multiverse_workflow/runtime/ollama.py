@@ -39,6 +39,12 @@ def generate_deliverable(
     timeout_seconds = config.get("timeoutSeconds", 120)
     if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 600:
         raise OllamaError("ollama timeoutSeconds must be an integer from 1 to 600")
+    task_input = json.dumps(
+        input_value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     payload = {
         "model": model,
         "stream": False,
@@ -53,7 +59,7 @@ def generate_deliverable(
         },
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Goal: {goal}"},
+            {"role": "user", "content": f"Task input: {task_input}"},
         ],
     }
     request = Request(

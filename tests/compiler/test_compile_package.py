@@ -19,7 +19,8 @@ def test_content_delivery_compiles_to_serializable_deterministic_plans() -> None
     assert plan.package_digest.startswith("sha256:")
     assert plan.binding_digest is not None
     assert plan.nodes["produce"]["defaults"]["retry"]["maxAttempts"] == 1
-    assert any(edge["from"] == "produce" and edge["to"] == "verify" for edge in plan.edges)
+    assert any(edge["from"] == "produce" and edge["to"] == "critique" for edge in plan.edges)
+    assert any(edge["from"] == "critique" and edge["to"] == "verify" for edge in plan.edges)
     assert plan.compiled_plan_digest == second.plans["delivery"].compiled_plan_digest
     assert plan.as_dict()["defaults"] == {
         "runDeadlineSeconds": 604800,

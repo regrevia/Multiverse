@@ -154,7 +154,7 @@ _LOCAL_EXECUTOR_DESCRIPTORS = (
     ExecutorDescriptor(
         executor_ref="example.content-fixture.v1",
         adapter="builtin",
-        capabilities=frozenset({"content.produce@1"}),
+        capabilities=frozenset({"content.produce@1", "content.review@1"}),
         contract_version="multiverse/v0.1",
         executor_version="1.0.0",
         supports_cancel=True,
@@ -169,7 +169,7 @@ _LOCAL_EXECUTOR_DESCRIPTORS = (
     ExecutorDescriptor(
         executor_ref="example.remote-content.v1",
         adapter="http_job",
-        capabilities=frozenset({"content.produce@1"}),
+        capabilities=frozenset({"content.produce@1", "content.review@1"}),
         contract_version="multiverse/v0.1",
         executor_version="1.0.0",
         supports_cancel=True,
@@ -199,7 +199,7 @@ _LOCAL_EXECUTOR_DESCRIPTORS = (
     ExecutorDescriptor(
         executor_ref="builtin.ollama-deliverable.v1",
         adapter="builtin",
-        capabilities=frozenset({"content.produce@1"}),
+        capabilities=frozenset({"content.produce@1", "content.review@1"}),
         contract_version="multiverse/v0.1",
         executor_version="1.0.0",
         supports_cancel=False,

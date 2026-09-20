@@ -33,7 +33,14 @@ class Runner:
     ) -> None:
         self.package_dir = package_dir.resolve()
         self.namespace = namespace
-        result = compile_package(self.package_dir, binding_path=binding_path)
+        self._executor_registry = (
+            executor_registry or local_executor_registry()
+        ).snapshot()
+        result = compile_package(
+            self.package_dir,
+            binding_path=binding_path,
+            executor_registry=self._executor_registry,
+        )
         if not result.ok:
             detail = "; ".join(diagnostic.code for diagnostic in result.diagnostics)
             raise RunError(f"package compilation failed: {detail}")
@@ -47,9 +54,6 @@ class Runner:
             self._workflows[workflow_id] = Workflow.model_validate(
                 load_document(self.package_dir / relative_path).value
             )
-        self._executor_registry = (
-            executor_registry or local_executor_registry()
-        ).snapshot()
         self.ledger = Ledger(database_path)
 
     def start(self, input_value: Any, workflow_id: str | None = None) -> dict[str, Any]:
@@ -114,6 +118,12 @@ class Runner:
             raise RunError("human request run is missing")
         plan = self._plan(run["workflow_id"])
         self._require_matching_definition(run, plan)
+        request_input = json.loads(request["input_json"])
+        if (
+            self._artifact_subject_digest(run["id"], request_input)
+            != request["subject_digest"]
+        ):
+            raise LedgerConflict("human request subject integrity check failed")
         node = plan.nodes[invocation["node_id"]]
         if request_type in {"approval", "review"}:
             if choice is None and isinstance(decision, dict):
@@ -290,6 +300,19 @@ class Runner:
             dispatch_key=f"{invocation['id']}:1",
             effect_key=invocation["id"],
         )
+        try:
+            self._validate_artifact_refs(run_id, input_value)
+        except LedgerConflict as exc:
+            error = {"code": "INPUT_ARTIFACT_INVALID", "message": str(exc)}
+            self.ledger.finish_attempt(attempt["id"], status="failed", error=error)
+            self.ledger.finish_invocation(invocation["id"], status="failed", error=error)
+            self.ledger.update_run(
+                run_id,
+                status="failed",
+                current_node_id=node_id,
+                error=error,
+            )
+            return None
         binding = self._binding.spec.slots[definition["slot"]]
         if binding.adapter not in {"builtin", "human"}:
             error = {"code": "EXECUTOR_UNSUPPORTED", "message": "HTTP Job runtime is not enabled."}
@@ -331,7 +354,7 @@ class Runner:
                 )
             if result.human_request is not None:
                 request_spec = result.human_request
-                subject_digest = _digest_json(input_value)
+                subject_digest = self._artifact_subject_digest(run_id, input_value)
                 self.ledger.create_human_request(
                     run_id=run_id,
                     scope_id=scope_id,
@@ -406,6 +429,21 @@ class Runner:
         return schema
 
     def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
+        self.ledger.validate_artifact_refs(run_id, self._artifact_refs(value))
+
+    def _artifact_subject_digest(self, run_id: str, value: Any) -> str:
+        refs = sorted(self._artifact_refs(value))
+        self.ledger.validate_artifact_refs(run_id, refs)
+        artifacts = []
+        for artifact_id in refs:
+            artifact = self.ledger.get_artifact(artifact_id)
+            if artifact is None:
+                raise LedgerConflict(f"artifact is not ready: {artifact_id}")
+            artifacts.append({"id": artifact_id, "digest": artifact["digest"]})
+        return _digest_json({"input": value, "artifacts": artifacts})
+
+    @staticmethod
+    def _artifact_refs(value: Any) -> list[str]:
         refs: list[str] = []
 
         def visit(current: Any) -> None:
@@ -424,7 +462,7 @@ class Runner:
                     visit(child)
 
         visit(value)
-        self.ledger.validate_artifact_refs(run_id, refs)
+        return refs
 
     def _outputs(self, run_id: str) -> dict[str, Any]:
         outputs: dict[str, Any] = {}

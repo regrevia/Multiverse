@@ -28,16 +28,37 @@ spec:
         actions: [content.produce]
       retry:
         maxAttempts: 1
+      next: critique
+
+    critique:
+      type: call
+      title: Agent review
+      slot: critic
+      inputSchema: schemas/agent-review-request.json
+      outputSchema: schemas/deliverable.json
+      input:
+        object:
+          goal: {ref: "input#/goal"}
+          deliverable: {ref: "nodes.produce.output#"}
+      requires:
+        capabilities: [content.review@1]
+      effects:
+        class: none
+        actions: []
+      retry:
+        maxAttempts: 1
       next: verify
 
     verify:
       type: call
       title: Validate deliverable contract
       slot: verifier
-      inputSchema: schemas/deliverable.json
+      inputSchema: schemas/verification-input.json
       outputSchema: schemas/verification.json
       input:
-        ref: nodes.produce.output#
+        object:
+          deliverable: {ref: "nodes.produce.output#"}
+          agentReview: {ref: "nodes.critique.output#"}
       requires:
         capabilities: [data.validate@1]
       effects:
@@ -66,6 +87,7 @@ spec:
       input:
         object:
           deliverable: {ref: "nodes.produce.output#"}
+          agentReview: {ref: "nodes.critique.output#"}
           verification: {ref: "nodes.verify.output#"}
       requires:
         capabilities: [human.review@1]
@@ -91,6 +113,7 @@ spec:
       output:
         object:
           deliverable: {ref: "nodes.produce.output#"}
+          agentReview: {ref: "nodes.critique.output#"}
           review: {ref: "nodes.review.output#"}
 
     invalid:

@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["deliverable", "verification"],
+  "required": ["deliverable", "agentReview", "verification"],
   "properties": {
     "deliverable": {"$ref": "deliverable.json"},
+    "agentReview": {"$ref": "deliverable.json"},
     "verification": {"$ref": "verification.json"}
   }
 }

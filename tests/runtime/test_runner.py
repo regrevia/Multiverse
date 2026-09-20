@@ -7,6 +7,11 @@ import pytest
 
 from multiverse_workflow.runtime.executors import ExecutionResult, GeneratedArtifact
 from multiverse_workflow.runtime.ledger import LedgerConflict
+from multiverse_workflow.runtime.registry import (
+    ExecutorDescriptor,
+    ExecutorRegistry,
+    local_executor_registry,
+)
 from multiverse_workflow.runtime.runner import RunError, Runner
 
 ROOT = Path(__file__).parents[2]
@@ -61,6 +66,240 @@ def test_content_delivery_rejection_follows_explicit_failed_end(tmp_path: Path) 
 
     assert finished["status"] == "failed"
     assert json.loads(finished["error_json"])["code"] == "DELIVERABLE_REJECTED"
+
+
+def test_content_delivery_passes_two_agent_outputs_to_human_review(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    waiting = runner.start({"goal": "write a release note"})
+
+    invocations = {
+        invocation["node_id"]: invocation
+        for invocation in runner.ledger.list_invocations(waiting["id"])
+    }
+    assert {"produce", "critique", "verify", "review"} <= set(invocations)
+    critique_output = json.loads(invocations["critique"]["output_json"])
+    assert critique_output["text"] == "Review of: Deliverable for: write a release note"
+    request = runner.pending_human_requests(waiting["id"])[0]
+    request_input = json.loads(request["input_json"])
+    assert request_input["deliverable"]["text"]
+    assert request_input["agentReview"] == critique_output
+
+
+def test_runner_uses_an_injected_registry_when_compiling_a_binding(tmp_path: Path) -> None:
+    binding = tmp_path / "binding.yaml"
+    binding.write_text(
+        (ROOT / "examples/bindings/content-local.yaml")
+        .read_text(encoding="utf-8")
+        .replace("example.content-fixture.v1", "test.content-agent.v1"),
+        encoding="utf-8",
+    )
+    local = local_executor_registry()
+    registry = ExecutorRegistry(
+        [
+            ExecutorDescriptor(
+                executor_ref="test.content-agent.v1",
+                adapter="builtin",
+                capabilities=frozenset({"content.produce@1", "content.review@1"}),
+                contract_version="multiverse/v0.1",
+                executor_version="1.0.0",
+                supports_cancel=True,
+                supports_idempotency=True,
+                supports_recovery_query=True,
+                observability_level="structured",
+                permission_level="enforced",
+                installed=True,
+                available=True,
+                verified=True,
+            ),
+            local.resolve("builtin.nonempty-deliverable.v1"),
+            local.resolve("builtin.human-review.v1"),
+        ]
+    )
+
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding,
+        database_path=tmp_path / "runtime.db",
+        executor_registry=registry,
+    )
+
+    assert runner.inspect("run_missing") is None
+
+
+def test_human_decision_rejects_a_tampered_artifact_in_its_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_with_agent_artifacts(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "builtin.ollama-deliverable.v1":
+            return original_execute(executor_ref, input_value, config)
+        is_critique = isinstance(input_value, dict) and "deliverable" in input_value
+        text = (
+            "Critique for the generated deliverable."
+            if is_critique
+            else "Generated deliverable."
+        )
+        return ExecutionResult(
+            output={"text": text, "artifact_refs": []},
+            generated_artifact=GeneratedArtifact(
+                name=str(config["artifactName"]),
+                media_type="text/markdown",
+                content=text.encode("utf-8"),
+            ),
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_with_agent_artifacts)
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-ollama.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    waiting = runner.start({"goal": "write a release note"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+    produce = next(
+        invocation
+        for invocation in runner.ledger.list_invocations(waiting["id"])
+        if invocation["node_id"] == "produce"
+    )
+    artifact_id = json.loads(produce["output_json"])["artifact_refs"][0]
+    artifact = runner.ledger.get_artifact(artifact_id)
+    assert artifact is not None
+    Path(artifact["storage_ref"]).write_text("tampered", encoding="utf-8")
+
+    with pytest.raises(LedgerConflict, match="artifact digest mismatch"):
+        runner.decide(
+            request["id"],
+            choice="approve",
+            comment="Approved.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+        )
+
+    assert runner.ledger.get_human_request(request["id"])["status"] == "pending"
+
+
+def test_runner_blocks_critic_dispatch_when_producer_artifact_is_tampered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_with_agent_artifact(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "builtin.ollama-deliverable.v1":
+            return original_execute(executor_ref, input_value, config)
+        return ExecutionResult(
+            output={"text": "Generated deliverable.", "artifact_refs": []},
+            generated_artifact=GeneratedArtifact(
+                name=str(config["artifactName"]),
+                media_type="text/markdown",
+                content=b"Generated deliverable.",
+            ),
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_with_agent_artifact)
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-ollama.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    original_validate = runner.ledger.validate_artifact_refs
+    producer_artifact_validated = False
+
+    def tamper_before_critic_dispatch(run_id: str, artifact_refs: list[str]) -> None:
+        nonlocal producer_artifact_validated
+        if artifact_refs and producer_artifact_validated:
+            artifact = runner.ledger.get_artifact(artifact_refs[0])
+            assert artifact is not None
+            Path(artifact["storage_ref"]).write_text("tampered", encoding="utf-8")
+        original_validate(run_id, artifact_refs)
+        if artifact_refs:
+            producer_artifact_validated = True
+
+    monkeypatch.setattr(
+        runner.ledger,
+        "validate_artifact_refs",
+        tamper_before_critic_dispatch,
+    )
+
+    failed = runner.start({"goal": "write a release note"})
+
+    assert failed["status"] == "failed"
+    assert json.loads(failed["error_json"])["code"] == "INPUT_ARTIFACT_INVALID"
+    invocations = {
+        invocation["node_id"]: invocation
+        for invocation in runner.ledger.list_invocations(failed["id"])
+    }
+    assert invocations["produce"]["status"] == "succeeded"
+    assert invocations["critique"]["status"] == "failed"
+
+
+def test_human_decision_accepts_persisted_two_agent_artifact_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_with_agent_artifacts(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "builtin.ollama-deliverable.v1":
+            return original_execute(executor_ref, input_value, config)
+        is_critique = isinstance(input_value, dict) and "deliverable" in input_value
+        text = "Critique." if is_critique else "Deliverable."
+        return ExecutionResult(
+            output={"text": text, "artifact_refs": []},
+            generated_artifact=GeneratedArtifact(
+                name=str(config["artifactName"]),
+                media_type="text/markdown",
+                content=text.encode("utf-8"),
+            ),
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_with_agent_artifacts)
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-ollama.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    waiting = runner.start({"goal": "write a release note"})
+    request = runner.pending_human_requests(waiting["id"])[0]
+
+    finished = runner.decide(
+        request["id"],
+        choice="approve",
+        comment="Approved.",
+        actor="example-reviewer",
+        subject_digest=request["subject_digest"],
+        expected_version=request["version"],
+    )
+
+    assert finished["status"] == "succeeded"
 
 
 def test_runner_registers_a_generated_agent_artifact(
@@ -336,6 +575,7 @@ def _write_manual_input_package(root: Path) -> tuple[Path, Path]:
         """      input:
         object:
           deliverable: {ref: "nodes.produce.output#"}
+          agentReview: {ref: "nodes.critique.output#"}
           verification: {ref: "nodes.verify.output#"}
 """,
         """      input:

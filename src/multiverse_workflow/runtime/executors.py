@@ -42,6 +42,16 @@ def execute_builtin(
     if executor_ref == "example.content-fixture.v1":
         if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
             raise ExecutorError("content producer requires a goal string")
+        candidate = input_value.get("deliverable")
+        if candidate is not None:
+            if not isinstance(candidate, dict) or not isinstance(candidate.get("text"), str):
+                raise ExecutorError("content critic requires a deliverable text field")
+            return ExecutionResult(
+                output={
+                    "text": f"Review of: {candidate['text']}",
+                    "artifact_refs": [],
+                }
+            )
         return ExecutionResult(
             output={
                 "text": f"Deliverable for: {input_value['goal']}",
@@ -50,20 +60,32 @@ def execute_builtin(
         )
 
     if executor_ref == "builtin.nonempty-deliverable.v1":
-        valid = (
+        values: dict[str, Any]
+        if (
             isinstance(input_value, dict)
-            and isinstance(input_value.get("text"), str)
-            and bool(input_value["text"].strip())
-            and isinstance(input_value.get("artifact_refs"), list)
-        )
+            and isinstance(input_value.get("deliverable"), dict)
+            and isinstance(input_value.get("agentReview"), dict)
+        ):
+            values = {
+                "deliverable": input_value["deliverable"],
+                "agent review": input_value["agentReview"],
+            }
+        else:
+            values = {"deliverable": input_value}
+        findings = [
+            f"{name} must have non-empty text and an artifact_refs array"
+            for name, value in values.items()
+            if not (
+                isinstance(value, dict)
+                and isinstance(value.get("text"), str)
+                and bool(value["text"].strip())
+                and isinstance(value.get("artifact_refs"), list)
+            )
+        ]
         return ExecutionResult(
             output={
-                "valid": valid,
-                "findings": (
-                    []
-                    if valid
-                    else ["text must be non-empty and artifact_refs must be an array"]
-                ),
+                "valid": not findings,
+                "findings": findings,
             }
         )
 

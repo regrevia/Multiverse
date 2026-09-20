@@ -45,11 +45,12 @@ production HTTP API, and Latent Handoff are not claimed as implemented yet.
 ### Trusted Local Ollama Agent Trial
 
 The `content-ollama` binding runs a real local Ollama model through the
-registered `builtin.ollama-deliverable.v1` executor. It records the model name,
-token counts when available, and an output digest as a Run event. The Runtime
-stores the model's text as a locally managed Artifact, verifies its digest, and
-only then writes the Runtime-owned Artifact ID into the node output for the
-existing verifier and human review steps.
+registered `builtin.ollama-deliverable.v1` executor in two distinct Binding
+slots: a producer and a critic. The critic receives the fixed producer output
+as structured input and produces a separate audit Artifact; it cannot approve
+the workflow. The Runtime records each model call's name, token counts when
+available, and output digest, then verifies and registers the two Runtime-owned
+Artifact IDs before the program verifier and human review steps.
 
 ```bash
 printf '{"goal":"write a concise release note"}' > /tmp/mverse-agent-request.json

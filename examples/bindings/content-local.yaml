@@ -13,6 +13,14 @@ spec:
       grants:
         - action: content.produce
           resource: namespace:demo
+    critic:
+      adapter: builtin
+      executorRef: example.content-fixture.v1
+      config: {}
+      secretRefs: {}
+      grants:
+        - action: content.review
+          resource: namespace:demo
     verifier:
       adapter: builtin
       executorRef: builtin.nonempty-deliverable.v1

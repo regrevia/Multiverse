@@ -63,6 +63,37 @@ def test_generate_deliverable_uses_ollama_json_chat_and_records_usage() -> None:
     assert result.observation["outputDigest"].startswith("sha256:")
 
 
+def test_generate_deliverable_passes_structured_input_to_the_model() -> None:
+    captured: dict[str, object] = {}
+
+    def opener(request: object, timeout: float) -> FakeResponse:
+        captured["request"] = request
+        assert timeout == 120
+        return FakeResponse(
+            {
+                "model": "qwen3.5:9b",
+                "message": {
+                    "content": json.dumps(
+                        {"text": "The candidate is complete.", "artifact_refs": []}
+                    )
+                },
+            }
+        )
+
+    generate_deliverable(
+        {
+            "goal": "review the candidate",
+            "deliverable": {"text": "Candidate release note", "artifact_refs": []},
+        },
+        {"model": "qwen3.5:9b"},
+        opener=opener,
+    )
+
+    request = captured["request"]
+    payload = json.loads(request.data)
+    assert "Candidate release note" in payload["messages"][1]["content"]
+
+
 def test_ollama_builtin_returns_the_model_observation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

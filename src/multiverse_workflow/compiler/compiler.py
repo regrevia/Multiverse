@@ -100,6 +100,7 @@ def compile_package(
     binding_path: Path | None = None,
     omit_slots: set[str] | None = None,
     feature_set: set[str] | None = None,
+    executor_registry: registry.ExecutorRegistry | None = None,
 ) -> CompileResult:
     root = package_dir.resolve()
     if not root.is_dir():
@@ -185,6 +186,7 @@ def compile_package(
         binding_value = binding_model.model_dump(mode="json", by_alias=True, exclude_none=True)
         binding_hash = binding_digest(binding_value)
 
+    registry_snapshot = (executor_registry or registry.local_executor_registry()).snapshot()
     plans: dict[str, ExecutionPlan] = {}
     binding_file = str(binding_path.resolve()) if binding_path is not None else None
     for workflow_id, (workflow_path, workflow) in workflows.items():
@@ -200,6 +202,7 @@ def compile_package(
             binding_hash,
             binding_file,
             workflow_output_schemas,
+            registry_snapshot,
         )
         if isinstance(workflow_result, Diagnostic):
             return CompileResult({}, [workflow_result])
@@ -223,6 +226,7 @@ def _compile_workflow(
     binding_hash: str | None,
     binding_file: str | None,
     workflow_output_schemas: dict[str, Path],
+    executor_registry: registry.ExecutorRegistry,
 ) -> tuple[ExecutionPlan | None, list[Diagnostic]] | Diagnostic:
     file = str(workflow_path)
     diagnostics = validate_graph(workflow.spec.nodes, workflow.spec.entry, file)
@@ -286,7 +290,13 @@ def _compile_workflow(
     )
     if diagnostics:
         return None, diagnostics
-    diagnostics = _validate_binding(workflow, binding, omit_slots, binding_file or file)
+    diagnostics = _validate_binding(
+        workflow,
+        binding,
+        omit_slots,
+        binding_file or file,
+        executor_registry,
+    )
     if diagnostics:
         return None, diagnostics
 
@@ -510,6 +520,7 @@ def _validate_binding(
     binding: BindingSet | None,
     omit_slots: set[str],
     file: str,
+    executor_registry: registry.ExecutorRegistry,
 ) -> list[Diagnostic]:
     if binding is None:
         return []
@@ -530,7 +541,7 @@ def _validate_binding(
             )
             continue
         slot = binding.spec.slots[node.slot]
-        descriptor = registry.local_executor_registry().resolve(slot.executor_ref)
+        descriptor = executor_registry.resolve(slot.executor_ref)
         if descriptor is None:
             diagnostics.append(
                 Diagnostic(

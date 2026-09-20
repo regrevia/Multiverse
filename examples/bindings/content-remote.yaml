@@ -14,6 +14,15 @@ spec:
       grants:
         - action: content.produce
           resource: namespace:demo
+    critic:
+      adapter: http_job
+      executorRef: example.remote-content.v1
+      config: {}
+      secretRefs:
+        authorization: secret://demo/remote-content-token
+      grants:
+        - action: content.review
+          resource: namespace:demo
     verifier:
       adapter: builtin
       executorRef: builtin.nonempty-deliverable.v1
