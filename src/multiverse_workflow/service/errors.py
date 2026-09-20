@@ -33,8 +33,12 @@ def not_found(message: str) -> ServiceError:
     return ServiceError("NOT_FOUND", message, status_code=404)
 
 
-def state_conflict(message: str) -> ServiceError:
-    return ServiceError("STATE_CONFLICT", message, status_code=409)
+def state_conflict(
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> ServiceError:
+    return ServiceError("STATE_CONFLICT", message, status_code=409, details=details)
 
 
 def idempotency_conflict(message: str) -> ServiceError:

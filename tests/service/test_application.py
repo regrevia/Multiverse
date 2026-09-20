@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -117,6 +118,188 @@ def test_control_rejects_a_stale_run_version(tmp_path: Path) -> None:
     assert error.value.code == "STATE_CONFLICT"
 
 
+def test_accepted_pause_command_is_resumed_after_process_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    application = _application(tmp_path)
+    drive = application.runner._drive
+    application.runner._drive = (  # type: ignore[method-assign]
+        lambda run_id, scope_id, node_id: application.runner.ledger.get_run(run_id)
+    )
+    try:
+        created = application.create_run(_create_request(), idempotency_key="create-1")
+    finally:
+        application.runner._drive = drive  # type: ignore[method-assign]
+    request = RunControlRequest(
+        expectedVersion=application.get_run("local", created.resource_id)["version"],
+        reason="Pause before the release window.",
+    )
+    original_finish_command = application.runner.ledger.finish_command
+
+    def interrupt_before_receipt(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated process interruption")
+
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        interrupt_before_receipt,
+    )
+    with pytest.raises(RuntimeError, match="interruption"):
+        application.control_run(
+            "local",
+            created.resource_id,
+            "pause",
+            request,
+            idempotency_key="pause-recover",
+        )
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        original_finish_command,
+    )
+
+    application.close()
+    restarted = _application(tmp_path)
+    receipt = restarted.control_run(
+        "local",
+        created.resource_id,
+        "pause",
+        request,
+        idempotency_key="pause-recover",
+    )
+
+    assert receipt.status == "completed"
+    assert restarted.get_run("local", created.resource_id)["status"] == "paused"
+
+
+def test_reconciled_retry_command_is_resumed_after_process_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = _write_retrying_package(tmp_path)
+    application = RuntimeApplication(
+        package_dir=package,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    drive = application.runner._drive
+    application.runner._drive = (  # type: ignore[method-assign]
+        lambda run_id, scope_id, node_id: application.runner.ledger.get_run(run_id)
+    )
+    try:
+        created = application.create_run(_create_request(), idempotency_key="create-1")
+    finally:
+        application.runner._drive = drive  # type: ignore[method-assign]
+    scope = application.runner.ledger.list_scopes(created.resource_id)[0]
+    invocation = application.runner.ledger.create_invocation(
+        created.resource_id,
+        scope["id"],
+        "produce",
+        {"goal": "write a release note"},
+    )
+    application.runner.ledger.finish_invocation(invocation["id"], status="running")
+    attempt = application.runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    application.runner.ledger.finish_attempt(attempt["id"], status="running")
+    unknown = application.runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    application.runner.ledger.update_run(
+        created.resource_id,
+        status="running",
+        current_node_id="produce",
+    )
+    request = AttemptReconcileRequest(
+        expectedVersion=unknown["version"],
+        conclusion="confirmed_not_started",
+        evidenceRefs=["evidence://provider/not-started"],
+        reason="The provider confirmed that the old submission was never accepted.",
+    )
+    original_finish_command = application.runner.ledger.finish_command
+
+    def interrupt_before_receipt(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated process interruption")
+
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        interrupt_before_receipt,
+    )
+    with pytest.raises(RuntimeError, match="interruption"):
+        application.reconcile_attempt(
+            "local",
+            unknown["id"],
+            request,
+            idempotency_key="reconcile-recover",
+        )
+    monkeypatch.setattr(
+        application.runner.ledger,
+        "finish_command",
+        original_finish_command,
+    )
+    application.close()
+
+    restarted = RuntimeApplication(
+        package_dir=package,
+        binding_path=BINDING,
+        database_path=tmp_path / "runtime.db",
+        deployment_id="deployment_local",
+        subject="example-reviewer",
+    )
+    receipt = restarted.reconcile_attempt(
+        "local",
+        unknown["id"],
+        request,
+        idempotency_key="reconcile-recover",
+    )
+
+    assert receipt.status == "completed"
+    assert restarted.runner.ledger.get_command_by_key(
+        "reconcile-recover",
+        namespace="local",
+        subject="example-reviewer",
+        operation="attempt.reconcile",
+    )["status"] == "completed"
+    assert restarted.runner.ledger.get_invocation(invocation["id"])["status"] == "succeeded"
+
+
+def test_attempt_version_conflict_exposes_expected_and_actual_versions(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="create-1")
+    invocation = application.runner.ledger.list_invocations(created.resource_id)[-1]
+    attempt = application.runner.ledger.latest_attempt(invocation["id"])
+    assert attempt is not None
+    unknown = application.runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    request = AttemptReconcileRequest(
+        expectedVersion=unknown["version"] - 1,
+        conclusion="confirmed_failed",
+        evidenceRefs=["evidence://provider/failed"],
+        reason="The provider confirmed a failure.",
+    )
+
+    with pytest.raises(ServiceError) as error:
+        application.reconcile_attempt(
+            "local",
+            unknown["id"],
+            request,
+            idempotency_key="reconcile-version",
+        )
+
+    assert error.value.code == "STATE_CONFLICT"
+    assert error.value.details == {
+        "resourceId": unknown["id"],
+        "expectedVersion": unknown["version"] - 1,
+        "actualVersion": unknown["version"],
+    }
+
+
 def test_command_query_is_hidden_from_another_authenticated_subject(
     tmp_path: Path,
 ) -> None:
@@ -142,6 +325,25 @@ def test_command_query_is_hidden_from_another_authenticated_subject(
         second_application.get_command("local", created.request_id)
 
     assert error.value.code == "NOT_FOUND"
+
+
+def _write_retrying_package(root: Path) -> Path:
+    package = root / "retrying-content"
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    workflow_path = package / "workflows/delivery.yaml"
+    workflow = workflow_path.read_text(encoding="utf-8").replace(
+        """      retry:
+        maxAttempts: 1
+      next: critique
+""",
+        """      retry:
+        maxAttempts: 2
+      next: critique
+""",
+        1,
+    )
+    workflow_path.write_text(workflow, encoding="utf-8")
+    return package
 
 
 def test_reconcile_attempt_is_idempotent_and_records_authenticated_actor(

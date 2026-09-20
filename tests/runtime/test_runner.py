@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from multiverse_workflow.runtime.executors import ExecutionResult, GeneratedArtifact
+from multiverse_workflow.runtime.executors import (
+    ExecutionResult,
+    ExecutorError,
+    GeneratedArtifact,
+)
 from multiverse_workflow.runtime.ledger import LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.registry import (
@@ -312,6 +316,42 @@ def test_reconciliation_cannot_revive_a_terminal_run(tmp_path: Path) -> None:
     assert runner.ledger.get_attempt(unknown["id"])["status"] == "unknown"
 
 
+def test_reconciled_success_after_cancel_finishes_the_run_as_cancelled(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    waiting, invocation, unknown = _start_with_unknown_producer_attempt(runner)
+    stopping = runner.cancel(
+        waiting["id"],
+        expected_version=runner.ledger.get_run(waiting["id"])["version"],
+        reason="Stop before the provider result arrives.",
+    )
+
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_succeeded",
+        evidence_refs=["evidence://provider/succeeded"],
+        reason="The provider returned a durable result after cancellation.",
+        actor="example-reviewer",
+        output={"text": "Late result.", "artifact_refs": []},
+    )
+
+    assert stopping["status"] == "stopping"
+    assert reconciled["status"] == "succeeded"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "succeeded"
+    finished = runner.ledger.get_run(waiting["id"])
+    assert finished["status"] == "cancelled"
+    assert finished["control_mode"] == "cancel"
+    assert {
+        item["node_id"] for item in runner.ledger.list_invocations(waiting["id"])
+    } == {"produce"}
+
+
 def test_reconciled_success_respects_a_paused_run_control_intent(tmp_path: Path) -> None:
     runner = Runner(
         ROOT / "presets/content-delivery",
@@ -496,6 +536,159 @@ def test_reconciled_not_started_preserves_pause_before_retry_dispatch(
 
     assert resumed["status"] == "waiting"
     assert runner.ledger.get_attempt(attempts[-1]["id"])["status"] == "succeeded"
+
+
+def test_determined_executor_failure_routes_through_on_error_with_error_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_with_failure(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        if "error" in input_value:
+            error = input_value["error"]
+            assert isinstance(error, dict)
+            return ExecutionResult(
+                output={
+                    "handled": True,
+                    "errorCode": error["code"],
+                }
+            )
+        raise ExecutorError("provider rejected the request")
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_with_failure)
+    runner = Runner(
+        _write_on_error_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    finished = runner.start({"fail": True})
+
+    assert finished["status"] == "succeeded"
+    assert json.loads(finished["output_json"]) == {
+        "handled": True,
+        "errorCode": "EXECUTOR_FAILED",
+    }
+    work = next(
+        item
+        for item in runner.ledger.list_invocations(finished["id"])
+        if item["node_id"] == "work"
+    )
+    handler = next(
+        item
+        for item in runner.ledger.list_invocations(finished["id"])
+        if item["node_id"] == "handle"
+    )
+    assert work["status"] == "failed"
+    assert json.loads(work["output_json"])["error"] == {
+        "code": "EXECUTOR_FAILED",
+        "message": "provider rejected the request",
+        "retryable": False,
+        "details": {},
+        "evidenceRefs": [],
+        "nextActions": [],
+    }
+    assert json.loads(handler["input_json"])["error"]["code"] == "EXECUTOR_FAILED"
+    assert any(
+        event["type"] == "error.routed"
+        for event in runner.ledger.list_events(finished["id"])
+    )
+
+
+def test_confirmed_failure_routes_after_reconciliation_but_unknown_stays_blocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from multiverse_workflow.runtime import runner as runner_module
+
+    original_execute = runner_module.execute_builtin
+
+    def execute_handler(
+        executor_ref: str,
+        input_value: object,
+        config: dict[str, object],
+    ) -> ExecutionResult:
+        if executor_ref != "example.content-fixture.v1":
+            return original_execute(executor_ref, input_value, config)
+        assert isinstance(input_value, dict)
+        if "error" not in input_value:
+            raise ExecutorError("the external provider failed")
+        error = input_value["error"]
+        assert isinstance(error, dict)
+        return ExecutionResult(
+            output={"handled": True, "errorCode": error["code"]},
+        )
+
+    monkeypatch.setattr(runner_module, "execute_builtin", execute_handler)
+    runner = Runner(
+        _write_on_error_package(tmp_path),
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        blocked = runner.start({"fail": True})
+    finally:
+        runner._drive = drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(blocked["id"])[0]
+    invocation = runner.ledger.create_invocation(
+        blocked["id"],
+        scope["id"],
+        "work",
+        {"fail": True},
+    )
+    runner.ledger.finish_invocation(invocation["id"], status="running")
+    attempt = runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"fail": True},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    runner.ledger.finish_attempt(attempt["id"], status="running")
+    unknown = runner.ledger.finish_attempt(attempt["id"], status="unknown")
+    runner.ledger.update_run(
+        blocked["id"],
+        status="running",
+        current_node_id="work",
+    )
+
+    assert runner.ledger.get_run(blocked["id"])["status"] == "running"
+    assert not any(
+        item["node_id"] == "handle"
+        for item in runner.ledger.list_invocations(blocked["id"])
+    )
+
+    reconciled = runner.reconcile_attempt(
+        unknown["id"],
+        expected_version=unknown["version"],
+        conclusion="confirmed_failed",
+        evidence_refs=["evidence://provider/failure"],
+        reason="The provider confirmed a terminal failure.",
+        actor="example-reviewer",
+    )
+
+    finished = runner.ledger.get_run(blocked["id"])
+    assert reconciled["status"] == "failed"
+    assert finished["status"] == "succeeded"
+    assert json.loads(finished["output_json"]) == {
+        "handled": True,
+        "errorCode": "RECONCILED_FAILURE",
+    }
+    work = runner.ledger.get_invocation(invocation["id"])
+    assert work is not None
+    assert json.loads(work["output_json"])["error"]["code"] == "RECONCILED_FAILURE"
+    assert runner.ledger.get_invocation_for_node(scope["id"], "handle") is not None
 
 
 def test_rerun_creates_a_new_waiting_run_without_reusing_the_approval(tmp_path: Path) -> None:
@@ -1260,6 +1453,119 @@ def _write_retrying_content_package(root: Path) -> Path:
         1,
     )
     workflow_path.write_text(workflow, encoding="utf-8")
+    return package
+
+
+def _write_on_error_package(root: Path) -> Path:
+    package = root / "on-error-package"
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    schemas = package / "schemas"
+    (schemas / "request.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["fail"],
+                "properties": {"fail": {"type": "boolean"}},
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "work-output.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "handler-input.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "final-output.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["handled", "errorCode"],
+                "properties": {
+                    "handled": {"type": "boolean"},
+                    "errorCode": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package / "manifest.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: on-error-package
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+  entrypoints: [main]
+  requiredFeatures: [core.call]
+""",
+        encoding="utf-8",
+    )
+    (package / "workflows/main.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/request.json
+  outputSchema: schemas/final-output.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      slot: producer
+      inputSchema: schemas/request.json
+      outputSchema: schemas/work-output.json
+      input: {ref: input#}
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: none
+        actions: []
+      onError: handle
+      next: handle
+    handle:
+      type: call
+      slot: producer
+      inputSchema: schemas/handler-input.json
+      outputSchema: schemas/final-output.json
+      input: {ref: nodes.work.output#}
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.handle.output#}
+""",
+        encoding="utf-8",
+    )
     return package
 
 

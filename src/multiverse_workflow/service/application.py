@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -189,15 +190,28 @@ class RuntimeApplication:
             command_id = self._new_resource_id("cmd")
 
         if previous is None:
-            self.runner.ledger.create_command(
-                command_id=command_id,
-                idempotency_key=idempotency_key,
-                fingerprint=fingerprint,
-                operation="attempt.reconcile",
-                namespace=namespace,
-                resource_id=attempt_id,
-                subject=self.subject,
-            )
+            try:
+                self.runner.ledger.create_command(
+                    command_id=command_id,
+                    idempotency_key=idempotency_key,
+                    fingerprint=fingerprint,
+                    operation="attempt.reconcile",
+                    namespace=namespace,
+                    resource_id=attempt_id,
+                    subject=self.subject,
+                )
+            except sqlite3.IntegrityError:
+                previous = self._existing_command(
+                    idempotency_key,
+                    fingerprint,
+                    namespace,
+                    operation="attempt.reconcile",
+                )
+                if previous is None:
+                    raise
+                if previous["status"] in {"completed", "rejected"}:
+                    return self._receipt_from_command(previous)
+                command_id = str(previous["id"])
         try:
             attempt_state = self.runner.ledger.get_attempt(attempt_id)
             if (
@@ -229,12 +243,21 @@ class RuntimeApplication:
                 status_code=422,
             ) from exc
         except (KeyError, LedgerConflict, RunError) as exc:
+            details = self._attempt_conflict_details(
+                attempt_id,
+                request.expected_version,
+                exc,
+            )
             self.runner.ledger.finish_command(
                 command_id,
                 status="rejected",
-                error={"code": "STATE_CONFLICT", "message": str(exc)},
+                error={
+                    "code": "STATE_CONFLICT",
+                    "message": str(exc),
+                    "details": details,
+                },
             )
-            raise state_conflict(str(exc)) from exc
+            raise state_conflict(str(exc), details=details) from exc
         self.runner.ledger.finish_command(
             command_id,
             status="completed",
@@ -305,20 +328,44 @@ class RuntimeApplication:
             operation=f"run.{operation}",
         )
         if previous is not None:
-            return self._receipt_from_command(previous)
-        command_id = self._new_resource_id("cmd")
+            if previous["status"] in {"completed", "rejected"}:
+                return self._receipt_from_command(previous)
+            command_id = str(previous["id"])
+        else:
+            command_id = self._new_resource_id("cmd")
         resource_id = run_id
-        self.runner.ledger.create_command(
-            command_id=command_id,
-            idempotency_key=idempotency_key,
-            fingerprint=fingerprint,
-            operation=f"run.{operation}",
-            namespace=namespace,
-            resource_id=resource_id,
-            subject=self.subject,
-        )
+        if previous is None:
+            try:
+                self.runner.ledger.create_command(
+                    command_id=command_id,
+                    idempotency_key=idempotency_key,
+                    fingerprint=fingerprint,
+                    operation=f"run.{operation}",
+                    namespace=namespace,
+                    resource_id=resource_id,
+                    subject=self.subject,
+                )
+            except sqlite3.IntegrityError:
+                previous = self._existing_command(
+                    idempotency_key,
+                    fingerprint,
+                    namespace,
+                    operation=f"run.{operation}",
+                )
+                if previous is None:
+                    raise
+                if previous["status"] in {"completed", "rejected"}:
+                    return self._receipt_from_command(previous)
+                command_id = str(previous["id"])
         try:
-            if operation == "resume":
+            run = self._already_applied_control(
+                run_id,
+                operation,
+                request.expected_version,
+            )
+            if run is not None:
+                pass
+            elif operation == "resume":
                 run = self.runner.resume(
                     run_id,
                     expected_version=request.expected_version,
@@ -523,7 +570,10 @@ class RuntimeApplication:
             error = json.loads(command["error_json"] or "{}")
             code = str(error.get("code", "RUN_REJECTED"))
             if code == "STATE_CONFLICT":
-                raise state_conflict(str(error.get("message", "command was rejected")))
+                raise state_conflict(
+                    str(error.get("message", "command was rejected")),
+                    details=error.get("details"),
+                )
             raise ServiceError(
                 code,
                 str(error.get("message", "command was rejected")),
@@ -536,6 +586,45 @@ class RuntimeApplication:
             operation=command["operation"],
             resourceVersion=command["resource_version"],
         )
+
+    def _already_applied_control(
+        self,
+        run_id: str,
+        operation: Literal["pause", "resume", "cancel"],
+        expected_version: int,
+    ) -> dict[str, Any] | None:
+        run = self.runner.ledger.get_run(run_id)
+        if run is None or int(run["version"]) <= expected_version:
+            return None
+        if operation == "pause" and (
+            run["status"] == "paused" and run["control_mode"] == "pause"
+        ):
+            return run
+        if operation == "resume" and (
+            run["control_mode"] == "run" and run["status"] != "paused"
+        ):
+            return run
+        if operation == "cancel" and (
+            run["control_mode"] == "cancel"
+            and run["status"] in {"stopping", "cancelled"}
+        ):
+            return run
+        return None
+
+    def _attempt_conflict_details(
+        self,
+        attempt_id: str,
+        expected_version: int,
+        error: BaseException,
+    ) -> dict[str, Any]:
+        if str(error) != "attempt version conflict":
+            return {}
+        current = self.runner.ledger.get_attempt(attempt_id)
+        return {
+            "resourceId": attempt_id,
+            "expectedVersion": expected_version,
+            "actualVersion": None if current is None else current["version"],
+        }
 
     @staticmethod
     def _fingerprint(request: RunCreateRequest) -> str:

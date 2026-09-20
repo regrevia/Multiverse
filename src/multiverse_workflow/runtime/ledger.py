@@ -799,12 +799,16 @@ class Ledger:
             "actor": actor,
         }
         error = None
+        stored_output = output
         if conclusion == "confirmed_failed":
             error = {"code": "RECONCILED_FAILURE", "message": reason}
+            stored_output = error_output(error)
         elif conclusion == "confirmed_cancelled":
             error = {"code": "RECONCILED_CANCELLED", "message": reason}
+            stored_output = error_output(error)
         elif conclusion == "confirmed_not_started":
             error = {"code": "RECONCILED_NOT_STARTED", "message": reason}
+            stored_output = error_output(error)
         with self._transaction() as connection:
             row = self._require_attempt(connection, attempt_id)
             if int(row["version"]) != expected_version:
@@ -823,7 +827,7 @@ class Ledger:
                 """,
                 (
                     status,
-                    _json_or_none(output),
+                    _json_or_none(stored_output),
                     _json_or_none(error),
                     json.dumps(
                         reconciliation,
@@ -1562,6 +1566,32 @@ def _json(value: Any) -> str:
 
 def _json_or_none(value: Any) -> str | None:
     return None if value is None else _json(value)
+
+
+def error_output(error: dict[str, Any]) -> dict[str, Any]:
+    """Return the stable output exposed to a deterministic error route."""
+    return {
+        "error": {
+            "code": str(error.get("code", "RUNTIME_ERROR")),
+            "message": str(error.get("message", "Runtime execution failed.")),
+            "retryable": bool(error.get("retryable", False)),
+            "details": (
+                error.get("details")
+                if isinstance(error.get("details"), dict)
+                else {}
+            ),
+            "evidenceRefs": (
+                error.get("evidenceRefs")
+                if isinstance(error.get("evidenceRefs"), list)
+                else []
+            ),
+            "nextActions": (
+                error.get("nextActions")
+                if isinstance(error.get("nextActions"), list)
+                else []
+            ),
+        }
+    }
 
 
 def _digest(value: str) -> str:
