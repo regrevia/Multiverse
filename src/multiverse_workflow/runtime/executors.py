@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from multiverse_workflow.runtime.ollama import OllamaError, generate_deliverable
+
 
 class ExecutorError(RuntimeError):
     """A local executor cannot produce a valid protocol result."""
@@ -21,6 +23,7 @@ class HumanRequestSpec:
 class ExecutionResult:
     output: Any | None = None
     human_request: HumanRequestSpec | None = None
+    observations: list[dict[str, object]] | None = None
 
 
 def execute_builtin(
@@ -55,6 +58,15 @@ def execute_builtin(
                 ),
             }
         )
+
+    if executor_ref == "builtin.ollama-deliverable.v1":
+        if not isinstance(input_value, dict):
+            raise ExecutorError("ollama deliverable requires an object input")
+        try:
+            result = generate_deliverable(input_value, config)
+        except OllamaError as exc:
+            raise ExecutorError(str(exc)) from exc
+        return ExecutionResult(output=result.output, observations=[result.observation])
 
     if executor_ref == "builtin.human-review.v1":
         choices = config.get("choices", ["approve", "reject"])

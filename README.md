@@ -42,6 +42,27 @@ This is a local single-process preview. HTTP Job, LangGraph persistence,
 parallel/repeat execution, deployment/import, outbox/inbox recovery, and the
 production HTTP API, and Latent Handoff are not claimed as implemented yet.
 
+### Trusted Local Ollama Agent Trial
+
+The `content-ollama` binding runs a real local Ollama model through the
+registered `builtin.ollama-deliverable.v1` executor. It records the model name,
+token counts when available, and an output digest as a Run event before the
+existing verifier and human review steps.
+
+```bash
+printf '{"goal":"write a concise release note"}' > /tmp/mverse-agent-request.json
+uv run mverse run presets/content-delivery \
+  --binding examples/bindings/content-ollama.yaml \
+  --input /tmp/mverse-agent-request.json \
+  --db .multiverse/ollama.db \
+  --json
+```
+
+This trusted-local preview requires a running Ollama service and the configured
+model (`qwen3.5:9b` in the example Binding). It is not a sandbox, does not
+support model-call recovery or cancellation, and does not claim full offline
+delivery support.
+
 ### Manual Artifact Trial
 
 The supplementary-spec trial preset lets a human complete a structured task

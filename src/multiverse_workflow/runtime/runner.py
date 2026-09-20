@@ -315,6 +315,15 @@ class Runner:
                 error=error,
             )
             return None
+        for observation in result.observations or []:
+            self.ledger.record_event(
+                run_id,
+                "agent.model.completed",
+                observation,
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                attempt_id=attempt["id"],
+            )
         if result.human_request is not None:
             request_spec = result.human_request
             subject_digest = _digest_json(input_value)

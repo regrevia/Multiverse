@@ -1,0 +1,34 @@
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: content-ollama
+  version: 0.1.0
+spec:
+  slots:
+    producer:
+      adapter: builtin
+      executorRef: builtin.ollama-deliverable.v1
+      config:
+        model: qwen3.5:9b
+        systemPrompt: Return only a concise deliverable JSON object with text and artifact_refs.
+        timeoutSeconds: 120
+      secretRefs: {}
+      grants:
+        - action: content.produce
+          resource: namespace:demo
+    verifier:
+      adapter: builtin
+      executorRef: builtin.nonempty-deliverable.v1
+      config: {}
+      secretRefs: {}
+      grants: []
+    reviewer:
+      adapter: human
+      executorRef: builtin.human-review.v1
+      config:
+        requestType: review
+        choices: [approve, reject]
+        authorizedSubjects: [example-reviewer]
+        requireCommentFor: [reject]
+      secretRefs: {}
+      grants: []
