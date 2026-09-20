@@ -8,3 +8,6 @@ __pycache__/
 dist/
 *.egg-info/
 .multiverse/
+inspector/node_modules/
+.playwright-cli/
+output/playwright/
