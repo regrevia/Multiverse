@@ -8,7 +8,6 @@ import {
   CircleDashed,
   Clock3,
   Code2,
-  FileText,
   GitBranch,
   Layers3,
   Maximize2,
@@ -16,14 +15,11 @@ import {
   PanelRight,
   Play,
   Plus,
-  Radio,
-  RotateCcw,
   Search,
   Send,
   ShieldCheck,
   UserRound,
   Workflow,
-  X,
   Zap,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -217,34 +213,29 @@ function App() {
         <section className="main-stage">
           <div className="stage-header">
             <div>
-              <div className="eyebrow"><Radio size={13} /> 运行详情</div>
               <h1>内容交付</h1>
-              <p>查看工作流状态、运行证据和下一步授权操作。</p>
             </div>
             <div className="stage-actions">
-              <button className="quiet-button" onClick={() => setCollapsedGroups(new Set())}>
-                <Layers3 size={15} /> 展开作用域
+              <button
+                aria-label="展开全部作用域"
+                className="icon-button action-button"
+                title="展开全部作用域"
+                onClick={() => setCollapsedGroups(new Set())}
+              >
+                <Layers3 size={16} />
               </button>
-              <button className="dark-button" onClick={simulateAgentUpdate}>
-                <Zap size={15} /> 模拟智能体更新
+              <button
+                aria-label="模拟智能体更新"
+                className="icon-button action-button primary-action"
+                title="模拟智能体更新"
+                onClick={simulateAgentUpdate}
+              >
+                <Zap size={16} />
               </button>
-            </div>
-          </div>
-
-          <div className="run-summary">
-            <div className="summary-main">
-              <div className="summary-icon"><Activity size={18} /></div>
-              <div><strong>等待细化完成</strong><span>当前运行仍在进行，并保留上一版本输出。</span></div>
-            </div>
-            <div className="summary-facts">
-              <div><span>进度</span><strong>2 / 6 个节点</strong></div>
-              <div><span>作用域</span><strong>root / production</strong></div>
-              <div><span>更新时间</span><strong>{graph.updatedAt}</strong></div>
             </div>
           </div>
 
           <div className="canvas-toolbar">
-            <div className="canvas-mode"><button className="mode-button active"><Workflow size={15} /> 流程</button><button className="mode-button"><FileText size={15} /> 证据</button></div>
             <div className="canvas-controls">
               <button className="icon-button small" title="缩小" onClick={() => setZoom((value) => Math.max(0.58, value - 0.1))}><Minus size={15} /></button>
               <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
@@ -262,7 +253,6 @@ function App() {
             onPointerCancel={onPointerUp}
             onWheel={onWheel}
           >
-            <div className="canvas-grid" />
             <div className="graph-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
               <svg className="edge-layer" viewBox="0 0 920 650" aria-hidden="true">
                 <defs>
@@ -309,15 +299,14 @@ function App() {
                 />
               ))}
             </div>
-            <div className="canvas-hint"><span>拖动平移</span><span>滚轮缩放</span><span>点击节点查看详情</span></div>
           </div>
 
           <div className="timeline">
-            <div className="timeline-heading"><span><Clock3 size={15} /> 证据时间线</span><button className="text-button"><RotateCcw size={14} /> 刷新</button></div>
+            <div className="timeline-heading"><span><Clock3 size={15} /> 证据时间线</span></div>
             <div className="timeline-track">
-              <TimelineEvent time="09:42:11" title="草稿交付物已完成" detail="输出结构校验通过" tone="success" />
-              <TimelineEvent time="09:42:12" title="细化已开始" detail="尝试 1 进行中" tone="active" />
-              <TimelineEvent time="—" title="人工审核" detail="尚未到达" tone="muted" />
+              <TimelineEvent time="09:42:11" title="草稿交付物已完成" tone="success" />
+              <TimelineEvent time="09:42:12" title="细化已开始" tone="active" />
+              <TimelineEvent time="—" title="人工审核" tone="muted" />
             </div>
           </div>
         </section>
@@ -361,14 +350,13 @@ function AuditPanel({ node, onFocus }: { node: GraphNode; onFocus: () => void })
   return (
     <div className="panel-content">
       <div className="panel-heading">
-        <div><span className="panel-kicker"><ShieldCheck size={13} /> 已验证证据</span><h2>{node.title}</h2><p>{node.detail}</p></div>
+        <div><h2>{node.title}</h2><p>{node.detail}</p></div>
         <button className="icon-button small" title="聚焦节点" onClick={onFocus}><Maximize2 size={15} /></button>
       </div>
       <div className="audit-status"><StatusIcon status={node.status} /><div><span>当前状态</span><strong>{statusLabels[node.status]}</strong></div></div>
       <div className="detail-block"><span className="detail-label">执行器</span><strong>{node.executor}</strong></div>
       <div className="contract-grid"><div><span className="detail-label">输入</span><strong>{node.input}</strong></div><div><span className="detail-label">输出</span><strong>{node.output}</strong></div></div>
       <div className="evidence-list"><div className="detail-label">证据</div>{node.evidence.map((item) => <div className="evidence-row" key={item}><Check size={14} /> {item}</div>)}</div>
-      <div className="panel-callout"><ShieldCheck size={16} /><span>身份、版本和输出均绑定到此节点 ID。</span></div>
     </div>
   );
 }
@@ -390,20 +378,27 @@ function AgentPanel({
 }) {
   return (
     <div className="panel-content agent-panel">
-      <div className="panel-heading"><div><span className="panel-kicker"><Zap size={13} /> 实时编排</span><h2>智能体编辑流</h2><p>在作用域变更成为新版本之前，先查看预览结果。</p></div></div>
+      <div className="panel-heading"><div><h2>智能体编辑流</h2></div></div>
       <label className="field-label" htmlFor="patch">作用域补丁</label>
       <textarea id="patch" value={patchText} onChange={(event) => setPatchText(event.target.value)} spellCheck={false} />
       <div className={`patch-state ${patchState.kind}`}><span className="state-indicator" /> {patchState.message}</div>
       <button className="apply-button" onClick={onApply}><Send size={15} /> 应用预览</button>
-      <button className="quiet-button full" onClick={onSimulate}><Play size={15} /> 模拟下一条智能体事件</button>
+      <button
+        aria-label="模拟下一条智能体事件"
+        className="icon-button simulate-button"
+        title="模拟下一条智能体事件"
+        onClick={onSimulate}
+      >
+        <Play size={15} />
+      </button>
       <div className="agent-events"><div className="detail-label">最近智能体活动</div>{events.map((event) => <div className="agent-event" key={event}><span />{event}</div>)}</div>
-      <div className="panel-callout warning"><AlertCircle size={16} /><span>预览变更只会更新图，不会发布。正式发布仍需要校验、差异确认和授权决策。</span></div>
+      <div className="panel-callout warning"><AlertCircle size={16} /><span>预览不会发布。</span></div>
     </div>
   );
 }
 
-function TimelineEvent({ time, title, detail, tone }: { time: string; title: string; detail: string; tone: "success" | "active" | "muted" }) {
-  return <div className={`timeline-event ${tone}`}><span className="timeline-time">{time}</span><span className="timeline-marker" /><div><strong>{title}</strong><span>{detail}</span></div></div>;
+function TimelineEvent({ time, title, tone }: { time: string; title: string; tone: "success" | "active" | "muted" }) {
+  return <div className={`timeline-event ${tone}`}><span className="timeline-time">{time}</span><span className="timeline-marker" /><strong>{title}</strong></div>;
 }
 
 function StatusIcon({ status }: { status: NodeStatus }) {

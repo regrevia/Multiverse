@@ -75,7 +75,7 @@ def test_human_request_decision_is_versioned_and_idempotent(tmp_path: Path) -> N
         choices=["approve", "reject"],
         decision_schema={"type": "object"},
         authorized_subjects=["example-reviewer"],
-        expires_at="2026-09-20T00:00:00Z",
+        expires_at="2099-01-01T00:00:00Z",
     )
 
     decided = ledger.decide_human_request(
