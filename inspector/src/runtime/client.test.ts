@@ -87,4 +87,82 @@ describe("runtime client", () => {
       message: "reload snapshot",
     });
   });
+
+  it("lists human requests with their frozen input and submits the same versioned decision", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            requests: [
+              {
+                id: "human_1",
+                runId: "run_123",
+                scopeId: "scope_1",
+                invocationId: "inv_1",
+                requestType: "review",
+                title: "Human review",
+                instructions: "Review the deliverable.",
+                input: { deliverable: { text: "Draft" } },
+                inputDigest: "sha256:input",
+                subjectDigest: "sha256:subject",
+                choices: ["approve", "reject"],
+                decisionSchema: { type: "object" },
+                authorizedSubjects: ["reviewer"],
+                createdAt: "2026-09-20T00:00:00Z",
+                expiresAt: "2026-09-21T00:00:00Z",
+                version: 1,
+                status: "pending",
+                decisionId: null,
+                updatedAt: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            requestId: "cmd_1",
+            status: "completed",
+            resourceId: "run_123",
+            operation: "human-request.decide",
+            resourceVersion: 2,
+          }),
+          { status: 202, headers: { "content-type": "application/json" } },
+        ),
+      );
+    const client = new RuntimeClient(
+      { baseUrl: "http://runtime/", namespace: "local", runId: "run_123", token: "token" },
+      fetchImpl,
+    );
+
+    const result = await client.listHumanRequests();
+    const receipt = await client.submitHumanDecision(
+      "human_1",
+      {
+        expectedVersion: result.requests[0]?.version ?? 0,
+        subjectDigest: result.requests[0]?.subjectDigest ?? "",
+        choice: "approve",
+        comment: "Approved from Inspector.",
+      },
+      "inspector-decision-1",
+    );
+
+    expect(result.requests[0]?.input).toEqual({ deliverable: { text: "Draft" } });
+    expect(receipt.operation).toBe("human-request.decide");
+    const [url, init] = fetchImpl.mock.calls[1] ?? [];
+    expect(url).toBe(
+      "http://runtime/api/v1/namespaces/local/human-requests/human_1/decisions",
+    );
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token");
+    expect(new Headers(init?.headers).get("Idempotency-Key")).toBe("inspector-decision-1");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      expectedVersion: 1,
+      subjectDigest: "sha256:subject",
+      choice: "approve",
+      comment: "Approved from Inspector.",
+    });
+  });
 });

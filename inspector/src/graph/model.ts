@@ -14,6 +14,7 @@ export type NodeStatus =
 
 export type GraphNode = {
   id: string;
+  invocationId?: string;
   title: string;
   type: "call" | "switch" | "human" | "end" | "group";
   status: NodeStatus;

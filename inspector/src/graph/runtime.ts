@@ -120,17 +120,25 @@ type RuntimeEvent = {
   payload: Record<string, unknown>;
 };
 
-type RuntimeHumanRequest = {
+export type RuntimeHumanRequest = {
   id: string;
   scopeId: string;
   invocationId: string;
   requestType: string;
   title: string;
+  instructions?: string;
+  input?: unknown;
+  inputDigest?: string;
   subjectDigest: string;
   choices: string[];
+  decisionSchema?: Record<string, unknown>;
+  authorizedSubjects?: string[];
+  createdAt?: string;
   expiresAt: string;
   version: number;
   status: RuntimeStatus;
+  decisionId?: string | null;
+  updatedAt?: string | null;
 };
 
 type RuntimeArtifact = {
@@ -238,6 +246,7 @@ function toGraphNode(
 
   return {
     id: runtimeNode.id,
+    invocationId: runtimeNode.invocation?.id,
     title: runtimeNode.title,
     type: toNodeType(runtimeNode.type, humanRequest),
     status,

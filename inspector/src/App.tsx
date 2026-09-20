@@ -45,9 +45,15 @@ import {
   translatePositions,
   type GraphPosition,
 } from "./graph/layout";
-import { mapRuntimeProjection, parseRuntimeProjection } from "./graph/runtime";
+import {
+  mapRuntimeProjection,
+  parseRuntimeProjection,
+  type RuntimeHumanRequest,
+} from "./graph/runtime";
 import {
   RuntimeClient,
+  type HumanDecisionPayload,
+  type RuntimeCommandReceipt,
   type RuntimeClientConfig,
   type RuntimeEvent,
   type WatchStatus,
@@ -114,6 +120,11 @@ type RuntimeConnectionDraft = {
   token: string;
 };
 
+type DecisionState = {
+  kind: "idle" | "submitting" | "success" | "error";
+  message: string;
+};
+
 function App() {
   const [graph, setGraph] = useState<AuditGraph>(demoGraph);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -163,6 +174,12 @@ function App() {
       : { kind: "demo", message: "演示数据" },
   );
   const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
+  const [humanRequests, setHumanRequests] = useState<RuntimeHumanRequest[]>([]);
+  const [decisionComment, setDecisionComment] = useState("");
+  const [decisionState, setDecisionState] = useState<DecisionState>({
+    kind: "idle",
+    message: "",
+  });
   const [lastEventSeq, setLastEventSeq] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const snapshotInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +201,12 @@ function App() {
     renderedNodes.find((node) => node.id === selectedId) ??
     graph.nodes.find((node) => node.id === selectedId) ??
     renderedNodes[0];
+  const selectedHumanRequest = humanRequests.find(
+    (request) => request.invocationId === selectedNode?.invocationId,
+  );
+  const pendingHumanRequestCount = humanRequests.filter(
+    (request) => request.status === "pending",
+  ).length;
 
   useEffect(() => {
     if (!connection.baseUrl || !connection.namespace || !connection.runId || !connection.token) {
@@ -199,11 +222,18 @@ function App() {
         const projectionCursor = projection.events.at(-1)?.seq ?? 0;
         setGraph(nextGraph);
         setRuntimeEvents(projection.events);
+        setHumanRequests(projection.humanRequests);
         setLastEventSeq(projectionCursor);
         setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
         setSelectedId(nextGraph.nodes[0]?.id ?? nextGraph.groups[0]?.id ?? "");
         setImportState({ kind: "success", message: "Runtime 快照" });
-        return projectionCursor;
+        return client
+          .listHumanRequests(controller.signal)
+          .then((result) => {
+            setHumanRequests((current) => mergeHumanRequests(current, result.requests));
+            return projectionCursor;
+          })
+          .catch(() => projectionCursor);
       })
       .then((projectionCursor) =>
         client.watchRun({
@@ -215,6 +245,9 @@ function App() {
               ...nextGraph,
               ...preserveGraphPositions(current, nextGraph, nodePositionsRef.current),
             }));
+            setHumanRequests((current) =>
+              mergeHumanRequests(current, projection.humanRequests),
+            );
             setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
           },
           onEvent: (event) => {
@@ -247,6 +280,43 @@ function App() {
     event.preventDefault();
     setConnection(connectionDraft);
     setShowConnection(false);
+  }
+
+  async function submitHumanDecision(choice: string) {
+    if (
+      !selectedHumanRequest ||
+      selectedHumanRequest.status !== "pending" ||
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
+      return;
+    }
+    const payload: HumanDecisionPayload = {
+      expectedVersion: selectedHumanRequest.version,
+      subjectDigest: selectedHumanRequest.subjectDigest,
+      choice,
+      comment: decisionComment,
+    };
+    setDecisionState({ kind: "submitting", message: "正在提交人工决定" });
+    try {
+      const client = new RuntimeClient(connection);
+      const receipt: RuntimeCommandReceipt = await client.submitHumanDecision(
+        selectedHumanRequest.id,
+        payload,
+        `inspector-${selectedHumanRequest.id}-${selectedHumanRequest.version}-${choice}-${Date.now()}`,
+      );
+      setDecisionState({
+        kind: "success",
+        message: `已提交，等待 Runtime 确认（${receipt.status}）`,
+      });
+    } catch (error) {
+      setDecisionState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "人工决定提交失败",
+      });
+    }
   }
 
   function focusNode(node: GraphNode) {
@@ -300,6 +370,7 @@ function App() {
       const projection = parseRuntimeProjection(JSON.parse(await file.text()));
       const nextGraph = mapRuntimeProjection(projection);
       setGraph(nextGraph);
+      setHumanRequests(projection.humanRequests);
       setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
       setSelectedId(nextGraph.groups[0]?.id ?? nextGraph.nodes[0]?.id ?? "");
       setPanelMode("audit");
@@ -437,7 +508,7 @@ function App() {
             <p className="rail-title">工作区</p>
             <button className="rail-item active"><Activity size={16} /> 当前运行</button>
             <button className="rail-item"><Layers3 size={16} /> 工作流</button>
-            <button className="rail-item"><UserRound size={16} /> 人工处理箱 <span className="rail-count">1</span></button>
+            <button className="rail-item"><UserRound size={16} /> 人工处理箱 <span className="rail-count">{pendingHumanRequestCount}</span></button>
           </div>
           <div className="rail-section rail-bottom">
             <p className="rail-title">运行</p>
@@ -573,7 +644,17 @@ function App() {
             <button className={panelMode === "agent" ? "selected" : ""} onClick={() => setPanelMode("agent")}><Code2 size={15} /> 智能体编辑</button>
           </div>
           {panelMode === "audit" ? (
-            selectedNode && <AuditPanel node={selectedNode} onFocus={() => focusNode(selectedNode)} />
+            selectedNode && (
+              <AuditPanel
+                node={selectedNode}
+                humanRequest={selectedHumanRequest}
+                decisionComment={decisionComment}
+                setDecisionComment={setDecisionComment}
+                decisionState={decisionState}
+                onDecision={submitHumanDecision}
+                onFocus={() => focusNode(selectedNode)}
+              />
+            )
           ) : (
             <AgentPanel
               patchText={patchText}
@@ -648,7 +729,23 @@ function NodeCard({
   );
 }
 
-function AuditPanel({ node, onFocus }: { node: GraphNode; onFocus: () => void }) {
+function AuditPanel({
+  node,
+  humanRequest,
+  decisionComment,
+  setDecisionComment,
+  decisionState,
+  onDecision,
+  onFocus,
+}: {
+  node: GraphNode;
+  humanRequest?: RuntimeHumanRequest;
+  decisionComment: string;
+  setDecisionComment: (value: string) => void;
+  decisionState: DecisionState;
+  onDecision: (choice: string) => void;
+  onFocus: () => void;
+}) {
   return (
     <div className="panel-content">
       <div className="panel-heading">
@@ -659,7 +756,81 @@ function AuditPanel({ node, onFocus }: { node: GraphNode; onFocus: () => void })
       <div className="detail-block"><span className="detail-label">执行器</span><strong>{node.executor}</strong></div>
       <div className="contract-grid"><div><span className="detail-label">输入</span><strong>{node.input}</strong></div><div><span className="detail-label">输出</span><strong>{node.output}</strong></div></div>
       <div className="evidence-list"><div className="detail-label">证据</div>{node.evidence.map((item) => <div className="evidence-row" key={item}><Check size={14} /> {item}</div>)}</div>
+      {humanRequest && (
+        <HumanRequestPanel
+          request={humanRequest}
+          comment={decisionComment}
+          setComment={setDecisionComment}
+          state={decisionState}
+          onDecision={onDecision}
+        />
+      )}
     </div>
+  );
+}
+
+function HumanRequestPanel({
+  request,
+  comment,
+  setComment,
+  state,
+  onDecision,
+}: {
+  request: RuntimeHumanRequest;
+  comment: string;
+  setComment: (value: string) => void;
+  state: DecisionState;
+  onDecision: (choice: string) => void;
+}) {
+  const pending = request.status === "pending";
+  const submitting = state.kind === "submitting";
+  return (
+    <section className="human-request-panel" aria-label="人工请求">
+      <div className="detail-label">人工请求</div>
+      <div className="request-meta">
+        <span>{request.requestType}</span>
+        <code>v{request.version}</code>
+      </div>
+      {request.instructions && <p className="request-instructions">{request.instructions}</p>}
+      {request.input !== undefined && (
+        <div className="request-material">
+          <span className="detail-label">冻结材料</span>
+          <pre>{formatJson(request.input)}</pre>
+        </div>
+      )}
+      <div className="request-subject">
+        <span className="detail-label">主题摘要</span>
+        <code>{request.subjectDigest}</code>
+      </div>
+      {pending ? (
+        <>
+          <label className="field-label" htmlFor="decision-comment">审计备注</label>
+          <textarea
+            id="decision-comment"
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="可选"
+            disabled={submitting}
+          />
+          <div className="decision-actions">
+            {request.choices.map((choice) => (
+              <button
+                key={choice}
+                className={`decision-button ${choice === "approve" ? "approve" : "reject"}`}
+                onClick={() => onDecision(choice)}
+                disabled={submitting}
+              >
+                {choice === "approve" ? <Check size={15} /> : <AlertCircle size={15} />}
+                {choice === "approve" ? "批准" : choice === "reject" ? "拒绝" : choice}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="patch-state success"><span className="state-indicator" /> 请求已{request.status === "decided" ? "完成" : request.status}</div>
+      )}
+      {state.message && <div className={`patch-state ${state.kind}`}>{state.message}</div>}
+    </section>
   );
 }
 
@@ -734,6 +905,25 @@ function eventTone(type: string): "success" | "active" | "muted" {
   if (type.includes("succeeded") || type.includes("completed")) return "success";
   if (type.includes("running") || type.includes("created") || type.includes("waiting")) return "active";
   return "muted";
+}
+
+function mergeHumanRequests(
+  current: RuntimeHumanRequest[],
+  incoming: RuntimeHumanRequest[],
+): RuntimeHumanRequest[] {
+  const byId = new Map(current.map((request) => [request.id, request]));
+  incoming.forEach((request) => {
+    byId.set(request.id, { ...byId.get(request.id), ...request });
+  });
+  return [...byId.values()];
+}
+
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 const demoTimeline = ["演示数据：草稿交付物已完成", "演示数据：细化已开始", "演示数据：人工审核"];

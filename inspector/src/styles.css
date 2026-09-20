@@ -130,6 +130,22 @@ button { border: 0; cursor: pointer; }
 .evidence-list { display: grid; gap: 9px; }
 .evidence-row { gap: 7px; color: #587084; font-size: 12px; }
 .evidence-row svg { color: #2d969b; }
+.human-request-panel { margin-top: 26px; padding-top: 20px; border-top: 1px solid #d6e2e8; }
+.request-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; color: #587084; font-size: 12px; }
+.request-meta code, .request-subject code { color: #607589; font: 10px ui-monospace, SFMono-Regular, monospace; }
+.request-instructions { margin: 12px 0 0; color: #587084; font-size: 12px; line-height: 1.5; }
+.request-material { margin-top: 17px; }
+.request-material pre { max-height: 145px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid #d5e0e7; border-radius: 6px; background: #eef3f6; color: #40586d; font: 10px/1.5 ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; }
+.request-subject { display: grid; gap: 7px; margin-top: 15px; }
+.human-request-panel textarea { width: 100%; min-height: 70px; resize: vertical; padding: 10px; border: 1px solid #d0dce5; border-radius: 6px; outline: none; background: #fff; color: #40586d; font-size: 11px; line-height: 1.45; }
+.human-request-panel textarea:focus { border-color: #72adb9; box-shadow: 0 0 0 3px rgba(114,173,185,.16); }
+.decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.decision-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border: 1px solid #cbd9e2; border-radius: 6px; font-size: 11px; }
+.decision-button:disabled { cursor: wait; opacity: .58; }
+.decision-button.approve { background: #e6f4f1; color: #287b78; }
+.decision-button.reject { background: #fbefef; color: #a2525b; }
+.patch-state.submitting { color: #94784b; }
+.patch-state.submitting .state-indicator { background: #b27c49; }
 .panel-callout { display: flex; gap: 8px; margin-top: 26px; padding: 12px; border: 1px solid #c8e0e5; background: #eaf5f7; color: #397481; font-size: 11px; line-height: 1.45; }
 .panel-callout.warning { border-color: #e3d7bc; background: #fbf7ed; color: #94784b; }
 .panel-callout svg { flex: 0 0 auto; margin-top: 1px; }

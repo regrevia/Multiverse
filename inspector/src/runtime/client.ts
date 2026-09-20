@@ -1,8 +1,24 @@
-import type { RuntimeProjection } from "../graph/runtime";
+import type { RuntimeHumanRequest, RuntimeProjection } from "../graph/runtime";
 
 export type RuntimeEvent = RuntimeProjection["events"][number];
 
 export type RuntimeRun = RuntimeProjection["run"];
+
+export type RuntimeCommandReceipt = {
+  requestId: string;
+  status: "accepted" | "completed" | "rejected";
+  resourceId: string;
+  operation: string;
+  resourceVersion: number | null;
+};
+
+export type HumanDecisionPayload = {
+  expectedVersion: number;
+  subjectDigest: string;
+  choice?: string;
+  decision?: unknown;
+  comment?: string;
+};
 
 export type RuntimeClientConfig = {
   baseUrl: string;
@@ -74,6 +90,33 @@ export class RuntimeClient {
     return this.request(
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}/events?after=${after}`,
       { signal },
+    );
+  }
+
+  async listHumanRequests(signal?: AbortSignal): Promise<{ requests: RuntimeHumanRequest[] }> {
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests?runId=${encodeURIComponent(this.config.runId)}`,
+      { signal },
+    );
+  }
+
+  async submitHumanDecision(
+    requestId: string,
+    payload: HumanDecisionPayload,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeCommandReceipt> {
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests/${encodeURIComponent(requestId)}/decisions`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+      },
     );
   }
 

@@ -202,4 +202,12 @@ describe("runtime projection mapper", () => {
       "cancelled",
     );
   });
+
+  it("keeps the invocation identity needed to target a HumanRequest", () => {
+    const graph = mapRuntimeProjection(snapshot);
+
+    expect(graph.nodes.find((node) => node.id === "scope_root:review")?.invocationId).toBe(
+      "inv_review",
+    );
+  });
 });
