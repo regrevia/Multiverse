@@ -33,6 +33,7 @@ from multiverse_workflow.protocol.models import (
     WorkflowNode,
     WorkflowPackage,
 )
+from multiverse_workflow.runtime import registry
 
 _SUPPORTED_FEATURES = {
     "core.call",
@@ -44,105 +45,9 @@ _SUPPORTED_FEATURES = {
     "core.repeat",
 }
 
-_EXECUTOR_CAPABILITIES = {
-    "example.content-fixture.v1": {"content.produce@1"},
-    "example.remote-content.v1": {"content.produce@1"},
-    "builtin.nonempty-deliverable.v1": {"data.validate@1"},
-    "builtin.human-review.v1": {"human.review@1"},
-    "builtin.human-input.v1": {"human.input@1"},
-}
-
-_EXECUTOR_DESCRIPTORS: dict[str, dict[str, Any]] = {
-    "example.content-fixture.v1": {
-        "adapter": "builtin",
-        "capabilities": {"content.produce@1"},
-        "contractVersion": "multiverse/v0.1",
-        "executorVersion": "1.0.0",
-        "supportsCancel": True,
-        "supportsIdempotency": True,
-        "supportsRecoveryQuery": True,
-        "observabilityLevel": "structured",
-        "permissionLevel": "enforced",
-    },
-    "example.remote-content.v1": {
-        "adapter": "http_job",
-        "capabilities": {"content.produce@1"},
-        "contractVersion": "multiverse/v0.1",
-        "executorVersion": "1.0.0",
-        "supportsCancel": True,
-        "supportsIdempotency": True,
-        "supportsRecoveryQuery": True,
-        "observabilityLevel": "external",
-        "permissionLevel": "enforced",
-    },
-    "builtin.nonempty-deliverable.v1": {
-        "adapter": "builtin",
-        "capabilities": {"data.validate@1"},
-        "contractVersion": "multiverse/v0.1",
-        "executorVersion": "1.0.0",
-        "supportsCancel": True,
-        "supportsIdempotency": True,
-        "supportsRecoveryQuery": True,
-        "observabilityLevel": "structured",
-        "permissionLevel": "enforced",
-    },
-    "builtin.human-review.v1": {
-        "adapter": "human",
-        "capabilities": {"human.review@1"},
-        "contractVersion": "multiverse/v0.1",
-        "executorVersion": "1.0.0",
-        "supportsCancel": True,
-        "supportsIdempotency": True,
-        "supportsRecoveryQuery": True,
-        "observabilityLevel": "structured",
-        "permissionLevel": "enforced",
-    },
-    "builtin.human-input.v1": {
-        "adapter": "human",
-        "capabilities": {"human.input@1"},
-        "contractVersion": "multiverse/v0.1",
-        "executorVersion": "1.0.0",
-        "supportsCancel": True,
-        "supportsIdempotency": True,
-        "supportsRecoveryQuery": True,
-        "observabilityLevel": "structured",
-        "permissionLevel": "enforced",
-    },
-}
-
-_VERIFIED_EXECUTORS = {
-    "example.content-fixture.v1",
-    "builtin.nonempty-deliverable.v1",
-    "builtin.human-review.v1",
-    "builtin.human-input.v1",
-}
-
-
-def executor_capabilities() -> list[dict[str, Any]]:
+def executor_capabilities() -> list[dict[str, object]]:
     """Return a safe, machine-readable local capability catalog."""
-    catalog: list[dict[str, Any]] = []
-    for executor_ref, descriptor in sorted(_EXECUTOR_DESCRIPTORS.items()):
-        installed = descriptor["adapter"] in {"builtin", "human"}
-        available = installed and executor_ref != "example.remote-content.v1"
-        catalog.append(
-            {
-                "executorRef": executor_ref,
-                "adapter": descriptor["adapter"],
-                "capabilities": sorted(descriptor["capabilities"]),
-                "contractVersion": descriptor["contractVersion"],
-                "executorVersion": descriptor["executorVersion"],
-                "supportsCancel": descriptor["supportsCancel"],
-                "supportsIdempotency": descriptor["supportsIdempotency"],
-                "supportsRecoveryQuery": descriptor["supportsRecoveryQuery"],
-                "observabilityLevel": descriptor["observabilityLevel"],
-                "permissionLevel": descriptor["permissionLevel"],
-                "declared": True,
-                "installed": installed,
-                "available": available,
-                "verified": executor_ref in _VERIFIED_EXECUTORS,
-            }
-        )
-    return catalog
+    return registry.local_executor_registry().capability_catalog()
 
 
 @dataclass(frozen=True)
@@ -625,7 +530,7 @@ def _validate_binding(
             )
             continue
         slot = binding.spec.slots[node.slot]
-        descriptor = _EXECUTOR_DESCRIPTORS.get(slot.executor_ref)
+        descriptor = registry.local_executor_registry().resolve(slot.executor_ref)
         if descriptor is None:
             diagnostics.append(
                 Diagnostic(
@@ -637,7 +542,7 @@ def _validate_binding(
                 )
             )
             continue
-        if slot.adapter != descriptor["adapter"]:
+        if slot.adapter != descriptor.adapter:
             diagnostics.append(
                 Diagnostic(
                     code="EXECUTOR_ADAPTER_MISMATCH",
@@ -645,13 +550,13 @@ def _validate_binding(
                     pointer=f"/spec/slots/{_escape(node.slot)}/adapter",
                     message=(
                         f"执行器 {slot.executor_ref} 要求 adapter "
-                        f"{descriptor['adapter']}，实际为 {slot.adapter}。"
+                        f"{descriptor.adapter}，实际为 {slot.adapter}。"
                     ),
                     suggestion="使用 ExecutorDescriptor 声明的 adapter。",
                 )
             )
             continue
-        capabilities = descriptor["capabilities"]
+        capabilities = descriptor.capabilities
         for capability in node.requires.capabilities:
             if capability not in capabilities:
                 diagnostics.append(

@@ -1,11 +1,42 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from multiverse_workflow.cli.main import app
+from multiverse_workflow.compiler import executor_capabilities
+from multiverse_workflow.runtime import registry
+from multiverse_workflow.runtime.registry import ExecutorDescriptor, ExecutorRegistry
 
 ROOT = Path(__file__).parents[2]
+
+
+def test_compiler_capability_catalog_uses_local_executor_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    injected = ExecutorRegistry(
+        [
+            ExecutorDescriptor(
+                executor_ref="test.injected.v1",
+                adapter="builtin",
+                capabilities=frozenset({"data.process@1"}),
+                contract_version="multiverse/v0.1",
+                executor_version="1.0.0",
+                supports_cancel=True,
+                supports_idempotency=True,
+                supports_recovery_query=True,
+                observability_level="structured",
+                permission_level="enforced",
+                installed=True,
+                available=True,
+                verified=True,
+            )
+        ]
+    )
+    monkeypatch.setattr(registry, "local_executor_registry", lambda: injected)
+
+    assert executor_capabilities() == injected.capability_catalog()
 
 
 def test_validate_json_returns_a_serializable_execution_plan() -> None:

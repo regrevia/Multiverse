@@ -14,6 +14,7 @@ from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
 from multiverse_workflow.runtime.executors import ExecutorError, execute_builtin
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
+from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 
 
 class RunError(RuntimeError):
@@ -28,6 +29,7 @@ class Runner:
         binding_path: Path,
         database_path: Path,
         namespace: str = "local",
+        executor_registry: ExecutorRegistry | None = None,
     ) -> None:
         self.package_dir = package_dir.resolve()
         self.namespace = namespace
@@ -45,6 +47,9 @@ class Runner:
             self._workflows[workflow_id] = Workflow.model_validate(
                 load_document(self.package_dir / relative_path).value
             )
+        self._executor_registry = (
+            executor_registry or local_executor_registry()
+        ).snapshot()
         self.ledger = Ledger(database_path)
 
     def start(self, input_value: Any, workflow_id: str | None = None) -> dict[str, Any]:
@@ -52,6 +57,7 @@ class Runner:
         plan = self._plan(workflow_id)
         workflow = self._workflows[workflow_id]
         self._validate_schema(input_value, workflow.spec.input_schema)
+        self._preflight_execution(plan)
         deadline = datetime.now(UTC) + timedelta(
             seconds=plan.defaults["runDeadlineSeconds"]
         )
@@ -364,6 +370,14 @@ class Runner:
             return self._plans[workflow_id]
         except KeyError as exc:
             raise RunError(f"workflow not found: {workflow_id}") from exc
+
+    def _preflight_execution(self, plan: ExecutionPlan) -> None:
+        issues = self._executor_registry.preflight(nodes=plan.nodes, binding=self._binding)
+        if issues:
+            detail = "; ".join(
+                f"{issue.code} ({issue.node_id}): {issue.message}" for issue in issues
+            )
+            raise RunError(f"runtime preflight failed: {detail}")
 
     def _validate_schema(self, value: Any, relative_path: str) -> None:
         path = (self.package_dir / relative_path).resolve()

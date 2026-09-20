@@ -1,11 +1,12 @@
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from multiverse_workflow.runtime.ledger import LedgerConflict
-from multiverse_workflow.runtime.runner import Runner
+from multiverse_workflow.runtime.runner import RunError, Runner
 
 ROOT = Path(__file__).parents[2]
 
@@ -95,17 +96,19 @@ def test_repeated_decision_command_does_not_replay_downstream_nodes(tmp_path: Pa
     assert len(runner.ledger.list_events(first["id"])) == event_count
 
 
-def test_unsupported_adapter_failure_stops_the_run(tmp_path: Path) -> None:
+def test_unavailable_adapter_is_rejected_before_a_run_is_recorded(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.db"
     runner = Runner(
         ROOT / "presets/content-delivery",
         binding_path=ROOT / "examples/bindings/content-remote.yaml",
-        database_path=tmp_path / "runtime.db",
+        database_path=database,
     )
 
-    run = runner.start({"goal": "remote execution is intentionally unsupported"})
+    with pytest.raises(RunError, match="EXECUTOR_UNAVAILABLE.*example.remote-content.v1"):
+        runner.start({"goal": "do not dispatch remote work"})
 
-    assert run["status"] == "failed"
-    assert json.loads(run["error_json"])["code"] == "EXECUTOR_UNSUPPORTED"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 def _write_manual_input_package(root: Path) -> tuple[Path, Path]:
