@@ -1369,7 +1369,9 @@ class Runner:
                         node_id,
                         child_input,
                     )
-                    self.ledger.finish_invocation(invocation["id"], status="running")
+                    invocation = self.ledger.finish_invocation(
+                        invocation["id"], status="running"
+                    )
                     current_run = self.ledger.get_run(run_id)
                     if current_run is None:
                         raise RunError("run disappeared while creating repeat invocation")
@@ -1520,6 +1522,255 @@ class Runner:
                     child_input,
                     iteration_index=iteration_index + 1,
                 )
+
+            if node["type"] in {"workflow", "parallel"}:
+                invocation = self.ledger.get_invocation_for_node(scope_id, node_id)
+                if invocation is None:
+                    if node["type"] == "workflow":
+                        child_workflow_id = definition["workflow"]
+                        child_workflow = self._workflows[child_workflow_id]
+                        child_input = self._resolve_expr(
+                            definition["input"],
+                            input_value,
+                            self._outputs(scope_id),
+                        )
+                        self._validate_schema(child_input, child_workflow.spec.input_schema)
+                        invocation_input = child_input
+                    else:
+                        invocation_input = {
+                            "branches": {
+                                branch_id: self._resolve_expr(
+                                    branch["input"],
+                                    input_value,
+                                    self._outputs(scope_id),
+                                )
+                                for branch_id, branch in definition["branches"].items()
+                            }
+                        }
+                        for branch_id, branch_input in invocation_input["branches"].items():
+                            self._validate_schema(
+                                branch_input,
+                                self._workflows[
+                                    definition["branches"][branch_id]["workflow"]
+                                ].spec.input_schema,
+                            )
+                    invocation = self.ledger.create_invocation(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        invocation_input,
+                    )
+                    invocation = self.ledger.finish_invocation(
+                        invocation["id"], status="running"
+                    )
+                    current_run = self.ledger.get_run(run_id)
+                    if current_run is None:
+                        raise RunError("run disappeared while creating nested invocation")
+                    self.ledger.update_run(
+                        run_id,
+                        status=current_run["status"],
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=invocation["id"],
+                    )
+
+                if invocation["status"] == "succeeded":
+                    output = json.loads(invocation["output_json"] or "null")
+                    node_outputs = self._outputs(scope_id)
+                    node_outputs[node_id] = output
+                    node_id = definition["next"]
+                    self.ledger.update_run(
+                        run_id,
+                        status="running",
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=None,
+                    )
+                    continue
+                if invocation["status"] not in {"running", "waiting"}:
+                    error = json.loads(invocation["error_json"] or "{}")
+                    return self._fail_scope(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        error
+                        or {
+                            "code": "NESTED_WORKFLOW_FAILED",
+                            "message": "nested workflow invocation failed",
+                        },
+                    )
+
+                child_scopes = self.ledger.list_child_scopes(invocation["id"])
+                if node["type"] == "workflow":
+                    child_workflow_id = definition["workflow"]
+                    child_input = json.loads(invocation["input_json"])
+                    if not child_scopes:
+                        return self._start_nested_scope(
+                            run_id,
+                            scope,
+                            node_id,
+                            invocation,
+                            child_workflow_id,
+                            child_input,
+                        )
+                    child_scope = child_scopes[0]
+                    if child_scope["status"] == "active":
+                        return self.ledger.update_run(
+                            run_id,
+                            status="waiting",
+                            current_scope_id=scope_id,
+                            current_node_id=node_id,
+                            current_invocation_id=invocation["id"],
+                        )
+                    if (
+                        child_scope["status"] == "succeeded"
+                        and child_scope["output_json"] is not None
+                    ):
+                        output = json.loads(child_scope["output_json"])
+                        self._validate_schema(
+                            output,
+                            self._workflows[child_workflow_id].spec.output_schema,
+                        )
+                        self.ledger.finish_invocation(
+                            invocation["id"], status="succeeded", output=output
+                        )
+                        continue
+                    error = json.loads(child_scope["error_json"] or "{}")
+                    if invocation["status"] in {"running", "waiting"}:
+                        self.ledger.finish_invocation(
+                            invocation["id"],
+                            status="failed",
+                            output=error_output(
+                                error
+                                or {
+                                    "code": "NESTED_WORKFLOW_FAILED",
+                                    "message": "nested workflow child scope failed",
+                                }
+                            ),
+                            error=error
+                            or {
+                                "code": "NESTED_WORKFLOW_FAILED",
+                                "message": "nested workflow child scope failed",
+                            },
+                        )
+                    return self._fail_scope(
+                        run_id,
+                        scope_id,
+                        node_id,
+                        error
+                        or {
+                            "code": "NESTED_WORKFLOW_FAILED",
+                            "message": "nested workflow child scope failed",
+                        },
+                    )
+
+                branch_ids = list(definition["branches"])
+                parent_path = json.loads(scope["path_json"])
+                children_by_branch: dict[str, dict[str, Any]] = {}
+                completed: dict[str, Any] = {}
+                failed_branch: tuple[str, dict[str, Any]] | None = None
+                for child_scope in child_scopes:
+                    path = json.loads(child_scope["path_json"])
+                    if len(path) != len(parent_path) + 2:
+                        continue
+                    branch_id = path[-1]
+                    if branch_id in definition["branches"]:
+                        children_by_branch[branch_id] = child_scope
+                        if (
+                            child_scope["status"] == "succeeded"
+                            and child_scope["output_json"] is not None
+                        ):
+                            completed[branch_id] = json.loads(child_scope["output_json"])
+                            continue
+                        if child_scope["status"] != "active":
+                            failed_branch = (
+                                branch_id,
+                                json.loads(child_scope["error_json"] or "{}")
+                                or {
+                                    "code": "PARALLEL_BRANCH_FAILED",
+                                    "message": f"parallel branch failed: {branch_id}",
+                                },
+                            )
+
+                if failed_branch is not None:
+                    branch_id, error = failed_branch
+                    active_siblings = [
+                        item
+                        for item in children_by_branch.values()
+                        if item["status"] == "active"
+                    ]
+                    if active_siblings:
+                        return self.ledger.update_run(
+                            run_id,
+                            status="blocked",
+                            current_scope_id=scope_id,
+                            current_node_id=node_id,
+                            current_invocation_id=invocation["id"],
+                            error={
+                                "code": "PARALLEL_STOP_UNCONFIRMED",
+                                "message": (
+                                    f"parallel branch {branch_id} failed while "
+                                    "sibling branches remain active"
+                                ),
+                                "cause": error,
+                            },
+                        )
+                    self.ledger.finish_invocation(
+                        invocation["id"],
+                        status="failed",
+                        output=error_output(error),
+                        error=error,
+                    )
+                    return self._fail_scope(run_id, scope_id, node_id, error)
+
+                max_concurrency = int(
+                    definition.get(
+                        "maxConcurrency",
+                        node["defaults"].get("maxConcurrency", len(branch_ids)),
+                    )
+                )
+                active_count = sum(
+                    item["status"] == "active" for item in children_by_branch.values()
+                )
+                if len(completed) < len(branch_ids):
+                    for branch_id in branch_ids:
+                        if branch_id in children_by_branch:
+                            continue
+                        if active_count >= max_concurrency:
+                            break
+                        branch = definition["branches"][branch_id]
+                        child_input = json.loads(invocation["input_json"])["branches"][
+                            branch_id
+                        ]
+                        self.ledger.update_run(
+                            run_id,
+                            status="running",
+                            current_scope_id=scope_id,
+                            current_node_id=node_id,
+                            current_invocation_id=invocation["id"],
+                        )
+                        return self._start_parallel_branch(
+                            run_id,
+                            scope,
+                            node_id,
+                            invocation,
+                            branch_id,
+                            branch["workflow"],
+                            child_input,
+                        )
+                    return self.ledger.update_run(
+                        run_id,
+                        status="waiting",
+                        current_scope_id=scope_id,
+                        current_node_id=node_id,
+                        current_invocation_id=invocation["id"],
+                    )
+
+                output = {"branches": {branch_id: completed[branch_id] for branch_id in branch_ids}}
+                self.ledger.finish_invocation(
+                    invocation["id"], status="succeeded", output=output
+                )
+                continue
 
             if node["type"] == "end":
                 if definition["outcome"] == "succeeded":
@@ -1887,6 +2138,63 @@ class Runner:
                 "iteration": iteration_index,
                 "scopeId": child_scope["id"],
             },
+            scope_id=parent_scope["id"],
+            invocation_id=parent_invocation["id"],
+        )
+        entry = self._workflows[child_workflow_id].spec.entry
+        return self._drive(run_id, child_scope["id"], entry)
+
+    def _start_nested_scope(
+        self,
+        run_id: str,
+        parent_scope: dict[str, Any],
+        node_id: str,
+        parent_invocation: dict[str, Any],
+        child_workflow_id: str,
+        child_input: Any,
+    ) -> dict[str, Any]:
+        path = json.loads(parent_scope["path_json"]) + [node_id]
+        child_scope = self.ledger.create_scope(
+            run_id,
+            child_workflow_id,
+            path=path,
+            input_value=child_input,
+            parent_scope_id=parent_scope["id"],
+            parent_invocation_id=parent_invocation["id"],
+        )
+        self.ledger.record_event(
+            run_id,
+            "workflow.child.started",
+            {"nodeId": node_id, "scopeId": child_scope["id"]},
+            scope_id=parent_scope["id"],
+            invocation_id=parent_invocation["id"],
+        )
+        entry = self._workflows[child_workflow_id].spec.entry
+        return self._drive(run_id, child_scope["id"], entry)
+
+    def _start_parallel_branch(
+        self,
+        run_id: str,
+        parent_scope: dict[str, Any],
+        node_id: str,
+        parent_invocation: dict[str, Any],
+        branch_id: str,
+        child_workflow_id: str,
+        child_input: Any,
+    ) -> dict[str, Any]:
+        path = json.loads(parent_scope["path_json"]) + [node_id, branch_id]
+        child_scope = self.ledger.create_scope(
+            run_id,
+            child_workflow_id,
+            path=path,
+            input_value=child_input,
+            parent_scope_id=parent_scope["id"],
+            parent_invocation_id=parent_invocation["id"],
+        )
+        self.ledger.record_event(
+            run_id,
+            "parallel.branch.started",
+            {"nodeId": node_id, "branchId": branch_id, "scopeId": child_scope["id"]},
             scope_id=parent_scope["id"],
             invocation_id=parent_invocation["id"],
         )

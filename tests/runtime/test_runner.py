@@ -2027,6 +2027,342 @@ def _write_scheduled_retry_package(root: Path) -> Path:
     return package
 
 
+def _write_parallel_package(root: Path, *, failing: bool = False) -> Path:
+    package = root / ("parallel-failing-package" if failing else "parallel-package")
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    schemas = package / "schemas"
+    workflows = package / "workflows"
+    (schemas / "branch-request.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["goal"],
+                "properties": {"goal": {"type": "string"}},
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "branch-output.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "artifact_refs": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["text", "artifact_refs"],
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "parallel-output.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["branches"],
+                "properties": {
+                    "branches": {
+                        "type": "object",
+                        "required": ["alpha", "beta"],
+                        "properties": {
+                            "alpha": {"$ref": "branch-output.json"},
+                            "beta": {"$ref": "branch-output.json"},
+                        },
+                        "additionalProperties": False,
+                    }
+                },
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "final.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["branches"],
+                "properties": {"branches": {"type": "object"}},
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package / "manifest.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: parallel-package
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+    branch: workflows/branch.yaml
+  entrypoints: [main]
+  requiredFeatures: [core.parallel, core.nested]
+""",
+        encoding="utf-8",
+    )
+    (workflows / "branch.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: branch
+  version: 0.1.0
+spec:
+  inputSchema: schemas/branch-request.json
+  outputSchema: schemas/branch-output.json
+  entry: produce
+  nodes:
+    produce:
+      type: call
+      slot: producer
+      inputSchema: schemas/branch-request.json
+      outputSchema: schemas/branch-output.json
+      input: {ref: input#}
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.produce.output#}
+""",
+        encoding="utf-8",
+    )
+    failure_input = "{literal: {goal: fail}}" if failing else "{literal: {goal: ok}}"
+    (workflows / "main.yaml").write_text(
+        f"""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/branch-request.json
+  outputSchema: schemas/final.json
+  entry: fanout
+  nodes:
+    fanout:
+      type: parallel
+      branches:
+        alpha:
+          workflow: branch
+          input: {failure_input}
+        beta:
+          workflow: branch
+          input: {{literal: {{goal: ok}}}}
+      join: all
+      maxConcurrency: 2
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {{ref: nodes.fanout.output#}}
+""",
+        encoding="utf-8",
+    )
+    if failing:
+        (schemas / "branch-output.json").write_text(
+            json.dumps(
+                {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "object",
+                    "required": ["never_present"],
+                    "properties": {"never_present": {"type": "string"}},
+                    "additionalProperties": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+    return package
+
+
+def _write_nested_package(root: Path) -> Path:
+    package = root / "nested-package"
+    shutil.copytree(ROOT / "presets/content-delivery", package)
+    schemas = package / "schemas"
+    workflows = package / "workflows"
+    (schemas / "nested-request.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "required": ["goal"],
+                "properties": {"goal": {"type": "string"}},
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (schemas / "nested-output.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "artifact_refs": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["text", "artifact_refs"],
+                "additionalProperties": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package / "manifest.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: WorkflowPackage
+metadata:
+  name: nested-package
+  version: 0.1.0
+spec:
+  workflows:
+    main: workflows/main.yaml
+    child: workflows/child.yaml
+  entrypoints: [main]
+  requiredFeatures: [core.call, core.nested]
+""",
+        encoding="utf-8",
+    )
+    (workflows / "child.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: child
+  version: 0.1.0
+spec:
+  inputSchema: schemas/nested-request.json
+  outputSchema: schemas/nested-output.json
+  entry: produce
+  nodes:
+    produce:
+      type: call
+      slot: producer
+      inputSchema: schemas/nested-request.json
+      outputSchema: schemas/nested-output.json
+      input: {ref: input#}
+      requires:
+        capabilities: [content.produce@1]
+      effects:
+        class: none
+        actions: []
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.produce.output#}
+""",
+        encoding="utf-8",
+    )
+    (workflows / "main.yaml").write_text(
+        """\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/nested-request.json
+  outputSchema: schemas/nested-output.json
+  entry: child-call
+  nodes:
+    child-call:
+      type: workflow
+      workflow: child
+      input: {ref: input#}
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {ref: nodes.child-call.output#}
+""",
+        encoding="utf-8",
+    )
+    return package
+
+
+def test_nested_workflow_node_persists_child_scope_and_returns_output(tmp_path: Path) -> None:
+    package = _write_nested_package(tmp_path)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    finished = runner.start({"goal": "ok"})
+
+    assert finished["status"] == "succeeded"
+    scopes = runner.ledger.list_scopes(finished["id"])
+    assert [json.loads(scope["path_json"]) for scope in scopes] == [
+        ["root"],
+        ["root", "child-call"],
+    ]
+    child_scope = scopes[1]
+    assert child_scope["workflow_id"] == "child"
+    assert json.loads(child_scope["input_json"]) == {"goal": "ok"}
+    assert json.loads(child_scope["output_json"])["text"]
+    parent_invocation = next(
+        item
+        for item in runner.ledger.list_invocations(finished["id"])
+        if item["node_id"] == "child-call"
+    )
+    assert parent_invocation["status"] == "succeeded"
+    assert json.loads(parent_invocation["output_json"]) == json.loads(
+        child_scope["output_json"]
+    )
+    runner.resume_queued(finished["id"])
+    assert len(runner.ledger.list_scopes(finished["id"])) == 2
+
+
+def test_parallel_runs_static_branches_and_joins_by_branch_id(tmp_path: Path) -> None:
+    package = _write_parallel_package(tmp_path)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    finished = runner.start({"goal": "ok"})
+
+    assert finished["status"] == "succeeded"
+    scopes = runner.ledger.list_scopes(finished["id"])
+    paths = [json.loads(scope["path_json"]) for scope in scopes]
+    assert ["root", "fanout", "alpha"] in paths
+    assert ["root", "fanout", "beta"] in paths
+    invocation = next(
+        item
+        for item in runner.ledger.list_invocations(finished["id"])
+        if item["node_id"] == "fanout"
+    )
+    assert json.loads(invocation["output_json"])["branches"].keys() == {"alpha", "beta"}
+
+
+def test_parallel_failure_does_not_report_success(tmp_path: Path) -> None:
+    package = _write_parallel_package(tmp_path, failing=True)
+    runner = Runner(
+        package,
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+
+    finished = runner.start({"goal": "ok"})
+
+    assert finished["status"] == "failed"
+
+
 def _write_on_error_package(root: Path) -> Path:
     package = root / "on-error-package"
     shutil.copytree(ROOT / "presets/content-delivery", package)

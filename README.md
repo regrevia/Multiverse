@@ -38,11 +38,11 @@ uv run mverse decide <request-id> presets/content-delivery \
   --json
 ```
 
-This is a local single-process preview. Bounded sequential `repeat` execution
-is available for child workflows. The standard HTTP Job path is available when
-the Binding points at a trusted test or Bridge service; LangGraph persistence,
-parallel and general nested workflow execution, deployment/import, production
-hosting/IAM, and Latent Handoff remain outside this preview.
+This is a local single-process preview. Bounded sequential `repeat`, nested
+`workflow`, and static `parallel` with `join: all` are available as durable
+child scopes. The standard HTTP Job path is available when the Binding points
+at a trusted test or Bridge service; LangGraph persistence, deployment/import,
+production hosting/IAM, and Latent Handoff remain outside this preview.
 
 ### Standard HTTP Job Binding
 
