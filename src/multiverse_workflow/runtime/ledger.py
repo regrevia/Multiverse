@@ -875,6 +875,35 @@ class Ledger:
         ).fetchall()
         return [event for row in rows if (event := _row(row)) is not None]
 
+    def list_events_after(
+        self,
+        run_id: str,
+        *,
+        after_seq: int = 0,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if after_seq < 0:
+            raise ValueError("after_seq must be non-negative")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        rows = self._connection.execute(
+            """
+            SELECT * FROM run_events
+            WHERE run_id = ? AND seq > ?
+            ORDER BY seq
+            LIMIT ?
+            """,
+            (run_id, after_seq, limit),
+        ).fetchall()
+        return [event for row in rows if (event := _row(row)) is not None]
+
+    def get_event_cursor(self, run_id: str) -> int:
+        row = self._connection.execute(
+            "SELECT COALESCE(MAX(seq), 0) AS cursor FROM run_events WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        return int(row["cursor"]) if row is not None else 0
+
     def _initialize(self) -> None:
         self._connection.executescript(
             """
