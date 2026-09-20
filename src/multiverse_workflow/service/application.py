@@ -107,7 +107,7 @@ class RuntimeApplication:
             )
 
         try:
-            run = self.runner.start(
+            run = self.runner.enqueue(
                 request.input,
                 workflow_id=request.workflow_id,
                 run_id=run_id,
@@ -377,6 +377,7 @@ class RuntimeApplication:
                     expected_version=request.expected_version,
                     reason=request.reason,
                     command_id=command_id,
+                    resume=False,
                 )
             elif operation == "pause":
                 run = self.runner.pause(
@@ -507,6 +508,7 @@ class RuntimeApplication:
                 expected_version=request.expected_version,
                 idempotency_key=idempotency_key,
                 command_id=command_id,
+                resume=False,
             )
         except (KeyError, LedgerConflict, RunError) as exc:
             self.runner.ledger.finish_command(

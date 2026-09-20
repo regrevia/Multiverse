@@ -36,6 +36,10 @@ def _create_request() -> RunCreateRequest:
     )
 
 
+def _start_worker(application: RuntimeApplication) -> None:
+    application.runner.sweep(worker_id="test-worker")
+
+
 def test_create_run_is_persisted_and_idempotent(tmp_path: Path) -> None:
     application = _application(tmp_path)
 
@@ -47,7 +51,7 @@ def test_create_run_is_persisted_and_idempotent(tmp_path: Path) -> None:
     loaded = application.get_run("local", first.resource_id)
     assert loaded["id"] == first.resource_id
     assert loaded["version"] >= 1
-    assert loaded["status"] == "waiting"
+    assert loaded["status"] == "queued"
 
 
 def test_command_receipt_survives_application_restart(tmp_path: Path) -> None:
@@ -100,12 +104,13 @@ def test_accepted_create_command_is_resumed_with_original_run_id(tmp_path: Path)
 
     assert receipt.request_id == command_id
     assert receipt.resource_id == "run_recover"
-    assert restarted.get_run("local", "run_recover")["status"] == "waiting"
+    assert restarted.get_run("local", "run_recover")["status"] == "queued"
 
 
 def test_control_rejects_a_stale_run_version(tmp_path: Path) -> None:
     application = _application(tmp_path)
     receipt = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
 
     with pytest.raises(ServiceError) as error:
         application.control_run(
@@ -431,6 +436,7 @@ def test_attempt_version_conflict_exposes_expected_and_actual_versions(
 ) -> None:
     application = _application(tmp_path)
     created = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
     invocation = application.runner.ledger.list_invocations(created.resource_id)[-1]
     attempt = application.runner.ledger.latest_attempt(invocation["id"])
     assert attempt is not None
@@ -515,6 +521,7 @@ def test_reconcile_attempt_is_idempotent_and_records_authenticated_actor(
         subject="example-reviewer",
     )
     created = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
     invocation = application.runner.ledger.list_invocations(created.resource_id)[-1]
     attempt = application.runner.ledger.latest_attempt(invocation["id"])
     assert attempt is not None
@@ -552,6 +559,7 @@ def test_reconcile_idempotency_key_is_scoped_by_authenticated_subject(
     database = tmp_path / "runtime.db"
     first_application = _application(tmp_path)
     created = first_application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(first_application)
     invocation = first_application.runner.ledger.list_invocations(created.resource_id)[-1]
     attempt = first_application.runner.ledger.latest_attempt(invocation["id"])
     assert attempt is not None
@@ -600,6 +608,7 @@ def test_accepted_reconcile_command_is_resumed_after_process_interruption(
         subject="example-reviewer",
     )
     created = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
     invocation = application.runner.ledger.list_invocations(created.resource_id)[-1]
     attempt = application.runner.ledger.latest_attempt(invocation["id"])
     assert attempt is not None
@@ -667,6 +676,7 @@ def test_accepted_human_decision_command_is_resumed_after_process_interruption(
         subject="example-reviewer",
     )
     created = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
     human_request = application.list_human_requests(
         "local",
         run_id=created.resource_id,
@@ -699,7 +709,7 @@ def test_accepted_human_decision_command_is_resumed_after_process_interruption(
     assert decision is not None
     assert application.runner.ledger.get_human_progress_intent(
         human_request["id"]
-    )["status"] == "completed"
+    )["status"] == "pending"
     events_before_restart = application.runner.ledger.list_events(created.resource_id)
     assert sum(
         event["type"] == "human.decided" for event in events_before_restart
@@ -724,6 +734,7 @@ def test_accepted_human_decision_command_is_resumed_after_process_interruption(
         request,
         idempotency_key="decision-recover",
     )
+    restarted.runner.sweep(worker_id="test-worker")
 
     assert receipt.status == "completed"
     command = restarted.runner.ledger.get_command(receipt.request_id)
@@ -743,7 +754,7 @@ def test_accepted_human_decision_command_is_resumed_after_process_interruption(
     )["status"] == "completed"
     events_after_restart = restarted.runner.ledger.list_events(created.resource_id)
     assert sum(event["type"] == "human.decided" for event in events_after_restart) == 1
-    assert len(events_after_restart) == len(events_before_restart)
+    assert len(events_after_restart) > len(events_before_restart)
 
 
 def test_human_decision_recovery_drives_persisted_next_node(
@@ -758,6 +769,7 @@ def test_human_decision_recovery_drives_persisted_next_node(
         subject="example-reviewer",
     )
     created = application.create_run(_create_request(), idempotency_key="create-1")
+    _start_worker(application)
     human_request = application.list_human_requests(
         "local",
         run_id=created.resource_id,
@@ -772,14 +784,15 @@ def test_human_decision_recovery_drives_persisted_next_node(
     def interrupt_before_drive(*args: object, **kwargs: object) -> dict[str, object]:
         raise RuntimeError("simulated worker interruption")
 
+    application.decide_human_request(
+        "local",
+        human_request["id"],
+        request,
+        idempotency_key="decision-recover",
+    )
     monkeypatch.setattr(application.runner, "_drive", interrupt_before_drive)
     with pytest.raises(RuntimeError, match="worker interruption"):
-        application.decide_human_request(
-            "local",
-            human_request["id"],
-            request,
-            idempotency_key="decision-recover",
-        )
+        application.runner.sweep(worker_id="test-worker")
     run_after_interruption = application.get_run("local", created.resource_id)
     assert run_after_interruption["status"] == "running"
     assert run_after_interruption["current_node_id"] == "review-route"
@@ -801,6 +814,7 @@ def test_human_decision_recovery_drives_persisted_next_node(
         request,
         idempotency_key="decision-recover",
     )
+    restarted.runner.sweep(worker_id="test-worker")
 
     assert receipt.status == "completed"
     assert restarted.get_run("local", created.resource_id)["status"] == "succeeded"

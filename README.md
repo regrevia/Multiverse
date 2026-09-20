@@ -46,8 +46,10 @@ implemented yet.
 
 ### Local Runtime Service
 
-The service exposes the same SQLite Ledger and Runner through JSON and SSE. It
-is suitable for a local Agent host or an online monitoring prototype:
+The service exposes the same SQLite Ledger and Runner through JSON and SSE. A
+service request only commits a durable command and Run; the separate Worker
+executes the workflow. This makes the local profile suitable for an Agent host
+or an online monitoring prototype:
 
 ```bash
 uv run mverse serve \
@@ -74,6 +76,23 @@ curl -X POST http://127.0.0.1:8787/api/v1/namespaces/local/runs \
   }'
 ```
 
+Start the local Worker in a second process so the queued Run can execute:
+
+```bash
+uv run mverse worker \
+  --package presets/content-delivery \
+  --binding examples/bindings/content-local.yaml \
+  --db .multiverse/runtime.db \
+  --worker-id local-worker \
+  --poll-interval 1
+```
+
+`POST /runs` and human decisions return after their durable command and
+continuation intent are committed. Query the Run while the Worker is processing
+it; the status may still be `queued`, `waiting`, or `running`. Disconnecting the
+HTTP client does not cancel the Run, and replaying an `Idempotency-Key` returns
+the original command and Run instead of starting a second execution.
+
 Monitor the persisted audit stream and query pending human requests:
 
 ```bash
@@ -89,9 +108,10 @@ Submit the returned HumanRequest decision with its current `version` and
 `GET /api/v1/commands/{requestId}` to retrieve the durable command receipt
 after reconnecting or restarting the service.
 
-The current service profile is local SQLite and single-process. It does not
-claim PostgreSQL, multi-worker recovery, production IAM, remote Connectors, or
-HTTP Artifact upload. The service does not keep workflow state in the browser.
+The current service profile uses local SQLite with one active Worker per
+database. It does not claim PostgreSQL, multi-worker recovery, production IAM,
+remote Connectors, or HTTP Artifact upload. The service does not keep workflow
+state in the browser.
 
 ### Persistent Local Worker Sweep
 

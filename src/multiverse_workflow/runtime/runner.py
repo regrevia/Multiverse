@@ -137,7 +137,7 @@ class Runner:
         )
         results: list[dict[str, Any]] = []
         for wait in due_waits:
-            if wait["kind"] not in {"retry", "human-progress"}:
+            if wait["kind"] not in {"retry", "human-progress", "run-start", "run-resume"}:
                 continue
             claimed = self.ledger.claim_wait(
                 wait["id"],
@@ -162,7 +162,7 @@ class Runner:
                             "status": result["status"],
                         }
                     )
-                else:
+                elif claimed["kind"] == "human-progress":
                     request_id = payload.get("requestId")
                     if not isinstance(request_id, str):
                         raise RunError("human progress wait has no request id")
@@ -179,9 +179,40 @@ class Runner:
                             "status": result["status"],
                         }
                     )
+                else:
+                    result = self.resume_queued(claimed["run_id"])
+                    self.ledger.complete_wait(claimed["id"])
+                    results.append(
+                        {
+                            "wait_id": claimed["id"],
+                            "kind": claimed["kind"],
+                            "run_id": result["id"],
+                            "status": result["status"],
+                        }
+                    )
             except Exception:
                 self.ledger.release_wait(claimed["id"])
                 raise
+        # A crash can occur after the queued Run transaction and before its
+        # wake record is written. Recover those Runs without creating another
+        # Scope, Invocation, or Attempt.
+        for run in self.ledger.list_queued_runs(
+            namespace=self.namespace,
+            limit=max(0, limit - len(results)),
+        ) if len(results) < limit else []:
+            start_wait = self.ledger.get_wait_by_key(
+                self.namespace, f"run-start:{run['id']}"
+            )
+            if start_wait is not None:
+                continue
+            result = self.resume_queued(run["id"])
+            results.append(
+                {
+                    "kind": "run-start-recovery",
+                    "run_id": result["id"],
+                    "status": result["status"],
+                }
+            )
         return results
 
     def start(
@@ -238,6 +269,72 @@ class Runner:
         )
         return self._drive(run["id"], scope["id"], workflow.spec.entry)
 
+    def enqueue(
+        self,
+        input_value: Any,
+        workflow_id: str | None = None,
+        *,
+        run_id: str | None = None,
+        rerun_of: str | None = None,
+        rerun_reason: str | None = None,
+        command_id: str | None = None,
+    ) -> dict[str, Any]:
+        workflow_id = workflow_id or next(iter(self._plans))
+        plan = self._plan(workflow_id)
+        workflow = self._workflows[workflow_id]
+        self._validate_schema(input_value, workflow.spec.input_schema)
+        for candidate_plan in self._plans.values():
+            self._preflight_execution(candidate_plan)
+        deadline = datetime.now(UTC) + timedelta(
+            seconds=plan.defaults["runDeadlineSeconds"]
+        )
+        return self.ledger.create_queued_run(
+            namespace=self.namespace,
+            deployment_id=self.deployment_id,
+            workflow_id=workflow_id,
+            package_digest=plan.package_digest,
+            binding_digest=plan.binding_digest,
+            plan={
+                "rootWorkflowId": workflow_id,
+                "workflows": {
+                    candidate_id: candidate_plan.as_dict()
+                    for candidate_id, candidate_plan in self._plans.items()
+                },
+            },
+            input_value=input_value,
+            deadline_at=_timestamp(deadline),
+            entry_node_id=workflow.spec.entry,
+            run_id=run_id,
+            rerun_of=rerun_of,
+            rerun_reason=rerun_reason,
+            command_id=command_id,
+        )
+
+    def resume_queued(self, run_id: str) -> dict[str, Any]:
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if run["status"] in {
+            "waiting",
+            "retry_wait",
+            "paused",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "blocked",
+        }:
+            return run
+        scope_id, node_id, _invocation_id = self._continuation(run)
+        if run["status"] == "queued":
+            run = self.ledger.update_run(
+                run_id,
+                status="running",
+                current_scope_id=scope_id,
+                current_node_id=node_id,
+                current_invocation_id=run["current_invocation_id"],
+            )
+        return self._drive(run_id, scope_id, node_id)
+
     def pending_human_requests(self, run_id: str | None = None) -> list[dict[str, Any]]:
         return self.ledger.list_human_requests(run_id=run_id, status="pending")
 
@@ -267,6 +364,7 @@ class Runner:
         expected_version: int,
         reason: str,
         command_id: str | None = None,
+        resume: bool = True,
     ) -> dict[str, Any]:
         run = self.ledger.get_run(run_id)
         if run is None:
@@ -278,9 +376,12 @@ class Runner:
             expected_version=expected_version,
             reason=reason,
             command_id=command_id,
+            enqueue_resume=not resume,
         )
         scope_id, node_id, _invocation_id = self._continuation(resumed)
         if node_id is None:
+            return resumed
+        if not resume:
             return resumed
         return self._drive(run_id, scope_id, node_id)
 
@@ -332,6 +433,7 @@ class Runner:
         expected_version: int,
         idempotency_key: str | None = None,
         command_id: str | None = None,
+        resume: bool = True,
     ) -> dict[str, Any]:
         request = self.ledger.get_human_request(request_id)
         if request is None:
@@ -341,7 +443,7 @@ class Runner:
             if previous is not None:
                 if previous["request_id"] != request_id:
                     raise LedgerConflict("idempotency key belongs to another request")
-                return self._resume_decided_request(request)
+                return self._resume_decided_request(request, resume=resume)
         request_type = request["request_type"]
         invocation = self.ledger.get_invocation(request["invocation_id"])
         if invocation is None:
@@ -398,7 +500,7 @@ class Runner:
             idempotency_key=idempotency_key or f"decision-{uuid.uuid4().hex}",
             command_id=command_id,
         )
-        return self._resume_decided_request(request)
+        return self._resume_decided_request(request, resume=resume)
 
     def reconcile_attempt(
         self,
@@ -675,7 +777,9 @@ class Runner:
                 )
         return attempt
 
-    def _resume_decided_request(self, request: dict[str, Any]) -> dict[str, Any]:
+    def _resume_decided_request(
+        self, request: dict[str, Any], *, resume: bool = True
+    ) -> dict[str, Any]:
         intent = self.ledger.get_human_progress_intent(request["id"])
         if intent is None:
             intent = self.ledger.ensure_human_progress_intent(request["id"])
@@ -724,6 +828,11 @@ class Runner:
             invocation = self.ledger.get_invocation(invocation["id"])
             if invocation is None:
                 raise RunError("human request invocation disappeared")
+        if not resume:
+            current = self.ledger.get_run(request["run_id"])
+            if current is None:
+                raise RunError("human request run is missing")
+            return current
         run = self.ledger.get_run(run["id"])
         if run is None:
             raise RunError("human request run is missing")

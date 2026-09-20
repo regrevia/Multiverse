@@ -104,6 +104,135 @@ class Ledger:
                     raise LedgerConflict("run creation command is not accepted")
         return self.get_run(run_id)  # type: ignore[return-value]
 
+    def create_queued_run(
+        self,
+        *,
+        namespace: str,
+        deployment_id: str | None = None,
+        workflow_id: str,
+        package_digest: str,
+        binding_digest: str | None,
+        plan: dict[str, Any],
+        input_value: Any,
+        deadline_at: str,
+        entry_node_id: str,
+        run_id: str | None = None,
+        rerun_of: str | None = None,
+        rerun_reason: str | None = None,
+        command_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically persist a queued Run, root Scope, and start wake."""
+        run_id = run_id or _new_id("run")
+        scope_id = _new_id("scope")
+        wait_id = _new_id("wait")
+        now = _now()
+        input_json = _json(input_value)
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO runs (
+                    id, namespace, deployment_id, workflow_id, package_digest, binding_digest,
+                    plan_json, input_json, input_digest, status, control_mode,
+                    deadline_at, version, current_node_id, rerun_of, rerun_reason,
+                    current_scope_id, current_invocation_id, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'run', ?, 1, ?,
+                    ?, ?, NULL, NULL, ?, ?
+                )
+                """,
+                (
+                    run_id,
+                    namespace,
+                    deployment_id,
+                    workflow_id,
+                    package_digest,
+                    binding_digest,
+                    _json(plan),
+                    input_json,
+                    _digest(input_json),
+                    deadline_at,
+                    entry_node_id,
+                    rerun_of,
+                    rerun_reason,
+                    now,
+                    now,
+                ),
+            )
+            self._event(
+                connection,
+                run_id,
+                "run.created",
+                {"status": "queued", "workflowId": workflow_id},
+            )
+            connection.execute(
+                """
+                INSERT INTO scopes (
+                    id, run_id, parent_scope_id, parent_invocation_id,
+                    workflow_id, path_json, input_json, input_digest, status, created_at
+                ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 'active', ?)
+                """,
+                (
+                    scope_id,
+                    run_id,
+                    workflow_id,
+                    _json(["root"]),
+                    input_json,
+                    _digest(input_json),
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE runs
+                SET current_scope_id = ?, current_node_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (scope_id, entry_node_id, now, run_id),
+            )
+            self._event(
+                connection,
+                run_id,
+                "scope.created",
+                {
+                    "scopeId": scope_id,
+                    "workflowId": workflow_id,
+                    "inputDigest": _digest(input_json),
+                },
+                scope_id=scope_id,
+            )
+            connection.execute(
+                """
+                INSERT INTO waits (
+                    id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                    not_before, payload_json, status, worker_id, claimed_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'run-start', ?, ?, NULL, ?, ?, 'pending', NULL, NULL, ?, ?)
+                """,
+                (
+                    wait_id,
+                    namespace,
+                    f"run-start:{run_id}",
+                    run_id,
+                    scope_id,
+                    now,
+                    _json({"runId": run_id, "scopeId": scope_id}),
+                    now,
+                    now,
+                ),
+            )
+            if command_id is not None:
+                updated = connection.execute(
+                    """
+                    UPDATE commands
+                    SET after_version = 1, transition = 'run.created', updated_at = ?
+                    WHERE id = ? AND status = 'accepted'
+                    """,
+                    (_now(), command_id),
+                )
+                if updated.rowcount != 1:
+                    raise LedgerConflict("run creation command is not accepted")
+        return self.get_run(run_id)  # type: ignore[return-value]
+
     def create_command(
         self,
         *,
@@ -236,6 +365,7 @@ class Ledger:
         expected_version: int,
         reason: str,
         command_id: str | None = None,
+        enqueue_resume: bool = False,
     ) -> dict[str, Any]:
         if not reason.strip():
             raise LedgerConflict("control reason must not be empty")
@@ -364,6 +494,30 @@ class Ledger:
                 )
                 if updated.rowcount != 1:
                     raise LedgerConflict("control command is not accepted")
+            if operation == "resume" and enqueue_resume:
+                now = _now()
+                connection.execute(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id, invocation_id,
+                        not_before, payload_json, status, worker_id, claimed_at,
+                        created_at, updated_at
+                    )
+                    SELECT ?, namespace, ?, 'run-resume', id, current_scope_id,
+                           current_invocation_id, ?, ?, 'pending', NULL, NULL, ?, ?
+                    FROM runs
+                    WHERE id = ?
+                    """,
+                    (
+                        _new_id("wait"),
+                        f"run-resume:{run_id}",
+                        now,
+                        _json({"runId": run_id}),
+                        now,
+                        now,
+                        run_id,
+                    ),
+                )
         return self.get_run(run_id)  # type: ignore[return-value]
 
     @staticmethod
@@ -393,6 +547,36 @@ class Ledger:
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         row = self._connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         return _row(row)
+
+    def list_queued_runs(
+        self,
+        *,
+        namespace: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        if namespace is None:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE status = 'queued'
+                ORDER BY created_at, id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM runs
+                WHERE status = 'queued' AND namespace = ?
+                ORDER BY created_at, id
+                LIMIT ?
+                """,
+                (namespace, limit),
+            ).fetchall()
+        return [run for row in rows if (run := _row(row)) is not None]
 
     def update_run(
         self,

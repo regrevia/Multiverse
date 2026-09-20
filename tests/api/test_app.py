@@ -52,6 +52,7 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
         )
         assert created.status_code == 202
         run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="test-worker")
 
         loaded = await client.get(
             f"/api/v1/namespaces/local/runs/{run_id}",
@@ -136,6 +137,7 @@ async def test_stale_control_returns_json_state_conflict(settings: ServiceSettin
             },
         )
         run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="test-worker")
         response = await client.post(
             f"/api/v1/namespaces/local/runs/{run_id}:pause",
             headers={
@@ -206,6 +208,7 @@ async def test_human_request_can_be_decided_over_http(settings: ServiceSettings)
             },
         )
         run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="test-worker")
         requests = await client.get(
             f"/api/v1/namespaces/local/human-requests?runId={run_id}",
             headers={"Authorization": "Bearer test-token"},
@@ -227,6 +230,12 @@ async def test_human_request_can_be_decided_over_http(settings: ServiceSettings)
         )
         assert decided.status_code == 202
 
+        finished = await client.get(
+            f"/api/v1/namespaces/local/runs/{run_id}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        assert finished.json()["status"] == "waiting"
+        application.state.runtime.runner.sweep(worker_id="test-worker")
         finished = await client.get(
             f"/api/v1/namespaces/local/runs/{run_id}",
             headers={"Authorization": "Bearer test-token"},
@@ -305,6 +314,7 @@ async def test_attempt_reconcile_uses_authenticated_subject_and_persistent_recei
             },
         )
         run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="test-worker")
         invocation = application.state.runtime.runner.ledger.list_invocations(run_id)[-1]
         attempt = application.state.runtime.runner.ledger.latest_attempt(invocation["id"])
         assert attempt is not None

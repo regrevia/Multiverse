@@ -45,6 +45,7 @@ async def test_http_workflow_survives_client_disconnect(tmp_path: Path) -> None:
             },
         )
     run_id = created.json()["resourceId"]
+    application.state.runtime.runner.sweep(worker_id="test-worker")
 
     decide_transport = httpx.ASGITransport(app=application)
     async with httpx.AsyncClient(
@@ -74,6 +75,9 @@ async def test_http_workflow_survives_client_disconnect(tmp_path: Path) -> None:
             headers={"Authorization": "Bearer test-token"},
         )
 
-    assert decided.status_code == 202
-    assert finished.json()["id"] == run_id
-    assert finished.json()["status"] == "succeeded"
+        assert decided.status_code == 202
+        assert finished.json()["id"] == run_id
+        assert finished.json()["status"] == "waiting"
+
+    application.state.runtime.runner.sweep(worker_id="test-worker")
+    assert application.state.runtime.runner.ledger.get_run(run_id)["status"] == "succeeded"
