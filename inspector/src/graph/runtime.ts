@@ -210,6 +210,8 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
     packageName: rootScope?.workflowId ?? "运行快照",
     packageVersion: projection.run.packageDigest.slice(0, 16),
     runId: projection.run.id,
+    runVersion: projection.run.version,
+    controlMode: projection.run.controlMode,
     updatedAt: projection.run.updatedAt,
     runStatus: projection.run.status,
     lastEventSeq: projection.events.at(-1)?.seq ?? 0,

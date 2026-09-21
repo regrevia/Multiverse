@@ -55,11 +55,18 @@ button { border: 0; cursor: pointer; }
 .stage-header h1 { margin: 0; font-size: 31px; line-height: 1.05; letter-spacing: -.03em; font-weight: 600; }
 .stage-actions { display: flex; gap: 8px; margin-top: 9px; }
 .snapshot-error { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: #b35d68; font-size: 11px; }
+.control-state { display: flex; align-items: center; gap: 7px; margin-top: 12px; color: #8095a5; font-size: 11px; }
+.control-state.success { color: #2d8592; }
+.control-state.error { color: #b35d68; }
+.control-state.submitting { color: #94784b; }
 .action-button { width: 34px; height: 34px; }
 .primary-action { border-color: #203144; background: #203144; color: #f4f9fc; }
 .primary-action:hover { border-color: #203144; color: #f4f9fc; }
+.danger-action { color: #a2525b; border-color: #e3c8cc; background: #fff8f8; }
+.danger-action:hover { border-color: #c77a83; color: #8f3d48; }
 .apply-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 6px; font-size: 12px; transition: transform .2s ease, box-shadow .2s ease; }
 .apply-button:hover { transform: translateY(-1px); box-shadow: 0 5px 13px rgba(28,61,80,.12); }
+.icon-button:disabled { cursor: wait; opacity: .55; transform: none; }
 
 .canvas-toolbar { display: flex; justify-content: flex-end; align-items: center; margin-top: 18px; }
 .canvas-controls { display: flex; align-items: center; gap: 4px; }

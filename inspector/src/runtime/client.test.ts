@@ -371,4 +371,39 @@ describe("runtime client", () => {
       "http://runtime/api/v1/namespaces/local/runs/run_123/graph",
     );
   });
+
+  it("submits versioned run control commands with an idempotency key", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          requestId: "cmd_1",
+          status: "completed",
+          resourceId: "run_123",
+          operation: "run.pause",
+          resourceVersion: 8,
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = new RuntimeClient(
+      { baseUrl: "http://runtime", namespace: "local", runId: "run_123", token: "token" },
+      fetchImpl,
+    );
+
+    const receipt = await client.controlRun(
+      "pause",
+      { expectedVersion: 7, reason: "暂停派发以核对当前执行。" },
+      "run-control-pause-7",
+    );
+
+    expect(receipt.operation).toBe("run.pause");
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(url).toBe("http://runtime/api/v1/namespaces/local/runs/run_123:pause");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token");
+    expect(new Headers(init?.headers).get("Idempotency-Key")).toBe("run-control-pause-7");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      expectedVersion: 7,
+      reason: "暂停派发以核对当前执行。",
+    });
+  });
 });

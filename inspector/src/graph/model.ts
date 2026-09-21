@@ -54,6 +54,8 @@ export type AuditGraph = {
   packageName: string;
   packageVersion: string;
   runId: string;
+  runVersion: number;
+  controlMode: string;
   updatedAt: string;
   runStatus: string;
   lastEventSeq: number;
@@ -73,6 +75,8 @@ export const demoGraph: AuditGraph = {
   packageName: "content-delivery",
   packageVersion: "0.1.0",
   runId: "run_7f4b9d2",
+  runVersion: 7,
+  controlMode: "run",
   updatedAt: "刚刚",
   runStatus: "running",
   lastEventSeq: 0,

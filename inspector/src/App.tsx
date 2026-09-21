@@ -133,6 +133,11 @@ type DecisionState = {
   message: string;
 };
 
+type ControlState = {
+  kind: "idle" | "submitting" | "success" | "error";
+  message: string;
+};
+
 function App() {
   const [graph, setGraph] = useState<AuditGraph>(demoGraph);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -187,6 +192,10 @@ function App() {
   const [decisionComment, setDecisionComment] = useState("");
   const [decisionValues, setDecisionValues] = useState<Record<string, string>>({});
   const [decisionState, setDecisionState] = useState<DecisionState>({
+    kind: "idle",
+    message: "",
+  });
+  const [controlState, setControlState] = useState<ControlState>({
     kind: "idle",
     message: "",
   });
@@ -375,6 +384,38 @@ function App() {
       setDecisionState({
         kind: "error",
         message: error instanceof Error ? error.message : "人工决定提交失败",
+      });
+    }
+  }
+
+  async function submitControl(operation: "pause" | "resume" | "cancel") {
+    if (
+      controlState.kind === "submitting" ||
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
+      return;
+    }
+    const labels = { pause: "暂停派发", resume: "恢复派发", cancel: "停止运行" };
+    const reason = `从 Inspector 请求${labels[operation]}。`;
+    setControlState({ kind: "submitting", message: "命令已提交，等待 Runtime 确认" });
+    try {
+      const client = new RuntimeClient(connection);
+      const receipt = await client.controlRun(
+        operation,
+        { expectedVersion: graph.runVersion, reason },
+        `inspector-run-${operation}-${graph.runVersion}`,
+      );
+      setControlState({
+        kind: "success",
+        message: `已请求${labels[operation]}，等待事实状态更新（${receipt.status}）`,
+      });
+    } catch (error) {
+      setControlState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "运行控制提交失败",
       });
     }
   }
@@ -585,6 +626,43 @@ function App() {
               <h1>内容交付</h1>
             </div>
             <div className="stage-actions">
+              {connectionState.kind !== "demo" && graph.controlMode === "pause" && (
+                <button
+                  aria-label="恢复派发"
+                  className="icon-button action-button"
+                  title="恢复派发"
+                  onClick={() => submitControl("resume")}
+                  disabled={controlState.kind === "submitting"}
+                >
+                  <Play size={16} />
+                </button>
+              )}
+              {connectionState.kind !== "demo" &&
+                graph.controlMode === "run" &&
+                !["succeeded", "failed", "cancelled"].includes(graph.runStatus) && (
+                  <button
+                    aria-label="暂停派发"
+                    className="icon-button action-button"
+                    title="暂停派发"
+                    onClick={() => submitControl("pause")}
+                    disabled={controlState.kind === "submitting"}
+                  >
+                    <PauseCircle size={16} />
+                  </button>
+                )}
+              {connectionState.kind !== "demo" &&
+                graph.controlMode !== "cancel" &&
+                !["succeeded", "failed", "cancelled"].includes(graph.runStatus) && (
+                  <button
+                    aria-label="停止运行"
+                    className="icon-button action-button danger-action"
+                    title="停止运行"
+                    onClick={() => submitControl("cancel")}
+                    disabled={controlState.kind === "submitting"}
+                  >
+                    <Square size={16} />
+                  </button>
+                )}
               <button
                 aria-label="展开全部作用域"
                 className="icon-button action-button"
@@ -606,6 +684,11 @@ function App() {
           {importState.kind === "error" && (
             <div className="snapshot-error" role="alert">
               <AlertCircle size={15} /> {importState.message}
+            </div>
+          )}
+          {controlState.message && (
+            <div className={`control-state ${controlState.kind}`} role="status">
+              <span className="state-indicator" /> {controlState.message}
             </div>
           )}
 

@@ -58,6 +58,13 @@ export type HumanDecisionPayload = {
   comment?: string;
 };
 
+export type RunControlOperation = "pause" | "resume" | "cancel";
+
+export type RunControlPayload = {
+  expectedVersion: number;
+  reason: string;
+};
+
 export type RuntimeClientConfig = {
   baseUrl: string;
   namespace: string;
@@ -204,6 +211,26 @@ export class RuntimeClient {
   ): Promise<RuntimeCommandReceipt> {
     return this.request(
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests/${encodeURIComponent(requestId)}/decisions`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  async controlRun(
+    operation: RunControlOperation,
+    payload: RunControlPayload,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeCommandReceipt> {
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}:${operation}`,
       {
         method: "POST",
         signal,

@@ -151,6 +151,8 @@ describe("runtime projection mapper", () => {
     expect(graph.runId).toBe("run_123");
     expect(graph.packageName).toBe("delivery");
     expect(graph.updatedAt).toBe("2026-09-20T00:01:00Z");
+    expect(graph.runVersion).toBe(7);
+    expect(graph.controlMode).toBe("run");
     expect(graph.nodes.find((node) => node.id === "scope_root:review")?.status).toBe(
       "waiting",
     );
