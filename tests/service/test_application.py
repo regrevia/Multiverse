@@ -90,6 +90,36 @@ def test_artifact_metadata_and_content_are_read_only_and_digest_checked(
         application.get_artifact_content("local", artifact["id"])
 
 
+def test_read_models_expose_invocations_and_human_requests_with_namespace_checks(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="read-models")
+    application.runner.sweep(worker_id="read-models-worker")
+
+    invocations = application.list_invocations("local", created.resource_id)
+    assert invocations
+    invocation = application.get_invocation("local", invocations[0]["id"])
+    assert invocation["id"] == invocations[0]["id"]
+    assert invocation["run_id"] == created.resource_id
+    assert invocation["input"] == {"goal": "write a release note"}
+    assert invocation["input_digest"].startswith("sha256:")
+    assert invocation["attempts"]
+    assert "dispatch_key" not in invocation["attempts"][0]
+    assert "effect_key" not in invocation["attempts"][0]
+
+    request = application.list_human_requests("local", run_id=created.resource_id)[0]
+    loaded_request = application.get_human_request("local", request["id"])
+    assert loaded_request["id"] == request["id"]
+    assert loaded_request["run_id"] == created.resource_id
+    assert loaded_request["subject_digest"] == request["subject_digest"]
+
+    with pytest.raises(ServiceError, match="namespace"):
+        application.get_invocation("other", invocation["id"])
+    with pytest.raises(ServiceError, match="namespace"):
+        application.get_human_request("other", request["id"])
+
+
 def test_command_receipt_survives_application_restart(tmp_path: Path) -> None:
     first_application = _application(tmp_path)
     first = first_application.create_run(_create_request(), idempotency_key="create-1")

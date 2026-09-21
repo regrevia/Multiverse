@@ -13,6 +13,35 @@ export type RuntimeArtifactMetadata = RuntimeArtifact & {
   runId: string;
 };
 
+export type RuntimeAttemptDetail = {
+  id: string;
+  attemptNo: number;
+  status: string;
+  version: number;
+  inputDigest: string;
+  externalRef: string | null;
+  output: unknown;
+  error: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuntimeInvocationDetail = {
+  id: string;
+  runId: string;
+  scopeId: string;
+  nodeId: string;
+  status: string;
+  input: unknown;
+  inputDigest: string;
+  output: unknown;
+  error: unknown;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  attempts: RuntimeAttemptDetail[];
+};
+
 export type RuntimeCommandReceipt = {
   requestId: string;
   status: "accepted" | "completed" | "rejected";
@@ -92,6 +121,29 @@ export class RuntimeClient {
     );
   }
 
+  async listInvocations(options: {
+    scopeId?: string;
+    signal?: AbortSignal;
+  } = {}): Promise<{ invocations: RuntimeInvocationDetail[] }> {
+    const query = options.scopeId
+      ? `?scopeId=${encodeURIComponent(options.scopeId)}`
+      : "";
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}/invocations${query}`,
+      { signal: options.signal },
+    );
+  }
+
+  async getInvocation(
+    invocationId: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeInvocationDetail> {
+    return this.request<RuntimeInvocationDetail>(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/invocations/${encodeURIComponent(invocationId)}`,
+      { signal },
+    );
+  }
+
   async listEvents(
     after: number,
     signal?: AbortSignal,
@@ -107,6 +159,21 @@ export class RuntimeClient {
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests?runId=${encodeURIComponent(this.config.runId)}`,
       { signal },
     );
+  }
+
+  async getHumanRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeHumanRequest> {
+    return this.request<RuntimeHumanRequest>(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests/${encodeURIComponent(requestId)}`,
+      { signal },
+    );
+  }
+
+  async listArtifacts(signal?: AbortSignal): Promise<RuntimeArtifact[]> {
+    const projection = await this.getGraph(signal);
+    return projection.artifacts;
   }
 
   async getArtifact(

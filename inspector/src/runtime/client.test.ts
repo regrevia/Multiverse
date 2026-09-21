@@ -226,4 +226,149 @@ describe("runtime client", () => {
     expect(new Headers(contentInit?.headers).get("Authorization")).toBe("Bearer token");
     expect(new Headers(contentInit?.headers).get("Accept")).toBe("*/*");
   });
+
+  it("reads invocation details, one human request, and graph artifacts", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            invocations: [
+              {
+                id: "inv_1",
+                runId: "run_123",
+                scopeId: "scope_1",
+                nodeId: "produce",
+                status: "succeeded",
+                input: { goal: "write a release note" },
+                inputDigest: "sha256:input",
+                output: { text: "Draft", artifact_refs: [] },
+                error: null,
+                version: 2,
+                createdAt: "2026-09-21T00:00:00Z",
+                updatedAt: "2026-09-21T00:00:01Z",
+                attempts: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "inv_1",
+            runId: "run_123",
+            scopeId: "scope_1",
+            nodeId: "produce",
+            status: "succeeded",
+            input: { goal: "write a release note" },
+            inputDigest: "sha256:input",
+            output: { text: "Draft", artifact_refs: [] },
+            error: null,
+            version: 2,
+            createdAt: "2026-09-21T00:00:00Z",
+            updatedAt: "2026-09-21T00:00:01Z",
+            attempts: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "human_1",
+            runId: "run_123",
+            scopeId: "scope_1",
+            invocationId: "inv_1",
+            requestType: "review",
+            title: "Human review",
+            instructions: "Review the deliverable.",
+            input: { deliverable: { text: "Draft" } },
+            inputDigest: "sha256:input",
+            subjectDigest: "sha256:subject",
+            choices: ["approve", "reject"],
+            decisionSchema: { type: "object" },
+            authorizedSubjects: ["reviewer"],
+            createdAt: "2026-09-21T00:00:00Z",
+            expiresAt: "2026-09-22T00:00:00Z",
+            version: 1,
+            status: "pending",
+            decisionId: null,
+            updatedAt: null,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            protocolVersion: "multiverse/v0.1",
+            run: {
+              id: "run_123",
+              deploymentId: "deployment_local",
+              workflowId: "delivery",
+              packageDigest: "sha256:package",
+              bindingDigest: null,
+              status: "waiting",
+              controlMode: "running",
+              currentScopeId: "scope_1",
+              currentNodeId: "review",
+              currentInvocationId: "inv_1",
+              version: 4,
+              deadlineAt: "2026-09-22T00:00:00Z",
+              createdAt: "2026-09-21T00:00:00Z",
+              updatedAt: "2026-09-21T00:00:01Z",
+              rerunOf: null,
+              rerunReason: null,
+            },
+            scopes: [],
+            nodes: [],
+            edges: [],
+            events: [],
+            humanRequests: [],
+            artifacts: [
+              {
+                id: "artifact_1",
+                invocationId: "inv_1",
+                name: "release.md",
+                mediaType: "text/markdown",
+                sizeBytes: 8,
+                digest: "sha256:artifact",
+                status: "ready",
+                createdAt: "2026-09-21T00:00:01Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    const client = new RuntimeClient(
+      { baseUrl: "http://runtime", namespace: "local", runId: "run_123", token: "token" },
+      fetchImpl,
+    );
+
+    const listed = await client.listInvocations({ scopeId: "scope_1" });
+    const detail = await client.getInvocation("inv_1");
+    const request = await client.getHumanRequest("human_1");
+    const artifacts = await client.listArtifacts();
+
+    expect(listed.invocations[0]?.input).toEqual({ goal: "write a release note" });
+    expect(detail.output).toEqual({ text: "Draft", artifact_refs: [] });
+    expect(request.subjectDigest).toBe("sha256:subject");
+    expect(artifacts[0]?.id).toBe("artifact_1");
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      "http://runtime/api/v1/namespaces/local/runs/run_123/invocations?scopeId=scope_1",
+    );
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+      "http://runtime/api/v1/namespaces/local/invocations/inv_1",
+    );
+    expect(fetchImpl.mock.calls[2]?.[0]).toBe(
+      "http://runtime/api/v1/namespaces/local/human-requests/human_1",
+    );
+    expect(fetchImpl.mock.calls[3]?.[0]).toBe(
+      "http://runtime/api/v1/namespaces/local/runs/run_123/graph",
+    );
+  });
 });

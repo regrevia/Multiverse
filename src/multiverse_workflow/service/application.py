@@ -278,6 +278,38 @@ class RuntimeApplication:
         self._require_run(namespace, run_id)
         return build_run_projection(self.runner.ledger, run_id)
 
+    def list_invocations(
+        self,
+        namespace: str,
+        run_id: str,
+        *,
+        scope_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self._require_run(namespace, run_id)
+        if scope_id is not None:
+            scope = self.runner.ledger.get_scope(scope_id)
+            if scope is None or scope["run_id"] != run_id:
+                raise not_found(f"scope not found: {scope_id}")
+        return [
+            self._present_invocation(invocation)
+            for invocation in self.runner.ledger.list_invocations(run_id)
+            if scope_id is None or invocation["scope_id"] == scope_id
+        ]
+
+    def get_invocation(self, namespace: str, invocation_id: str) -> dict[str, Any]:
+        self._require_namespace(namespace)
+        invocation = self.runner.ledger.get_invocation(invocation_id)
+        if invocation is None or self._run_namespace(str(invocation["run_id"])) != namespace:
+            raise not_found(f"invocation not found: {invocation_id}")
+        return self._present_invocation(invocation)
+
+    def get_human_request(self, namespace: str, request_id: str) -> dict[str, Any]:
+        self._require_namespace(namespace)
+        request = self.runner.ledger.get_human_request(request_id)
+        if request is None or self._run_namespace(str(request["run_id"])) != namespace:
+            raise not_found(f"human request not found: {request_id}")
+        return request
+
     def get_artifact(self, namespace: str, artifact_id: str) -> dict[str, Any]:
         artifact = self._require_artifact(namespace, artifact_id)
         return {
@@ -602,6 +634,38 @@ class RuntimeApplication:
         run = self.runner.ledger.get_run(run_id)
         return "" if run is None else str(run["namespace"])
 
+    def _present_invocation(self, invocation: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": invocation["id"],
+            "run_id": invocation["run_id"],
+            "scope_id": invocation["scope_id"],
+            "node_id": invocation["node_id"],
+            "status": invocation["status"],
+            "input": _decode_json(invocation["input_json"]),
+            "input_digest": invocation["input_digest"],
+            "output": _decode_json(invocation["output_json"]),
+            "error": _decode_json(invocation["error_json"]),
+            "version": invocation["version"],
+            "created_at": invocation["created_at"],
+            "updated_at": invocation["updated_at"],
+            "attempts": [
+                {
+                    "id": attempt["id"],
+                    "attempt_no": attempt["attempt_no"],
+                    "status": attempt["status"],
+                    "version": attempt["version"],
+                    "input_digest": attempt["input_digest"],
+                    "external_ref": attempt["external_ref"],
+                    "output": _decode_json(attempt["output_json"]),
+                    "error": _decode_json(attempt["error_json"]),
+                    "created_at": attempt["created_at"],
+                    "updated_at": attempt["updated_at"],
+                }
+                for attempt in self.runner.ledger.list_attempts(str(invocation["run_id"]))
+                if attempt["invocation_id"] == invocation["id"]
+            ],
+        }
+
     def _require_namespace(self, namespace: str) -> None:
         if namespace != self.namespace:
             raise not_found(f"namespace not found: {namespace}")
@@ -723,3 +787,7 @@ class RuntimeApplication:
                 else int(source["version"])
             ),
         )
+
+
+def _decode_json(value: str | None) -> Any:
+    return None if value is None else json.loads(value)

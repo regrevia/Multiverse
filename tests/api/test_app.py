@@ -81,6 +81,62 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
 
 
 @pytest.mark.anyio
+async def test_invocation_and_human_request_read_endpoints_are_namespace_scoped(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "read-endpoints",
+            },
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+        )
+        run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="read-endpoints-worker")
+        invocation = application.state.runtime.runner.ledger.list_invocations(run_id)[0]
+        request = application.state.runtime.runner.ledger.list_human_requests(
+            run_id=run_id,
+        )[0]
+
+        invocations = await client.get(
+            f"/api/v1/namespaces/local/runs/{run_id}/invocations",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        invocation_detail = await client.get(
+            f"/api/v1/namespaces/local/invocations/{invocation['id']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        human_request = await client.get(
+            f"/api/v1/namespaces/local/human-requests/{request['id']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        hidden_invocation = await client.get(
+            f"/api/v1/namespaces/other/invocations/{invocation['id']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    assert invocations.status_code == 200
+    assert invocations.json()["invocations"][0]["id"] == invocation["id"]
+    assert invocations.json()["invocations"][0]["runId"] == run_id
+    assert "dispatchKey" not in invocations.json()["invocations"][0]["attempts"][0]
+    assert invocation_detail.status_code == 200
+    assert invocation_detail.json()["id"] == invocation["id"]
+    assert invocation_detail.json()["input"] == {"goal": "write a release note"}
+    assert human_request.status_code == 200
+    assert human_request.json()["id"] == request["id"]
+    assert human_request.json()["subjectDigest"] == request["subject_digest"]
+    assert hidden_invocation.status_code == 404
+
+
+@pytest.mark.anyio
 async def test_runtime_allows_local_inspector_origin(settings: ServiceSettings) -> None:
     application = create_app(settings)
     transport = httpx.ASGITransport(app=application)

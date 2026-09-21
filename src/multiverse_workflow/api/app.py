@@ -132,6 +132,26 @@ def create_app(settings: ServiceSettings) -> FastAPI:
         require_scope(principal, "read")
         return cast(dict[str, Any], _present(runtime.get_run(namespace, run_id)))
 
+    @app.get("/api/v1/namespaces/{namespace}/runs/{run_id}/invocations")
+    async def list_invocations(
+        namespace: str,
+        run_id: str,
+        scope_id: str | None = Query(default=None, alias="scopeId"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        invocations = runtime.list_invocations(namespace, run_id, scope_id=scope_id)
+        return {"invocations": [_present_invocation(invocation) for invocation in invocations]}
+
+    @app.get("/api/v1/namespaces/{namespace}/invocations/{invocation_id}")
+    async def get_invocation(
+        namespace: str,
+        invocation_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        return _present_invocation(runtime.get_invocation(namespace, invocation_id))
+
     @app.post(
         "/api/v1/namespaces/{namespace}/attempts/{attempt_id}:reconcile",
         status_code=202,
@@ -319,6 +339,15 @@ def create_app(settings: ServiceSettings) -> FastAPI:
         requests = runtime.list_human_requests(namespace, run_id=run_id, status=status)
         return {"requests": [_present_human_request(request) for request in requests]}
 
+    @app.get("/api/v1/namespaces/{namespace}/human-requests/{request_id}")
+    async def get_human_request(
+        namespace: str,
+        request_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        return _present_human_request(runtime.get_human_request(namespace, request_id))
+
     @app.post(
         "/api/v1/namespaces/{namespace}/human-requests/{request_id}/decisions",
         status_code=202,
@@ -427,6 +456,38 @@ def _present_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
         "digest": artifact["digest"],
         "status": artifact["status"],
         "createdAt": artifact["created_at"],
+    }
+
+
+def _present_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": invocation["id"],
+        "runId": invocation["run_id"],
+        "scopeId": invocation["scope_id"],
+        "nodeId": invocation["node_id"],
+        "status": invocation["status"],
+        "input": invocation["input"],
+        "inputDigest": invocation["input_digest"],
+        "output": invocation["output"],
+        "error": invocation["error"],
+        "version": invocation["version"],
+        "createdAt": invocation["created_at"],
+        "updatedAt": invocation["updated_at"],
+        "attempts": [
+            {
+                "id": attempt["id"],
+                "attemptNo": attempt["attempt_no"],
+                "status": attempt["status"],
+                "version": attempt["version"],
+                "inputDigest": attempt["input_digest"],
+                "externalRef": attempt["external_ref"],
+                "output": attempt["output"],
+                "error": attempt["error"],
+                "createdAt": attempt["created_at"],
+                "updatedAt": attempt["updated_at"],
+            }
+            for attempt in invocation["attempts"]
+        ],
     }
 
 
