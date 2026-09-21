@@ -1,8 +1,17 @@
-import type { RuntimeHumanRequest, RuntimeProjection } from "../graph/runtime";
+import type {
+  RuntimeArtifact,
+  RuntimeHumanRequest,
+  RuntimeProjection,
+} from "../graph/runtime";
 
 export type RuntimeEvent = RuntimeProjection["events"][number];
 
 export type RuntimeRun = RuntimeProjection["run"];
+
+export type RuntimeArtifactMetadata = RuntimeArtifact & {
+  namespace: string;
+  runId: string;
+};
 
 export type RuntimeCommandReceipt = {
   requestId: string;
@@ -97,6 +106,26 @@ export class RuntimeClient {
     return this.request(
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/human-requests?runId=${encodeURIComponent(this.config.runId)}`,
       { signal },
+    );
+  }
+
+  async getArtifact(
+    artifactId: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeArtifactMetadata> {
+    return this.request<RuntimeArtifactMetadata>(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/artifacts/${encodeURIComponent(artifactId)}`,
+      { signal },
+    );
+  }
+
+  async getArtifactContent(artifactId: string, signal?: AbortSignal): Promise<Response> {
+    return this.requestRaw(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/artifacts/${encodeURIComponent(artifactId)}/content`,
+      {
+        signal,
+        headers: { Accept: "*/*" },
+      },
     );
   }
 

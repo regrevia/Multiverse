@@ -258,6 +258,102 @@ async def test_human_request_can_be_decided_over_http(settings: ServiceSettings)
 
 
 @pytest.mark.anyio
+async def test_authorized_artifact_metadata_and_content_can_be_read_over_http(
+    settings: ServiceSettings,
+    tmp_path: Path,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    source = tmp_path / "release.md"
+    source.write_text("# Release\n", encoding="utf-8")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "create-artifact-read",
+            },
+        )
+        run_id = created.json()["resourceId"]
+        artifact = application.state.runtime.runner.ledger.register_artifact(
+            run_id=run_id,
+            source_path=source,
+            name="release.md",
+            media_type="text/markdown",
+        )
+
+        metadata = await client.get(
+            f"/api/v1/namespaces/local/artifacts/{artifact['id']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        content = await client.get(
+            f"/api/v1/namespaces/local/artifacts/{artifact['id']}/content",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    assert metadata.status_code == 200
+    assert metadata.json() == {
+        "id": artifact["id"],
+        "namespace": "local",
+        "runId": run_id,
+        "invocationId": None,
+        "name": "release.md",
+        "mediaType": "text/markdown",
+        "sizeBytes": len(b"# Release\n"),
+        "digest": artifact["digest"],
+        "status": "ready",
+        "createdAt": artifact["created_at"],
+    }
+    assert content.status_code == 200
+    assert content.headers["content-type"].startswith("text/markdown")
+    assert content.headers["etag"] == f'"{artifact["digest"]}"'
+    assert content.content == b"# Release\n"
+
+
+@pytest.mark.anyio
+async def test_artifact_read_does_not_leak_across_namespaces(
+    settings: ServiceSettings,
+    tmp_path: Path,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    source = tmp_path / "release.md"
+    source.write_text("# Release\n", encoding="utf-8")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "create-artifact-namespace",
+            },
+        )
+        run_id = created.json()["resourceId"]
+        artifact = application.state.runtime.runner.ledger.register_artifact(
+            run_id=run_id,
+            source_path=source,
+            name="release.md",
+            media_type="text/markdown",
+        )
+        response = await client.get(
+            f"/api/v1/namespaces/other/artifacts/{artifact['id']}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.anyio
 async def test_command_can_be_queried_after_create(settings: ServiceSettings) -> None:
     application = create_app(settings)
     transport = httpx.ASGITransport(app=application)

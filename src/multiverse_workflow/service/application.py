@@ -278,6 +278,53 @@ class RuntimeApplication:
         self._require_run(namespace, run_id)
         return build_run_projection(self.runner.ledger, run_id)
 
+    def get_artifact(self, namespace: str, artifact_id: str) -> dict[str, Any]:
+        artifact = self._require_artifact(namespace, artifact_id)
+        return {
+            "id": artifact["id"],
+            "namespace": artifact["namespace"],
+            "run_id": artifact["run_id"],
+            "invocation_id": artifact["invocation_id"],
+            "name": artifact["name"],
+            "media_type": artifact["media_type"],
+            "size_bytes": artifact["size_bytes"],
+            "digest": artifact["digest"],
+            "status": artifact["status"],
+            "created_at": artifact["created_at"],
+        }
+
+    def get_artifact_content(self, namespace: str, artifact_id: str) -> bytes:
+        artifact = self._require_artifact(namespace, artifact_id)
+        if artifact["status"] != "ready":
+            raise ServiceError(
+                "ARTIFACT_UNAVAILABLE",
+                f"artifact is not ready: {artifact_id}",
+                status_code=409,
+            )
+        storage_ref = Path(str(artifact["storage_ref"]))
+        if not storage_ref.is_file():
+            raise ServiceError(
+                "ARTIFACT_UNAVAILABLE",
+                f"artifact content is unavailable: {artifact_id}",
+                status_code=409,
+            )
+        try:
+            content = storage_ref.read_bytes()
+        except OSError as exc:
+            raise ServiceError(
+                "ARTIFACT_UNAVAILABLE",
+                f"artifact content is unavailable: {artifact_id}",
+                status_code=409,
+            ) from exc
+        digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+        if digest != artifact["digest"]:
+            raise ServiceError(
+                "ARTIFACT_DIGEST_MISMATCH",
+                f"artifact digest mismatch: {artifact_id}",
+                status_code=409,
+            )
+        return content
+
     def list_events(
         self,
         namespace: str,
@@ -543,6 +590,13 @@ class RuntimeApplication:
         if run["namespace"] != namespace:
             raise not_found(f"run not found: {run_id}")
         return run
+
+    def _require_artifact(self, namespace: str, artifact_id: str) -> dict[str, Any]:
+        self._require_namespace(namespace)
+        artifact = self.runner.ledger.get_artifact(artifact_id)
+        if artifact is None or self._run_namespace(str(artifact["run_id"])) != namespace:
+            raise not_found(f"artifact not found: {artifact_id}")
+        return artifact
 
     def _run_namespace(self, run_id: str) -> str:
         run = self.runner.ledger.get_run(run_id)

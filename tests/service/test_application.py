@@ -54,6 +54,42 @@ def test_create_run_is_persisted_and_idempotent(tmp_path: Path) -> None:
     assert loaded["status"] == "queued"
 
 
+def test_artifact_metadata_and_content_are_read_only_and_digest_checked(
+    tmp_path: Path,
+) -> None:
+    application = _application(tmp_path)
+    created = application.create_run(_create_request(), idempotency_key="create-artifact")
+    source = tmp_path / "release.md"
+    source.write_text("# Release\n", encoding="utf-8")
+    artifact = application.runner.ledger.register_artifact(
+        run_id=created.resource_id,
+        source_path=source,
+        name="release.md",
+        media_type="text/markdown",
+    )
+
+    metadata = application.get_artifact("local", artifact["id"])
+    content = application.get_artifact_content("local", artifact["id"])
+
+    assert metadata == {
+        "id": artifact["id"],
+        "namespace": "local",
+        "run_id": created.resource_id,
+        "invocation_id": None,
+        "name": "release.md",
+        "media_type": "text/markdown",
+        "size_bytes": len(b"# Release\n"),
+        "digest": artifact["digest"],
+        "status": "ready",
+        "created_at": artifact["created_at"],
+    }
+    assert content == b"# Release\n"
+
+    Path(artifact["storage_ref"]).write_text("tampered", encoding="utf-8")
+    with pytest.raises(ServiceError, match="digest"):
+        application.get_artifact_content("local", artifact["id"])
+
+
 def test_command_receipt_survives_application_restart(tmp_path: Path) -> None:
     first_application = _application(tmp_path)
     first = first_application.create_run(_create_request(), idempotency_key="create-1")

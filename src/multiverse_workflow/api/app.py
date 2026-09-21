@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from multiverse_workflow.service.application import RuntimeApplication
@@ -176,6 +176,30 @@ def create_app(settings: ServiceSettings) -> FastAPI:
     ) -> dict[str, Any]:
         require_scope(principal, "read")
         return cast(dict[str, Any], _present(runtime.get_graph(namespace, run_id)))
+
+    @app.get("/api/v1/namespaces/{namespace}/artifacts/{artifact_id}")
+    async def get_artifact(
+        namespace: str,
+        artifact_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        return _present_artifact(runtime.get_artifact(namespace, artifact_id))
+
+    @app.get("/api/v1/namespaces/{namespace}/artifacts/{artifact_id}/content")
+    async def get_artifact_content(
+        namespace: str,
+        artifact_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> Response:
+        require_scope(principal, "read")
+        artifact = runtime.get_artifact(namespace, artifact_id)
+        content = runtime.get_artifact_content(namespace, artifact_id)
+        return Response(
+            content=content,
+            media_type=artifact["media_type"],
+            headers={"ETag": f'"{artifact["digest"]}"'},
+        )
 
     @app.get("/api/v1/namespaces/{namespace}/runs/{run_id}/events")
     async def list_events(
@@ -388,6 +412,21 @@ def _present_human_request(request: dict[str, Any]) -> dict[str, Any]:
         "status": request["status"],
         "decisionId": request["decision_id"],
         "updatedAt": request["updated_at"],
+    }
+
+
+def _present_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": artifact["id"],
+        "namespace": artifact["namespace"],
+        "runId": artifact["run_id"],
+        "invocationId": artifact["invocation_id"],
+        "name": artifact["name"],
+        "mediaType": artifact["media_type"],
+        "sizeBytes": artifact["size_bytes"],
+        "digest": artifact["digest"],
+        "status": artifact["status"],
+        "createdAt": artifact["created_at"],
     }
 
 

@@ -165,4 +165,65 @@ describe("runtime client", () => {
       comment: "Approved from Inspector.",
     });
   });
+
+  it("reads artifact metadata and preserves content response headers", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "artifact_123",
+            namespace: "local",
+            runId: "run_123",
+            invocationId: "inv_1",
+            name: "release.md",
+            mediaType: "text/markdown",
+            sizeBytes: 15,
+            digest: "sha256:artifact",
+            status: "ready",
+            createdAt: "2026-09-21T00:00:00Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response("# Release\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/markdown",
+            etag: '"sha256:artifact"',
+          },
+        }),
+      );
+    const client = new RuntimeClient(
+      { baseUrl: "http://runtime/", namespace: "local", runId: "run_123", token: "token" },
+      fetchImpl,
+    );
+
+    const metadata = await client.getArtifact("artifact_123");
+    const content = await client.getArtifactContent("artifact_123");
+
+    expect(metadata).toMatchObject({
+      id: "artifact_123",
+      namespace: "local",
+      runId: "run_123",
+      digest: "sha256:artifact",
+      status: "ready",
+    });
+    expect(await content.text()).toBe("# Release\n");
+    expect(content.headers.get("content-type")).toBe("text/markdown");
+    expect(content.headers.get("etag")).toBe('"sha256:artifact"');
+
+    const [metadataUrl, metadataInit] = fetchImpl.mock.calls[0] ?? [];
+    expect(metadataUrl).toBe(
+      "http://runtime/api/v1/namespaces/local/artifacts/artifact_123",
+    );
+    expect(new Headers(metadataInit?.headers).get("Authorization")).toBe("Bearer token");
+    const [contentUrl, contentInit] = fetchImpl.mock.calls[1] ?? [];
+    expect(contentUrl).toBe(
+      "http://runtime/api/v1/namespaces/local/artifacts/artifact_123/content",
+    );
+    expect(new Headers(contentInit?.headers).get("Authorization")).toBe("Bearer token");
+    expect(new Headers(contentInit?.headers).get("Accept")).toBe("*/*");
+  });
 });
