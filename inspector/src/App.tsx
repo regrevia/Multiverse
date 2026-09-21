@@ -8,6 +8,8 @@ import {
   CircleDashed,
   Clock3,
   Code2,
+  Eye,
+  FileText,
   GitBranch,
   HelpCircle,
   Layers3,
@@ -138,6 +140,14 @@ type ControlState = {
   message: string;
 };
 
+type ArtifactPreviewState = {
+  artifactId: string | null;
+  kind: "idle" | "loading" | "text" | "binary" | "error";
+  mediaType?: string;
+  text?: string;
+  message?: string;
+};
+
 function App() {
   const [graph, setGraph] = useState<AuditGraph>(demoGraph);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
@@ -198,6 +208,10 @@ function App() {
   const [controlState, setControlState] = useState<ControlState>({
     kind: "idle",
     message: "",
+  });
+  const [artifactPreview, setArtifactPreview] = useState<ArtifactPreviewState>({
+    artifactId: null,
+    kind: "idle",
   });
   const [lastEventSeq, setLastEventSeq] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -416,6 +430,49 @@ function App() {
       setControlState({
         kind: "error",
         message: error instanceof Error ? error.message : "运行控制提交失败",
+      });
+    }
+  }
+
+  async function previewArtifact(artifact: RuntimeArtifact) {
+    if (
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
+      return;
+    }
+    setArtifactPreview({ artifactId: artifact.id, kind: "loading" });
+    try {
+      const response = await new RuntimeClient(connection).getArtifactContent(artifact.id);
+      const mediaType = response.headers.get("content-type")?.split(";")[0] ?? artifact.mediaType;
+      const previewable =
+        mediaType.startsWith("text/") ||
+        mediaType === "application/json" ||
+        mediaType === "application/xml" ||
+        mediaType === "application/yaml";
+      if (!previewable) {
+        await response.arrayBuffer();
+        setArtifactPreview({
+          artifactId: artifact.id,
+          kind: "binary",
+          mediaType,
+          message: "该产物是二进制内容，Inspector 不直接执行或内嵌展示。",
+        });
+        return;
+      }
+      setArtifactPreview({
+        artifactId: artifact.id,
+        kind: "text",
+        mediaType,
+        text: await response.text(),
+      });
+    } catch (error) {
+      setArtifactPreview({
+        artifactId: artifact.id,
+        kind: "error",
+        message: error instanceof Error ? error.message : "产物读取失败",
       });
     }
   }
@@ -799,6 +856,8 @@ function App() {
                   setDecisionValues((current) => ({ ...current, [name]: value }))
                 }
                 artifacts={artifacts}
+                artifactPreview={artifactPreview}
+                onPreviewArtifact={previewArtifact}
                 decisionState={decisionState}
                 onDecision={submitHumanDecision}
                 onFocus={() => focusNode(selectedNode)}
@@ -886,6 +945,8 @@ function AuditPanel({
   decisionValues,
   setDecisionValue,
   artifacts,
+  artifactPreview,
+  onPreviewArtifact,
   decisionState,
   onDecision,
   onFocus,
@@ -897,6 +958,8 @@ function AuditPanel({
   decisionValues: Record<string, string>;
   setDecisionValue: (name: string, value: string) => void;
   artifacts: RuntimeArtifact[];
+  artifactPreview: ArtifactPreviewState;
+  onPreviewArtifact: (artifact: RuntimeArtifact) => void;
   decisionState: DecisionState;
   onDecision: (choice?: string) => void;
   onFocus: () => void;
@@ -911,6 +974,11 @@ function AuditPanel({
       <div className="detail-block"><span className="detail-label">执行器</span><strong>{node.executor}</strong></div>
       <div className="contract-grid"><div><span className="detail-label">输入</span><strong>{node.input}</strong></div><div><span className="detail-label">输出</span><strong>{node.output}</strong></div></div>
       <div className="evidence-list"><div className="detail-label">证据</div>{node.evidence.map((item) => <div className="evidence-row" key={item}><Check size={14} /> {item}</div>)}</div>
+      <ArtifactList
+        artifacts={artifacts.filter((artifact) => !node.invocationId || artifact.invocationId === node.invocationId)}
+        preview={artifactPreview}
+        onPreview={onPreviewArtifact}
+      />
       {humanRequest && (
         <HumanRequestPanel
           request={humanRequest}
@@ -924,6 +992,54 @@ function AuditPanel({
         />
       )}
     </div>
+  );
+}
+
+function ArtifactList({
+  artifacts,
+  preview,
+  onPreview,
+}: {
+  artifacts: RuntimeArtifact[];
+  preview: ArtifactPreviewState;
+  onPreview: (artifact: RuntimeArtifact) => void;
+}) {
+  if (artifacts.length === 0) return null;
+  const selected = artifacts.find((artifact) => artifact.id === preview.artifactId);
+  return (
+    <section className="artifact-list">
+      <div className="detail-label">已登记产物</div>
+      {artifacts.map((artifact) => (
+        <div className="artifact-row" key={artifact.id}>
+          <FileText size={14} />
+          <div className="artifact-row-copy">
+            <strong>{artifact.name}</strong>
+            <code>{artifact.mediaType} · {formatBytes(artifact.sizeBytes)}</code>
+          </div>
+          <button
+            className="icon-button small"
+            title="查看产物"
+            aria-label={`查看产物 ${artifact.name}`}
+            onClick={() => onPreview(artifact)}
+            disabled={artifact.status !== "ready" || preview.kind === "loading"}
+          >
+            <Eye size={13} />
+          </button>
+        </div>
+      ))}
+      {selected && preview.artifactId === selected.id && preview.kind !== "idle" && (
+        <div className={`artifact-preview ${preview.kind}`}>
+          <div className="artifact-preview-heading">
+            <span>{selected.name}</span>
+            <code>{preview.mediaType ?? selected.mediaType}</code>
+          </div>
+          {preview.kind === "loading" && <p>正在读取产物</p>}
+          {preview.kind === "error" && <p>{preview.message}</p>}
+          {preview.kind === "binary" && <p>{preview.message}</p>}
+          {preview.kind === "text" && <pre>{preview.text}</pre>}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1257,6 +1373,12 @@ function formatJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const demoTimeline = ["演示数据：草稿交付物已完成", "演示数据：细化已开始", "演示数据：人工审核"];
