@@ -141,7 +141,7 @@ export type RuntimeHumanRequest = {
   updatedAt?: string | null;
 };
 
-type RuntimeArtifact = {
+export type RuntimeArtifact = {
   id: string;
   invocationId: string | null;
   name: string;

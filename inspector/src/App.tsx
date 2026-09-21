@@ -48,6 +48,7 @@ import {
 import {
   mapRuntimeProjection,
   parseRuntimeProjection,
+  type RuntimeArtifact,
   type RuntimeHumanRequest,
 } from "./graph/runtime";
 import {
@@ -62,6 +63,7 @@ import {
   buildHumanInputDecision,
   createHumanDecisionIdempotencyKey,
   getHumanInputFields,
+  isArtifactReferenceField,
   type HumanField,
 } from "./runtime/human";
 
@@ -181,6 +183,7 @@ function App() {
   );
   const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
   const [humanRequests, setHumanRequests] = useState<RuntimeHumanRequest[]>([]);
+  const [artifacts, setArtifacts] = useState<RuntimeArtifact[]>([]);
   const [decisionComment, setDecisionComment] = useState("");
   const [decisionValues, setDecisionValues] = useState<Record<string, string>>({});
   const [decisionState, setDecisionState] = useState<DecisionState>({
@@ -236,6 +239,7 @@ function App() {
         setGraph(nextGraph);
         setRuntimeEvents(projection.events);
         setHumanRequests(projection.humanRequests);
+        setArtifacts(projection.artifacts);
         setLastEventSeq(projectionCursor);
         setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
         setSelectedId(nextGraph.nodes[0]?.id ?? nextGraph.groups[0]?.id ?? "");
@@ -261,6 +265,7 @@ function App() {
             setHumanRequests((current) =>
               mergeHumanRequests(current, projection.humanRequests),
             );
+            setArtifacts(projection.artifacts);
             setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
           },
           onEvent: (event) => {
@@ -316,7 +321,17 @@ function App() {
         });
         return;
       }
-      const result = buildHumanInputDecision(fields, decisionValues);
+      const allowedValues = Object.fromEntries(
+        fields
+          .filter(isArtifactReferenceField)
+          .map((field) => [
+            field.name,
+            artifacts
+              .filter((artifact) => artifact.status === "ready")
+              .map((artifact) => artifact.id),
+          ]),
+      );
+      const result = buildHumanInputDecision(fields, decisionValues, { allowedValues });
       if (!result.decision) {
         setDecisionState({
           kind: "error",
@@ -416,6 +431,7 @@ function App() {
       const nextGraph = mapRuntimeProjection(projection);
       setGraph(nextGraph);
       setHumanRequests(projection.humanRequests);
+      setArtifacts(projection.artifacts);
       setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
       setSelectedId(nextGraph.groups[0]?.id ?? nextGraph.nodes[0]?.id ?? "");
       setPanelMode("audit");
@@ -699,6 +715,7 @@ function App() {
                 setDecisionValue={(name, value) =>
                   setDecisionValues((current) => ({ ...current, [name]: value }))
                 }
+                artifacts={artifacts}
                 decisionState={decisionState}
                 onDecision={submitHumanDecision}
                 onFocus={() => focusNode(selectedNode)}
@@ -785,6 +802,7 @@ function AuditPanel({
   setDecisionComment,
   decisionValues,
   setDecisionValue,
+  artifacts,
   decisionState,
   onDecision,
   onFocus,
@@ -795,6 +813,7 @@ function AuditPanel({
   setDecisionComment: (value: string) => void;
   decisionValues: Record<string, string>;
   setDecisionValue: (name: string, value: string) => void;
+  artifacts: RuntimeArtifact[];
   decisionState: DecisionState;
   onDecision: (choice?: string) => void;
   onFocus: () => void;
@@ -816,6 +835,7 @@ function AuditPanel({
           setComment={setDecisionComment}
           values={decisionValues}
           setValue={setDecisionValue}
+          artifacts={artifacts}
           state={decisionState}
           onDecision={onDecision}
         />
@@ -830,6 +850,7 @@ function HumanRequestPanel({
   setComment,
   values,
   setValue,
+  artifacts,
   state,
   onDecision,
 }: {
@@ -838,6 +859,7 @@ function HumanRequestPanel({
   setComment: (value: string) => void;
   values: Record<string, string>;
   setValue: (name: string, value: string) => void;
+  artifacts: RuntimeArtifact[];
   state: DecisionState;
   onDecision: (choice?: string) => void;
 }) {
@@ -883,6 +905,7 @@ function HumanRequestPanel({
                       value={values[field.name] ?? ""}
                       onChange={(value) => setValue(field.name, value)}
                       disabled={submitting}
+                      artifacts={artifacts}
                     />
                   ))}
                 </div>
@@ -943,11 +966,13 @@ function HumanInputField({
   value,
   onChange,
   disabled,
+  artifacts,
 }: {
   field: HumanField;
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
+  artifacts: RuntimeArtifact[];
 }) {
   const inputId = `human-input-${field.name}`;
   const hint = field.description
@@ -972,6 +997,14 @@ function HumanInputField({
           <option value="true">是</option>
           <option value="false">否</option>
         </select>
+      ) : isArtifactReferenceField(field) ? (
+        <ArtifactReferencePicker
+          field={field}
+          value={value}
+          artifacts={artifacts}
+          onChange={onChange}
+          disabled={disabled}
+        />
       ) : field.type === "array" || field.type === "string" ? (
         <textarea
           id={inputId}
@@ -993,6 +1026,60 @@ function HumanInputField({
         />
       )}
       {field.description && <p className="human-input-hint">{field.description}</p>}
+    </div>
+  );
+}
+
+function ArtifactReferencePicker({
+  field,
+  value,
+  artifacts,
+  onChange,
+  disabled,
+}: {
+  field: HumanField;
+  value: string;
+  artifacts: RuntimeArtifact[];
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  const selected = new Set(
+    value
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+  const readyArtifacts = artifacts.filter((artifact) => artifact.status === "ready");
+  function toggle(artifactId: string) {
+    const next = new Set(selected);
+    if (next.has(artifactId)) next.delete(artifactId);
+    else next.add(artifactId);
+    onChange([...next].join("\n"));
+  }
+  if (readyArtifacts.length === 0) {
+    return (
+      <div className="artifact-picker-empty">
+        <AlertCircle size={14} />
+        <span>当前运行还没有可引用的已登记产物。</span>
+      </div>
+    );
+  }
+  return (
+    <div className="artifact-picker" aria-label={`${field.title}可选产物`}>
+      {readyArtifacts.map((artifact) => (
+        <label className="artifact-option" key={artifact.id}>
+          <input
+            type="checkbox"
+            checked={selected.has(artifact.id)}
+            onChange={() => toggle(artifact.id)}
+            disabled={disabled}
+          />
+          <span>
+            <strong>{artifact.name}</strong>
+            <code>{artifact.id}</code>
+          </span>
+        </label>
+      ))}
     </div>
   );
 }

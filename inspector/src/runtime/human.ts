@@ -13,6 +13,12 @@ export type HumanField = {
   maxItems?: number;
   itemMinLength?: number;
   itemMaxLength?: number;
+  minimum?: number;
+  maximum?: number;
+};
+
+export type HumanDecisionOptions = {
+  allowedValues?: Record<string, string[]>;
 };
 
 export function getHumanInputFields(schema: HumanSchema | undefined): HumanField[] | null {
@@ -23,6 +29,13 @@ export function getHumanInputFields(schema: HumanSchema | undefined): HumanField
       ? schema.required.filter((value): value is string => typeof value === "string")
       : [],
   );
+  if (
+    schema.required !== undefined &&
+    !Array.isArray(schema.required)
+  ) return null;
+  if ([...required].some((name) => !Object.prototype.hasOwnProperty.call(properties, name))) {
+    return null;
+  }
   const fields: HumanField[] = [];
   for (const [name, raw] of Object.entries(properties)) {
     if (!isRecord(raw)) return null;
@@ -37,12 +50,12 @@ export function getHumanInputFields(schema: HumanSchema | undefined): HumanField
         "minimum",
         "maximum",
       ])) return null;
-      if (!isOptionalNumber(raw.minLength) || !isOptionalNumber(raw.maxLength)) return null;
+      if (!isOptionalNonNegativeNumber(raw.minLength) || !isOptionalNonNegativeNumber(raw.maxLength)) return null;
       if (
-        (type === "string" && (!isOptionalNumber(raw.minLength) || !isOptionalNumber(raw.maxLength))) ||
+        (type === "string" && (!isOptionalNonNegativeNumber(raw.minLength) || !isOptionalNonNegativeNumber(raw.maxLength))) ||
         (type !== "string" && (raw.minLength !== undefined || raw.maxLength !== undefined)) ||
         (type === "string" && (raw.minimum !== undefined || raw.maximum !== undefined)) ||
-        (type !== "string" && (!isOptionalNumber(raw.minimum) || !isOptionalNumber(raw.maximum)))
+        (type !== "string" && (!isOptionalBound(raw.minimum) || !isOptionalBound(raw.maximum)))
       ) return null;
       fields.push({
         name,
@@ -51,6 +64,12 @@ export function getHumanInputFields(schema: HumanSchema | undefined): HumanField
         type,
         required: required.has(name),
         itemsType: undefined,
+        ...(type !== "string" && typeof raw.minimum === "number"
+          ? { minimum: raw.minimum }
+          : {}),
+        ...(type !== "string" && typeof raw.maximum === "number"
+          ? { maximum: raw.maximum }
+          : {}),
         ...(type === "string" && typeof raw.minLength === "number" ? { minLength: raw.minLength } : {}),
         ...(type === "string" && typeof raw.maxLength === "number" ? { maxLength: raw.maxLength } : {}),
       });
@@ -70,10 +89,10 @@ export function getHumanInputFields(schema: HumanSchema | undefined): HumanField
         "items",
       ]) ||
         !hasOnlyKeys(raw.items, ["type", "minLength", "maxLength"]) ||
-        !isOptionalNumber(raw.minItems) ||
-        !isOptionalNumber(raw.maxItems) ||
-        !isOptionalNumber(raw.items.minLength) ||
-        !isOptionalNumber(raw.items.maxLength)
+        !isOptionalNonNegativeNumber(raw.minItems) ||
+        !isOptionalNonNegativeNumber(raw.maxItems) ||
+        !isOptionalNonNegativeNumber(raw.items.minLength) ||
+        !isOptionalNonNegativeNumber(raw.items.maxLength)
       ) return null;
       fields.push({
         name,
@@ -97,7 +116,7 @@ export function getHumanInputFields(schema: HumanSchema | undefined): HumanField
 export function coerceHumanField(field: HumanField, value: string): unknown {
   if (field.type === "boolean") return value === "true";
   if (field.type === "number") return Number(value);
-  if (field.type === "integer") return Number.parseInt(value, 10);
+  if (field.type === "integer") return Number(value);
   if (field.type === "array") {
     return value
       .split(/\r?\n/)
@@ -110,6 +129,7 @@ export function coerceHumanField(field: HumanField, value: string): unknown {
 export function buildHumanInputDecision(
   fields: HumanField[],
   values: Record<string, string>,
+  options: HumanDecisionOptions = {},
 ): { decision: Record<string, unknown> | null; errors: string[] } {
   const decision: Record<string, unknown> = {};
   const errors: string[] = [];
@@ -119,6 +139,8 @@ export function buildHumanInputDecision(
     if (field.type === "boolean") {
       if (rawValue === undefined || rawValue === "") {
         if (field.required) errors.push(`${field.title} 必须填写`);
+      } else if (rawValue !== "true" && rawValue !== "false") {
+        errors.push(`${field.title} 必须选择是或否`);
       } else {
         decision[field.name] = coerceHumanField(field, rawValue);
       }
@@ -140,6 +162,12 @@ export function buildHumanInputDecision(
         errors.push(`${field.title} 必须是有效数字`);
         continue;
       }
+      if (field.minimum !== undefined && value < field.minimum) {
+        errors.push(`${field.title} 不能小于 ${field.minimum}`);
+      }
+      if (field.maximum !== undefined && value > field.maximum) {
+        errors.push(`${field.title} 不能大于 ${field.maximum}`);
+      }
     }
     if (field.type === "array" && Array.isArray(value)) {
       if (field.required && value.length === 0) errors.push(`${field.title} 不能为空`);
@@ -157,6 +185,10 @@ export function buildHumanInputDecision(
       ) {
         errors.push(`${field.title} 中有文本长度不符合要求`);
       }
+      const allowedValues = options.allowedValues?.[field.name];
+      if (allowedValues && value.some((item) => !allowedValues.includes(item))) {
+        errors.push(`${field.title} 包含未登记或不可引用的产物`);
+      }
     }
     if (field.type === "string") {
       if (field.minLength !== undefined && rawValue.length < field.minLength) {
@@ -172,18 +204,24 @@ export function buildHumanInputDecision(
   return { decision: errors.length === 0 ? decision : null, errors };
 }
 
+export function isArtifactReferenceField(field: HumanField): boolean {
+  return field.type === "array" &&
+    field.itemsType === "string" &&
+    (field.name === "artifact_refs" || field.name === "artifactRefs");
+}
+
 export function createHumanDecisionIdempotencyKey(
   requestId: string,
   version: number,
   payload: { choice?: string; decision?: unknown; comment?: string },
 ): string {
   const source = `${requestId}:${version}:${stableStringify(payload)}`;
-  let hash = 2166136261;
+  let hash = 14695981039346656037n;
   for (let index = 0; index < source.length; index += 1) {
-    hash ^= source.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
+    hash ^= BigInt(source.charCodeAt(index));
+    hash = BigInt.asUintN(64, hash * 1099511628211n);
   }
-  return `inspector-${requestId}-${version}-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  return `inspector-${requestId}-${version}-${hash.toString(16).padStart(16, "0")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -194,8 +232,12 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
-function isOptionalNumber(value: unknown): boolean {
+function isOptionalNonNegativeNumber(value: unknown): boolean {
   return value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0);
+}
+
+function isOptionalBound(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
 }
 
 function stableStringify(value: unknown): string {

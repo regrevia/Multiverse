@@ -4,6 +4,7 @@ import {
   coerceHumanField,
   createHumanDecisionIdempotencyKey,
   getHumanInputFields,
+  isArtifactReferenceField,
   type HumanField,
 } from "./human";
 
@@ -83,6 +84,16 @@ describe("human input schema helpers", () => {
     ).toBeNull();
   });
 
+  it("rejects schemas whose required fields are missing from properties", () => {
+    expect(
+      getHumanInputFields({
+        type: "object",
+        required: ["artifact_refs"],
+        properties: {},
+      }),
+    ).toBeNull();
+  });
+
   it("builds a business decision while omitting optional blank fields", () => {
     const fields: HumanField[] = [
       {
@@ -142,5 +153,68 @@ describe("human input schema helpers", () => {
 
     expect(retry).toBe(first);
     expect(changed).not.toBe(first);
+  });
+
+  it("recognizes artifact reference arrays and rejects unregistered values", () => {
+    const fields = getHumanInputFields({
+      type: "object",
+      properties: {
+        artifact_refs: {
+          type: "array",
+          items: { type: "string" },
+        },
+      },
+    });
+    expect(fields).not.toBeNull();
+    const field = fields?.[0];
+    expect(field && isArtifactReferenceField(field)).toBe(true);
+    expect(
+      buildHumanInputDecision(
+        fields ?? [],
+        { artifact_refs: "artifact_ready\nartifact_missing" },
+        { allowedValues: { artifact_refs: ["artifact_ready"] } },
+      ),
+    ).toEqual({
+      decision: null,
+      errors: ["artifact_refs 包含未登记或不可引用的产物"],
+    });
+  });
+
+  it("enforces numeric boundaries from the decision schema", () => {
+    const fields = getHumanInputFields({
+      type: "object",
+      properties: {
+        score: { type: "number", minimum: -10, maximum: 10 },
+        retries: { type: "integer", minimum: 1, maximum: 3 },
+      },
+    });
+    expect(fields).toEqual([
+      expect.objectContaining({ name: "score", minimum: -10, maximum: 10 }),
+      expect.objectContaining({ name: "retries", minimum: 1, maximum: 3 }),
+    ]);
+    expect(
+      buildHumanInputDecision(fields ?? [], { score: "11", retries: "0" }),
+    ).toEqual({
+      decision: null,
+      errors: ["score 不能大于 10", "retries 不能小于 1"],
+    });
+  });
+
+  it("rejects fractional integer values and invalid booleans", () => {
+    const fields = getHumanInputFields({
+      type: "object",
+      required: ["count", "approved"],
+      properties: {
+        count: { type: "integer" },
+        approved: { type: "boolean" },
+      },
+    });
+
+    expect(
+      buildHumanInputDecision(fields ?? [], { count: "3.5", approved: "maybe" }),
+    ).toEqual({
+      decision: null,
+      errors: ["count 必须是有效数字", "approved 必须选择是或否"],
+    });
   });
 });
