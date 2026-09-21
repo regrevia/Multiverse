@@ -139,11 +139,21 @@ button { border: 0; cursor: pointer; }
 .request-subject { display: grid; gap: 7px; margin-top: 15px; }
 .human-request-panel textarea { width: 100%; min-height: 70px; resize: vertical; padding: 10px; border: 1px solid #d0dce5; border-radius: 6px; outline: none; background: #fff; color: #40586d; font-size: 11px; line-height: 1.45; }
 .human-request-panel textarea:focus { border-color: #72adb9; box-shadow: 0 0 0 3px rgba(114,173,185,.16); }
+.human-input-fields { display: grid; gap: 2px; margin-top: 18px; }
+.human-input-field { display: grid; gap: 0; }
+.human-input-field .field-label { margin-top: 15px; }
+.human-input-field input, .human-input-field select { width: 100%; height: 34px; padding: 0 9px; border: 1px solid #d0dce5; border-radius: 6px; outline: none; background: #fff; color: #40586d; font-size: 11px; }
+.human-input-field input:focus, .human-input-field select:focus { border-color: #72adb9; box-shadow: 0 0 0 3px rgba(114,173,185,.16); }
+.human-input-field textarea { min-height: 58px; margin: 0; }
+.human-input-field input:disabled, .human-input-field select:disabled, .human-input-field textarea:disabled { background: #eef3f6; cursor: wait; }
+.required-mark { color: #b35d68; }
+.human-input-hint { margin: 6px 0 0; color: #8499a8; font-size: 10px; line-height: 1.4; }
 .decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .decision-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; border: 1px solid #cbd9e2; border-radius: 6px; font-size: 11px; }
 .decision-button:disabled { cursor: wait; opacity: .58; }
 .decision-button.approve { background: #e6f4f1; color: #287b78; }
 .decision-button.reject { background: #fbefef; color: #a2525b; }
+.decision-button.input-submit { width: 100%; margin-top: 12px; }
 .patch-state.submitting { color: #94784b; }
 .patch-state.submitting .state-indicator { background: #b27c49; }
 .panel-callout { display: flex; gap: 8px; margin-top: 26px; padding: 12px; border: 1px solid #c8e0e5; background: #eaf5f7; color: #397481; font-size: 11px; line-height: 1.45; }

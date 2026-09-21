@@ -58,6 +58,12 @@ import {
   type RuntimeEvent,
   type WatchStatus,
 } from "./runtime/client";
+import {
+  buildHumanInputDecision,
+  createHumanDecisionIdempotencyKey,
+  getHumanInputFields,
+  type HumanField,
+} from "./runtime/human";
 
 type Point = { x: number; y: number };
 type PanelMode = "audit" | "agent";
@@ -176,6 +182,7 @@ function App() {
   const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
   const [humanRequests, setHumanRequests] = useState<RuntimeHumanRequest[]>([]);
   const [decisionComment, setDecisionComment] = useState("");
+  const [decisionValues, setDecisionValues] = useState<Record<string, string>>({});
   const [decisionState, setDecisionState] = useState<DecisionState>({
     kind: "idle",
     message: "",
@@ -207,6 +214,12 @@ function App() {
   const pendingHumanRequestCount = humanRequests.filter(
     (request) => request.status === "pending",
   ).length;
+
+  useEffect(() => {
+    setDecisionComment("");
+    setDecisionValues({});
+    setDecisionState({ kind: "idle", message: "" });
+  }, [selectedHumanRequest?.id]);
 
   useEffect(() => {
     if (!connection.baseUrl || !connection.namespace || !connection.runId || !connection.token) {
@@ -282,7 +295,7 @@ function App() {
     setShowConnection(false);
   }
 
-  async function submitHumanDecision(choice: string) {
+  async function submitHumanDecision(choice?: string) {
     if (
       !selectedHumanRequest ||
       selectedHumanRequest.status !== "pending" ||
@@ -293,19 +306,51 @@ function App() {
     ) {
       return;
     }
-    const payload: HumanDecisionPayload = {
-      expectedVersion: selectedHumanRequest.version,
-      subjectDigest: selectedHumanRequest.subjectDigest,
-      choice,
-      comment: decisionComment,
-    };
+    let payload: HumanDecisionPayload;
+    if (selectedHumanRequest.requestType === "input") {
+      const fields = getHumanInputFields(selectedHumanRequest.decisionSchema);
+      if (!fields) {
+        setDecisionState({
+          kind: "error",
+          message: "当前结果 Schema 暂不支持表单填写，已阻止提交",
+        });
+        return;
+      }
+      const result = buildHumanInputDecision(fields, decisionValues);
+      if (!result.decision) {
+        setDecisionState({
+          kind: "error",
+          message: result.errors.join("；"),
+        });
+        return;
+      }
+      payload = {
+        expectedVersion: selectedHumanRequest.version,
+        subjectDigest: selectedHumanRequest.subjectDigest,
+        decision: result.decision,
+        comment: decisionComment,
+      };
+    } else {
+      if (!choice) return;
+      payload = {
+        expectedVersion: selectedHumanRequest.version,
+        subjectDigest: selectedHumanRequest.subjectDigest,
+        choice,
+        comment: decisionComment,
+      };
+    }
+    const idempotencyKey = createHumanDecisionIdempotencyKey(
+      selectedHumanRequest.id,
+      selectedHumanRequest.version,
+      payload,
+    );
     setDecisionState({ kind: "submitting", message: "正在提交人工决定" });
     try {
       const client = new RuntimeClient(connection);
       const receipt: RuntimeCommandReceipt = await client.submitHumanDecision(
         selectedHumanRequest.id,
         payload,
-        `inspector-${selectedHumanRequest.id}-${selectedHumanRequest.version}-${choice}-${Date.now()}`,
+        idempotencyKey,
       );
       setDecisionState({
         kind: "success",
@@ -650,6 +695,10 @@ function App() {
                 humanRequest={selectedHumanRequest}
                 decisionComment={decisionComment}
                 setDecisionComment={setDecisionComment}
+                decisionValues={decisionValues}
+                setDecisionValue={(name, value) =>
+                  setDecisionValues((current) => ({ ...current, [name]: value }))
+                }
                 decisionState={decisionState}
                 onDecision={submitHumanDecision}
                 onFocus={() => focusNode(selectedNode)}
@@ -734,6 +783,8 @@ function AuditPanel({
   humanRequest,
   decisionComment,
   setDecisionComment,
+  decisionValues,
+  setDecisionValue,
   decisionState,
   onDecision,
   onFocus,
@@ -742,8 +793,10 @@ function AuditPanel({
   humanRequest?: RuntimeHumanRequest;
   decisionComment: string;
   setDecisionComment: (value: string) => void;
+  decisionValues: Record<string, string>;
+  setDecisionValue: (name: string, value: string) => void;
   decisionState: DecisionState;
-  onDecision: (choice: string) => void;
+  onDecision: (choice?: string) => void;
   onFocus: () => void;
 }) {
   return (
@@ -761,6 +814,8 @@ function AuditPanel({
           request={humanRequest}
           comment={decisionComment}
           setComment={setDecisionComment}
+          values={decisionValues}
+          setValue={setDecisionValue}
           state={decisionState}
           onDecision={onDecision}
         />
@@ -773,17 +828,24 @@ function HumanRequestPanel({
   request,
   comment,
   setComment,
+  values,
+  setValue,
   state,
   onDecision,
 }: {
   request: RuntimeHumanRequest;
   comment: string;
   setComment: (value: string) => void;
+  values: Record<string, string>;
+  setValue: (name: string, value: string) => void;
   state: DecisionState;
-  onDecision: (choice: string) => void;
+  onDecision: (choice?: string) => void;
 }) {
   const pending = request.status === "pending";
   const submitting = state.kind === "submitting";
+  const inputFields =
+    request.requestType === "input" ? getHumanInputFields(request.decisionSchema) : null;
+  const unsupportedInputSchema = request.requestType === "input" && inputFields === null;
   return (
     <section className="human-request-panel" aria-label="人工请求">
       <div className="detail-label">人工请求</div>
@@ -804,33 +866,134 @@ function HumanRequestPanel({
       </div>
       {pending ? (
         <>
-          <label className="field-label" htmlFor="decision-comment">审计备注</label>
-          <textarea
-            id="decision-comment"
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-            placeholder="可选"
-            disabled={submitting}
-          />
-          <div className="decision-actions">
-            {request.choices.map((choice) => (
-              <button
-                key={choice}
-                className={`decision-button ${choice === "approve" ? "approve" : "reject"}`}
-                onClick={() => onDecision(choice)}
+          {request.requestType === "input" ? (
+            <>
+              {unsupportedInputSchema ? (
+                <div className="panel-callout warning">
+                  <AlertCircle size={15} />
+                  <span>当前结果契约包含暂不支持的字段类型，不能安全提交。</span>
+                </div>
+              ) : (
+                <div className="human-input-fields">
+                  <div className="detail-label">提交结果</div>
+                  {inputFields?.map((field) => (
+                    <HumanInputField
+                      key={field.name}
+                      field={field}
+                      value={values[field.name] ?? ""}
+                      onChange={(value) => setValue(field.name, value)}
+                      disabled={submitting}
+                    />
+                  ))}
+                </div>
+              )}
+              <label className="field-label" htmlFor="decision-comment">审计备注</label>
+              <textarea
+                id="decision-comment"
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="仅用于审计记录，可选"
                 disabled={submitting}
+              />
+              <button
+                className="decision-button approve input-submit"
+                onClick={() => onDecision()}
+                disabled={submitting || unsupportedInputSchema}
               >
-                {choice === "approve" ? <Check size={15} /> : <AlertCircle size={15} />}
-                {choice === "approve" ? "批准" : choice === "reject" ? "拒绝" : choice}
+                <Send size={15} />
+                提交结果
               </button>
-            ))}
-          </div>
+            </>
+          ) : (
+            <>
+              <label className="field-label" htmlFor="decision-comment">审计备注</label>
+              <textarea
+                id="decision-comment"
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="可选"
+                disabled={submitting}
+              />
+              <div className="decision-actions">
+                {request.choices.map((choice) => (
+                  <button
+                    key={choice}
+                    className={`decision-button ${choice === "approve" ? "approve" : "reject"}`}
+                    onClick={() => onDecision(choice)}
+                    disabled={submitting}
+                  >
+                    {choice === "approve" ? <Check size={15} /> : <AlertCircle size={15} />}
+                    {choice === "approve" ? "批准" : choice === "reject" ? "拒绝" : choice}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </>
       ) : (
         <div className="patch-state success"><span className="state-indicator" /> 请求已{request.status === "decided" ? "完成" : request.status}</div>
       )}
       {state.message && <div className={`patch-state ${state.kind}`}>{state.message}</div>}
     </section>
+  );
+}
+
+function HumanInputField({
+  field,
+  value,
+  onChange,
+  disabled,
+}: {
+  field: HumanField;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  const inputId = `human-input-${field.name}`;
+  const hint = field.description
+    ? field.description
+    : field.type === "array"
+      ? "每行填写一项"
+      : undefined;
+  return (
+    <div className="human-input-field">
+      <label className="field-label" htmlFor={inputId}>
+        {field.title}
+        {field.required && <span className="required-mark"> *</span>}
+      </label>
+      {field.type === "boolean" ? (
+        <select
+          id={inputId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+        >
+          <option value="">请选择</option>
+          <option value="true">是</option>
+          <option value="false">否</option>
+        </select>
+      ) : field.type === "array" || field.type === "string" ? (
+        <textarea
+          id={inputId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={hint}
+          disabled={disabled}
+          rows={field.type === "array" ? 3 : 2}
+        />
+      ) : (
+        <input
+          id={inputId}
+          type="number"
+          step={field.type === "integer" ? 1 : "any"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={hint}
+          disabled={disabled}
+        />
+      )}
+      {field.description && <p className="human-input-hint">{field.description}</p>}
+    </div>
   );
 }
 
