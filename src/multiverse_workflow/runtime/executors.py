@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +34,43 @@ class ExecutionResult:
     human_request: HumanRequestSpec | None = None
     observations: list[dict[str, object]] | None = None
     generated_artifact: GeneratedArtifact | None = None
+
+
+def execute_local_process(input_value: Any, config: dict[str, Any]) -> ExecutionResult:
+    """Run a configured JSON-in/JSON-out process as one workflow node."""
+    command = config.get("command")
+    if not (
+        isinstance(command, list)
+        and command
+        and all(isinstance(part, str) and part for part in command)
+    ):
+        raise ExecutorError("local_process config.command must be a non-empty string array")
+    timeout = config.get("timeoutSeconds", 60)
+    if not isinstance(timeout, (int, float)) or timeout <= 0:
+        raise ExecutorError("local_process timeoutSeconds must be positive")
+    cwd = config.get("cwd")
+    if cwd is not None and (not isinstance(cwd, str) or not cwd.strip()):
+        raise ExecutorError("local_process cwd must be a non-empty string")
+    try:
+        completed = subprocess.run(
+            command,
+            input=json.dumps(input_value, ensure_ascii=False),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ExecutorError(f"local_process failed: {exc}") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"exit code {completed.returncode}"
+        raise ExecutorError(f"local_process failed: {detail}")
+    try:
+        output = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ExecutorError("local_process stdout must contain one JSON value") from exc
+    return ExecutionResult(output=output)
 
 
 def execute_builtin(

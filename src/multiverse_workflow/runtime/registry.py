@@ -155,6 +155,21 @@ class ExecutorRegistry:
 
 _LOCAL_EXECUTOR_DESCRIPTORS = (
     ExecutorDescriptor(
+        executor_ref="local.process.v1",
+        adapter="local_process",
+        capabilities=frozenset({"data.process@1"}),
+        contract_version="multiverse/v0.1",
+        executor_version="1.0.0",
+        supports_cancel=False,
+        supports_idempotency=False,
+        supports_recovery_query=False,
+        observability_level="structured",
+        permission_level="enforced",
+        installed=True,
+        available=True,
+        verified=True,
+    ),
+    ExecutorDescriptor(
         executor_ref="example.content-fixture.v1",
         adapter="builtin",
         capabilities=frozenset({"content.produce@1", "content.review@1"}),

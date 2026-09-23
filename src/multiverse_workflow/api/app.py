@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -25,7 +26,18 @@ from .dependencies import LocalPrincipal, Scope, ServiceSettings
 
 
 def create_app(settings: ServiceSettings) -> FastAPI:
-    app = FastAPI(title="Multiverse Runtime Service", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            runtime.close()
+
+    app = FastAPI(
+        title="Multiverse Runtime Service",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -99,7 +111,6 @@ def create_app(settings: ServiceSettings) -> FastAPI:
     async def ready() -> dict[str, str]:
         return {
             "status": "ready",
-            "databasePath": str(settings.database_path.expanduser().resolve()),
             "namespace": settings.namespace,
             "deploymentId": settings.deployment_id,
         }

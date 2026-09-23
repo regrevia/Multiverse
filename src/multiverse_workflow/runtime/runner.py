@@ -13,7 +13,11 @@ from multiverse_workflow.compiler import ExecutionPlan, compile_package
 from multiverse_workflow.compiler.references import schema_validator, validate_schema_file
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
-from multiverse_workflow.runtime.executors import ExecutorError, execute_builtin
+from multiverse_workflow.runtime.executors import (
+    ExecutorError,
+    execute_builtin,
+    execute_local_process,
+)
 from multiverse_workflow.runtime.http_job import (
     HttpJobClient,
     HttpJobError,
@@ -1880,7 +1884,25 @@ class Runner:
                 payload=execution_request,
             )
             return None
-        if binding.adapter not in {"builtin", "human"}:
+        if binding.adapter == "local_process":
+            try:
+                result = execute_local_process(input_value, binding.config)
+            except ExecutorError as exc:
+                error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
+                self._record_call_failure(attempt, invocation, error)
+                if self._schedule_retry(
+                    run_id,
+                    scope_id,
+                    node_id,
+                    definition,
+                    invocation,
+                    attempt,
+                    error,
+                ):
+                    return None
+                self._fail_scope(run_id, scope_id, node_id, error)
+                return None
+        elif binding.adapter not in {"builtin", "human"}:
             error = {
                 "code": "EXECUTOR_UNSUPPORTED",
                 "message": f"adapter is not enabled: {binding.adapter}",
@@ -1888,23 +1910,24 @@ class Runner:
             self._record_call_failure(attempt, invocation, error)
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
-        try:
-            result = execute_builtin(binding.executor_ref, input_value, binding.config)
-        except ExecutorError as exc:
-            error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
-            self._record_call_failure(attempt, invocation, error)
-            if self._schedule_retry(
-                run_id,
-                scope_id,
-                node_id,
-                definition,
-                invocation,
-                attempt,
-                error,
-            ):
+        else:
+            try:
+                result = execute_builtin(binding.executor_ref, input_value, binding.config)
+            except ExecutorError as exc:
+                error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
+                self._record_call_failure(attempt, invocation, error)
+                if self._schedule_retry(
+                    run_id,
+                    scope_id,
+                    node_id,
+                    definition,
+                    invocation,
+                    attempt,
+                    error,
+                ):
+                    return None
+                self._fail_scope(run_id, scope_id, node_id, error)
                 return None
-            self._fail_scope(run_id, scope_id, node_id, error)
-            return None
         for observation in result.observations or []:
             self.ledger.record_event(
                 run_id,

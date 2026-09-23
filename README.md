@@ -95,6 +95,25 @@ remain unsupported. A custom `ExecutorRegistry` is required for the current
 development HTTP Job binding; the default local registry intentionally does
 not trust an arbitrary URL as a production executor.
 
+### Local Process Node
+
+Scripts and executables can be nodes through the built-in JSON process adapter:
+
+```yaml
+slots:
+  transform:
+    adapter: local_process
+    executorRef: local.process.v1
+    config:
+      command: [python, scripts/transform.py]
+      timeoutSeconds: 30
+```
+
+The Worker sends the node input as JSON on stdin and expects one JSON value on
+stdout. A non-zero exit, timeout, or invalid output follows the node's retry
+and error policy. The command runs with the Worker user's permissions; use a
+dedicated sandbox or service account for production workloads.
+
 ### Local Runtime Service
 
 The service exposes the same SQLite Ledger and Runner through JSON and SSE. A
