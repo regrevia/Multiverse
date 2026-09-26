@@ -1,0 +1,8 @@
+{
+  "package_id": "W01",
+  "implementation_commit": "d2d18e02728df7e8861a76c4ff909f0e675e44a8",
+  "verified_at": "2026-09-26T04:54:09.350022+00:00",
+  "command": "git ls-remote origin refs/heads/dev",
+  "remote_output": "d2d18e02728df7e8861a76c4ff909f0e675e44a8\trefs/heads/dev",
+  "result": "Implementation C verified remotely. This receipt and completed STATE are pushed in a separate commit R; main verifies R before advancing."
+}
