@@ -20,10 +20,10 @@
       "title": "保全基线与建立可重复验证",
       "depends_on": [],
       "spec_stage": "M0/M1 已有能力核验",
-      "status": "ready_to_push",
+      "status": "completed",
       "package": "../../工作包规划.md#w00",
       "report": "reports/W00/REPORT.md",
-      "implementation_commit": null,
+      "implementation_commit": "0e4c84dc302270f303c82b6fb6438a649f004345",
       "blockers": [],
       "owner": "/root",
       "started_at": "2026-09-26T04:09:54.273453+00:00",
@@ -54,7 +54,8 @@
       "reviewer": "/root/w00_independent_review",
       "review_verdict": "approved",
       "reviewed_snapshot": "5a44eca3701cefce4b3d482e7bc29e4f1eb9532b04ae7e0fa178083964b1624d",
-      "updated_at": "2026-09-26T04:22:42.989513+00:00"
+      "updated_at": "2026-09-26T04:22:42.989513+00:00",
+      "completed_at": "2026-09-26T04:23:38.053959+00:00"
     },
     {
       "id": "W01",
