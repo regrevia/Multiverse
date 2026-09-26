@@ -574,8 +574,14 @@ def _validate_binding(
                     Diagnostic(
                         code="CAPABILITY_MISMATCH",
                         file=file,
-                        pointer=f"/spec/nodes/{_escape(node_id)}/requires/capabilities",
+                        pointer=f"/spec/slots/{_escape(node.slot)}/executorRef",
                         message=f"执行器 {slot.executor_ref} 不声明能力 {capability}。",
+                        suggestion="选择声明所需能力的执行器，不要删除节点的能力要求。",
+                        details={
+                            "nodeId": node_id,
+                            "requiredCapability": capability,
+                            "availableCapabilities": sorted(capabilities),
+                        },
                     )
                 )
     return diagnostics

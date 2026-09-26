@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multiverse.local/schemas/preflight-report.schema.json",
+  "title": "Local registry preflight report",
+  "description": "Read-only authoring report, not authorization or live deployment readiness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reportVersion", "scope", "ok", "checked", "notChecked", "planDigests", "diagnostics"],
+  "properties": {
+    "reportVersion": {"const": "multiverse.preflight/v0.1"},
+    "scope": {"const": "local-registry"},
+    "ok": {"type": "boolean"},
+    "checked": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"enum": ["static-validation", "executor-registry"]}
+    },
+    "notChecked": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"enum": ["executor-registry", "live-connectivity", "executor-config", "credentials", "authorization", "sandbox-enforcement", "human-channel-delivery", "business-quality"]}
+    },
+    "planDigests": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    },
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}
+  },
+  "allOf": [{
+    "if": {"properties": {"ok": {"const": true}}},
+    "then": {"properties": {"diagnostics": {"maxItems": 0}, "planDigests": {"minProperties": 1}}},
+    "else": {"properties": {"diagnostics": {"minItems": 1}}}
+  }],
+  "$defs": {
+    "diagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "file", "pointer", "message", "severity"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "file": {"type": "string"},
+        "pointer": {"type": "string"},
+        "message": {"type": "string"},
+        "severity": {"enum": ["error", "warning", "info"]},
+        "suggestion": {"type": "string"},
+        "details": {"type": "object"}
+      }
+    }
+  }
+}

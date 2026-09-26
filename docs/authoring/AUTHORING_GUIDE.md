@@ -1,6 +1,8 @@
 # Multiverse Authoring Kit
 
-This guide is the offline authoring entry point for the current local preview.
+Agents are the primary workflow developers; graphical editing is auxiliary.
+Start with [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) for the short operating loop.
+This guide is the offline authoring reference for the current local preview.
 The only normative document is `docs/spec/MULTIVERSE_SPEC.md`. The JSON
 Schemas in `schemas/` and each package's `schemas/` directory are its
 executable representations; they do not create a parallel specification.
@@ -18,6 +20,8 @@ The checked-in preview currently supports:
 - static `parallel` execution with stable branch IDs, `join: all`, and bounded
   `maxConcurrency`
 - builtin local executors
+- trusted local JSON-in/JSON-out process execution (not a sandbox)
+- read-only `preflight --json` for local registry readiness and source-located gaps
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
 - version-checked local pause, resume, cancel, and terminal-run rerun commands
@@ -31,7 +35,7 @@ The checked-in preview currently supports:
 - read-only JSON Inspector snapshots with scopes, nodes, events, HumanRequests, and Artifacts
 - local FastAPI JSON and SSE service over the same SQLite Runtime
 
-The preview does not claim support for Local Process registration, LangGraph
+The preview does not claim support for arbitrary executor plugin installation, LangGraph
 persistence, deployment or import, production hosting/IAM, remote Artifact
 upload/registration, UI forms, or Latent Handoff. The HTTP Job path is
 available only through a verified development Binding and the local Worker;
@@ -56,6 +60,7 @@ read spec and schemas
   -> define explicit references and branches
   -> add a Binding example without secrets
   -> mverse validate
+  -> mverse preflight --json (local metadata only)
   -> run the local fixture
   -> inspect the pending human request
   -> submit the authorized decision
@@ -63,7 +68,10 @@ read spec and schemas
 ```
 
 Validation is static. It must not invoke executors or perform business side
-effects. A local run does invoke the configured builtin and human adapters.
+effects. A local run invokes the configured executors; process and HTTP bindings can have
+real side effects. Preflight only reads package/Binding files and registered metadata;
+it does not check live connectivity, credentials, arbitrary executor config,
+authorization, sandbox enforcement, human delivery, or business quality.
 
 ## Minimal Commands
 

@@ -1,0 +1,508 @@
+{
+  "plan_version": "2.0.0",
+  "plan_document": "../../工作包规划.md",
+  "created_on": "2026-09-26",
+  "workspace": "/home/aied/tanyicheng/multiverse",
+  "baseline_head": "b0d6c1b",
+  "baseline_note": "Plan writing only. Preserve previous session changes. Implementation milestones are not completed by publishing the plan.",
+  "default_execution": "resume_active_or_first_ready",
+  "review_required": true,
+  "push_policy": {
+    "authorized": true,
+    "remote": "origin",
+    "branch": "dev",
+    "require_remote_verification": true,
+    "force_push": false
+  },
+  "work_packages": [
+    {
+      "id": "W00",
+      "title": "保全基线与建立可重复验证",
+      "depends_on": [],
+      "spec_stage": "M0/M1 已有能力核验",
+      "status": "pending",
+      "package": "../../工作包规划.md#w00",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W01",
+      "title": "Agent 可发现配置与可注入注册表",
+      "depends_on": [
+        "W00"
+      ],
+      "spec_stage": "M0；G-01/G-02/G-03/G-19 最小子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w01",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W14",
+      "title": "v1 发布契约、需求追踪与支持范围冻结",
+      "depends_on": [
+        "W00",
+        "W01"
+      ],
+      "spec_stage": "M0/M7；全 G 项和验收集建账",
+      "status": "pending",
+      "package": "../../工作包规划.md#w14",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W02",
+      "title": "最小执行宿主与持久 HTTP Job Bridge",
+      "depends_on": [
+        "W01"
+      ],
+      "spec_stage": "M2/M3；G-04/G-08/G-12 子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w02",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W03",
+      "title": "首个真实 Coding Agent：Codex",
+      "depends_on": [
+        "W02"
+      ],
+      "spec_stage": "M3；G-03/G-04/G-08/G-11 最小闭环",
+      "status": "pending",
+      "package": "../../工作包规划.md#w03",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W04",
+      "title": "交付首条真实人机协作闭环",
+      "depends_on": [
+        "W03"
+      ],
+      "spec_stage": "M4；G-09 最小人工入口",
+      "status": "pending",
+      "package": "../../工作包规划.md#w04",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W05A",
+      "title": "第二种执行端：Claude",
+      "depends_on": [
+        "W03"
+      ],
+      "spec_stage": "M3/M5 适配复用验证",
+      "status": "pending",
+      "package": "../../工作包规划.md#w05a",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W05B",
+      "title": "第三种执行端：Pi",
+      "depends_on": [
+        "W03"
+      ],
+      "spec_stage": "M3/M5 适配复用验证",
+      "status": "pending",
+      "package": "../../工作包规划.md#w05b",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W06",
+      "title": "身份、多会话与原生恢复",
+      "depends_on": [
+        "W05A"
+      ],
+      "spec_stage": "M3/M5；G-17 第一子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w06",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W07",
+      "title": "跨 CLI 续接、工作区与授权上下文",
+      "depends_on": [
+        "W06"
+      ],
+      "spec_stage": "M3/M5；G-17/G-18 切换子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w07",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W08",
+      "title": "一个真实隔离后端与可信本地模式",
+      "depends_on": [
+        "W07"
+      ],
+      "spec_stage": "M3；G-05/G-18 有限平台实现",
+      "status": "pending",
+      "package": "../../工作包规划.md#w08",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W09",
+      "title": "远程电脑出站 Connector",
+      "depends_on": [
+        "W08"
+      ],
+      "spec_stage": "M5；G-06/G-07/G-12",
+      "status": "pending",
+      "package": "../../工作包规划.md#w09",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W10A",
+      "title": "飞书人工任务通道",
+      "depends_on": [
+        "W04"
+      ],
+      "spec_stage": "M5；G-10 人工通道",
+      "status": "pending",
+      "package": "../../工作包规划.md#w10a",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W10B",
+      "title": "飞书程序节点与副作用核对",
+      "depends_on": [
+        "W10A",
+        "W02"
+      ],
+      "spec_stage": "M5 外部程序执行",
+      "status": "pending",
+      "package": "../../工作包规划.md#w10b",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W11",
+      "title": "一个真实宿主与独立 Console 共用接口",
+      "depends_on": [
+        "W04"
+      ],
+      "spec_stage": "M6；G-15 子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w11",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W12",
+      "title": "干净目标交付与最小安装闭环",
+      "depends_on": [
+        "W09",
+        "W11"
+      ],
+      "spec_stage": "M6；G-13/G-14/G-16 声明子集",
+      "status": "pending",
+      "package": "../../工作包规划.md#w12",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W13",
+      "title": "作者效率、故障恢复与交付总验收",
+      "depends_on": [
+        "W04",
+        "W05B",
+        "W07",
+        "W08",
+        "W09",
+        "W10B",
+        "W11",
+        "W12"
+      ],
+      "spec_stage": "M7 可移植预览验收，不替代完整发布",
+      "status": "pending",
+      "package": "../../工作包规划.md#w13",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W15",
+      "title": "PostgreSQL 持久化、迁移与单活服务模式",
+      "depends_on": [
+        "W14",
+        "W02"
+      ],
+      "spec_stage": "M1/M2/M6；规范既定持久层",
+      "status": "pending",
+      "package": "../../工作包规划.md#w15",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W16",
+      "title": "LangGraph 后端、一致性与完整组合语义",
+      "depends_on": [
+        "W15",
+        "W07"
+      ],
+      "spec_stage": "M1/M2/M4；全部控制流与 checkpoint",
+      "status": "pending",
+      "package": "../../工作包规划.md#w16",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W17",
+      "title": "团队身份、授权与所有入口一致性",
+      "depends_on": [
+        "W14",
+        "W11",
+        "W09"
+      ],
+      "spec_stage": "M2/M6；可信主体与 namespace隔离",
+      "status": "pending",
+      "package": "../../工作包规划.md#w17",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W18",
+      "title": "Secret Provider、受控提权与审计闭环",
+      "depends_on": [
+        "W17",
+        "W08",
+        "W07"
+      ],
+      "spec_stage": "M2/M3；G-05/G-18闭合",
+      "status": "pending",
+      "package": "../../工作包规划.md#w18",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W19",
+      "title": "完整 Agent 作者工具链：创建、修复、评测、Diff",
+      "depends_on": [
+        "W14",
+        "W13",
+        "W16"
+      ],
+      "spec_stage": "M4/M7；G-19闭合",
+      "status": "pending",
+      "package": "../../工作包规划.md#w19",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W20",
+      "title": "可嵌入 SDK、完整人工入口与可访问 Console",
+      "depends_on": [
+        "W17",
+        "W19",
+        "W04"
+      ],
+      "spec_stage": "M4/M6；G-09/G-15闭合",
+      "status": "pending",
+      "package": "../../工作包规划.md#w20",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W21",
+      "title": "运维、备份恢复、数据保留与故障手册",
+      "depends_on": [
+        "W15",
+        "W16",
+        "W18"
+      ],
+      "spec_stage": "M6/M7 服务可运维性",
+      "status": "pending",
+      "package": "../../工作包规划.md#w21",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W22",
+      "title": "完全本地真实 Agent 与离线交付",
+      "depends_on": [
+        "W12",
+        "W18"
+      ],
+      "spec_stage": "M3/M6；G-16及离线强制验收",
+      "status": "pending",
+      "package": "../../工作包规划.md#w22",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W23",
+      "title": "独立可安装的真实 Latent 实验实现",
+      "depends_on": [
+        "W14",
+        "W16",
+        "W18"
+      ],
+      "spec_stage": "E1/E2；LH-01—LH-14",
+      "status": "pending",
+      "package": "../../工作包规划.md#w23",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W24",
+      "title": "发行包、供应链与升级回滚演练",
+      "depends_on": [
+        "W12",
+        "W15",
+        "W19",
+        "W20"
+      ],
+      "spec_stage": "M6/M7；G-13/G-14 完整发行形态",
+      "status": "pending",
+      "package": "../../工作包规划.md#w24",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W25",
+      "title": "支持矩阵、协议兼容与跨平台合约",
+      "depends_on": [
+        "W24",
+        "W05B",
+        "W09",
+        "W22"
+      ],
+      "spec_stage": "M7 兼容性",
+      "status": "pending",
+      "package": "../../工作包规划.md#w25",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W26",
+      "title": "安全、滥用边界与数据隔离总审计",
+      "depends_on": [
+        "W17",
+        "W18",
+        "W20",
+        "W24"
+      ],
+      "spec_stage": "M7 安全发布门槛",
+      "status": "pending",
+      "package": "../../工作包规划.md#w26",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W27",
+      "title": "性能、连续运行与灾难恢复压测",
+      "depends_on": [
+        "W16",
+        "W21",
+        "W25",
+        "W26"
+      ],
+      "spec_stage": "M7 稳定性门槛",
+      "status": "pending",
+      "package": "../../工作包规划.md#w27",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W28",
+      "title": "候选版真实试用与反馈闭环",
+      "depends_on": [
+        "W19",
+        "W20",
+        "W22",
+        "W24",
+        "W26"
+      ],
+      "spec_stage": "M7 Beta/RC 外部可用性",
+      "status": "pending",
+      "package": "../../工作包规划.md#w28",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    },
+    {
+      "id": "W29",
+      "title": "v1.0 稳定试用版最终签收与发布准备",
+      "depends_on": [
+        "W14",
+        "W15",
+        "W16",
+        "W17",
+        "W18",
+        "W19",
+        "W20",
+        "W21",
+        "W22",
+        "W23",
+        "W24",
+        "W25",
+        "W26",
+        "W27",
+        "W28"
+      ],
+      "spec_stage": "M7 完整项目级门槛",
+      "status": "pending",
+      "package": "../../工作包规划.md#w29",
+      "report": null,
+      "implementation_commit": null,
+      "blockers": []
+    }
+  ],
+  "allowed_statuses": [
+    "pending",
+    "in_progress",
+    "testing",
+    "waiting_external",
+    "reviewing",
+    "blocked",
+    "ready_to_push",
+    "push_pending",
+    "completed"
+  ],
+  "background_validation_required_fields": [
+    "source_commit",
+    "artifact_digests",
+    "isolated_environment",
+    "task_id",
+    "checkpoint",
+    "next_check_at",
+    "resume_command"
+  ]
+}

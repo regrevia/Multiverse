@@ -1,0 +1,78 @@
+{
+  "retrieved_at": "2026-09-26T02:56:04.952474+00:00",
+  "note": "Popularity snapshot, not a quality or compatibility benchmark. License metadata is not a substitute for license text.",
+  "repositories": [
+    {
+      "repository": "n8n-io/n8n",
+      "url": "https://github.com/n8n-io/n8n",
+      "stars": 205995,
+      "license_spdx": "NOASSERTION",
+      "default_branch": "master",
+      "source": "https://api.github.com/repos/n8n-io/n8n"
+    },
+    {
+      "repository": "langgenius/dify",
+      "url": "https://github.com/langgenius/dify",
+      "stars": 157222,
+      "license_spdx": "NOASSERTION",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/langgenius/dify"
+    },
+    {
+      "repository": "langflow-ai/langflow",
+      "url": "https://github.com/langflow-ai/langflow",
+      "stars": 155263,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/langflow-ai/langflow"
+    },
+    {
+      "repository": "langchain-ai/langgraph",
+      "url": "https://github.com/langchain-ai/langgraph",
+      "stars": 42298,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/langchain-ai/langgraph"
+    },
+    {
+      "repository": "temporalio/temporal",
+      "url": "https://github.com/temporalio/temporal",
+      "stars": 23298,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/temporalio/temporal"
+    },
+    {
+      "repository": "OpenHands/OpenHands",
+      "url": "https://github.com/OpenHands/OpenHands",
+      "stars": 89170,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/OpenHands/OpenHands"
+    },
+    {
+      "repository": "earendil-works/pi",
+      "url": "https://github.com/earendil-works/pi",
+      "stars": 109377,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/earendil-works/pi"
+    },
+    {
+      "repository": "letta-ai/letta",
+      "url": "https://github.com/letta-ai/letta",
+      "stars": 24887,
+      "license_spdx": "Apache-2.0",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/letta-ai/letta"
+    },
+    {
+      "repository": "CopilotKit/CopilotKit",
+      "url": "https://github.com/CopilotKit/CopilotKit",
+      "stars": 37551,
+      "license_spdx": "MIT",
+      "default_branch": "main",
+      "source": "https://api.github.com/repos/CopilotKit/CopilotKit"
+    }
+  ]
+}

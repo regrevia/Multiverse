@@ -8,6 +8,7 @@ from multiverse_workflow import __version__
 from multiverse_workflow.api.app import create_app
 from multiverse_workflow.api.dependencies import ServiceSettings
 from multiverse_workflow.compiler import compile_package, executor_capabilities
+from multiverse_workflow.compiler.preflight import preflight_package
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.runner import RunError, Runner
@@ -85,6 +86,28 @@ def validate(
                 err=True,
             )
     if not result.ok:
+        raise typer.Exit(code=2)
+
+
+@app.command()
+def preflight(
+    package: Annotated[Path, typer.Argument(exists=False, file_okay=False)],
+    binding: Annotated[Path, typer.Option("--binding")],
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Check package and local registry readiness without executing business work."""
+    report = preflight_package(package, binding_path=binding)
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), ensure_ascii=False, sort_keys=True))
+    elif report.ok:
+        typer.echo("local registry preflight passed; live services and permissions not checked")
+    else:
+        for diagnostic in report.diagnostics:
+            typer.echo(
+                f"{diagnostic.code}: {diagnostic.file}{diagnostic.pointer} {diagnostic.message}",
+                err=True,
+            )
+    if not report.ok:
         raise typer.Exit(code=2)
 
 

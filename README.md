@@ -1,6 +1,37 @@
 # Multiverse
 
-Multiverse is an open-source project.
+Multiverse is an **agent-authored, portable workflow runtime** for collaboration
+between humans, agents, programs, and external services. Workflow packages define
+business contracts; environment bindings select how and where work runs.
+
+Agents are the primary workflow developers: files, schemas, capability discovery,
+and machine-readable diagnostics form the authoring interface. The graphical
+interface supports inspection, review, human tasks, and assisted editing.
+
+Start with the [Agent authoring quickstart](docs/authoring/AGENT_QUICKSTART.md).
+For continued development, follow the [ordered work packages and mandatory sub-agent review loop](工作包规划.md).
+See the [competitive research and architecture rationale](docs/research/2026-09-26-portability-and-agent-authoring.md)
+and the [normative specification](docs/spec/MULTIVERSE_SPEC.md#s30).
+
+The implementation is a local development preview. Portable host embedding,
+remote Connectors, Feishu channels, and Codex/Pi/Claude session management are
+design targets, not completed integrations.
+
+## Agent Authoring Preflight
+
+```bash
+uv run mverse capabilities --json
+uv run mverse validate presets/content-delivery \
+  --binding examples/bindings/content-local.yaml --json
+uv run mverse preflight presets/content-delivery \
+  --binding examples/bindings/content-local.yaml --json
+```
+
+Preflight adds read-only executor registry checks to static validation and
+returns source-located diagnostics. It does not execute nodes or contact remote
+services. Read `notChecked` before treating a result as evidence: permissions,
+sandbox enforcement, credentials, executor configuration, and business quality
+are not verified by this local check. Failed checks exit with code 2.
 
 ## Branches
 
