@@ -1,0 +1,11 @@
+{
+  "original_evidence": "AUTHOR_REPAIR.json",
+  "original_snapshot": "2a3ffa2f8d990b2b6a02f0884a888d4fe3385ca7c9efd995b6e6d46772ab481a",
+  "current_snapshot": "19e54cf056801e534a07b9819ff2f67729aa8a865b5618f3405c06c311c72993",
+  "changed_paths": [
+    "tests/cli/test_catalog.py",
+    "tests/cli/test_catalog_cli.py",
+    "工作包规划.md"
+  ],
+  "reason": "Only test module rename and corresponding work package path update; catalog/compiler/CLI/config schemas/examples unchanged. Prior author CLI experiment remains applicable; final full tests rerun on current snapshot."
+}

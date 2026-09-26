@@ -7,10 +7,12 @@ import typer
 from multiverse_workflow import __version__
 from multiverse_workflow.api.app import create_app
 from multiverse_workflow.api.dependencies import ServiceSettings
-from multiverse_workflow.compiler import compile_package, executor_capabilities
+from multiverse_workflow.compiler import compile_package
 from multiverse_workflow.compiler.preflight import preflight_package
+from multiverse_workflow.runtime.catalog import CatalogError, load_executor_registry
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
+from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.runner import RunError, Runner
 from multiverse_workflow.runtime.worker import LocalWorker, WorkerLockError
 
@@ -45,10 +47,15 @@ def serve(
     namespace: Annotated[str, typer.Option("--namespace")] = "local",
     bearer_token: Annotated[str | None, typer.Option("--bearer-token")] = None,
     subject: Annotated[str, typer.Option("--subject")] = "local-user",
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Start the local single-process Runtime HTTP/SSE service."""
     import uvicorn
 
+    registry_snapshot = _load_registry(registry, False)
     settings = ServiceSettings(
         database_path=db,
         package_dir=package,
@@ -56,6 +63,7 @@ def serve(
         namespace=namespace,
         bearer_token=bearer_token,
         subject=subject,
+        executor_registry=registry_snapshot,
     )
     uvicorn.run(create_app(settings), host=host, port=port)
 
@@ -65,9 +73,15 @@ def validate(
     package: Annotated[Path, typer.Argument(exists=False, file_okay=False)],
     binding: Annotated[Path | None, typer.Option("--binding")] = None,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Check a package and produce a deterministic execution plan."""
-    result = compile_package(package, binding_path=binding)
+    result = compile_package(
+        package, binding_path=binding, executor_registry=_load_registry(registry, as_json)
+    )
     payload = {
         "ok": result.ok,
         "plans": {workflow_id: plan.as_dict() for workflow_id, plan in result.plans.items()},
@@ -94,9 +108,15 @@ def preflight(
     package: Annotated[Path, typer.Argument(exists=False, file_okay=False)],
     binding: Annotated[Path, typer.Option("--binding")],
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Check package and local registry readiness without executing business work."""
-    report = preflight_package(package, binding_path=binding)
+    report = preflight_package(
+        package, binding_path=binding, executor_registry=_load_registry(registry, as_json)
+    )
     if as_json:
         typer.echo(json.dumps(report.as_dict(), ensure_ascii=False, sort_keys=True))
     elif report.ok:
@@ -113,23 +133,38 @@ def preflight(
 
 @app.command()
 def capabilities(
+    executor: Annotated[
+        str | None, typer.Option("--executor", help="Return one executor and its config Schema.")
+    ] = None,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """List local executor capabilities and their support states."""
+    snapshot = _load_registry(registry, as_json)
+    entries = snapshot.capability_catalog()
+    if executor is not None:
+        descriptor = snapshot.resolve(executor)
+        if descriptor is None:
+            _emit_error("executor is not registered", as_json, code="EXECUTOR_UNRESOLVED")
+            raise typer.Exit(code=2)
+        entries = [descriptor.as_catalog_entry()]
     payload = {
         "protocolVersion": "multiverse/v0.1",
         "scope": "local",
-        "executors": executor_capabilities(),
+        "executors": entries,
     }
     if as_json:
         typer.echo(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return
-    for executor in executor_capabilities():
+    for entry in entries:
         status = ", ".join(
-            f"{key}={str(executor[key]).lower()}"
+            f"{key}={str(entry[key]).lower()}"
             for key in ("declared", "installed", "available", "verified")
         )
-        typer.echo(f"{executor['executorRef']}: {status}")
+        typer.echo(f"{entry['executorRef']}: {status}")
 
 
 @app.command("run")
@@ -140,11 +175,20 @@ def run(
     db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
     workflow: Annotated[str | None, typer.Option("--workflow")] = None,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Run one workflow in the local SQLite runtime."""
     try:
         input_value = json.loads(input_file.read_text(encoding="utf-8"))
-        runner = Runner(package, binding_path=binding, database_path=db)
+        runner = Runner(
+            package,
+            binding_path=binding,
+            database_path=db,
+            executor_registry=_load_registry(registry, as_json),
+        )
         run_record = runner.start(input_value, workflow_id=workflow)
     except (OSError, json.JSONDecodeError, RunError) as exc:
         _emit_error(str(exc), as_json)
@@ -193,14 +237,24 @@ def sweep(
     namespace: Annotated[str, typer.Option("--namespace")] = "local",
     limit: Annotated[int, typer.Option("--limit", min=1)] = 100,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Resume due persistent local waits once for this worker."""
-    runner = Runner(
-        package,
-        binding_path=binding,
-        database_path=db,
-        namespace=namespace,
-    )
+    registry_snapshot = _load_registry(registry, as_json)
+    try:
+        runner = Runner(
+            package,
+            binding_path=binding,
+            database_path=db,
+            namespace=namespace,
+            executor_registry=registry_snapshot,
+        )
+    except (OSError, RunError, ValueError) as exc:
+        _emit_error(str(exc), as_json)
+        raise typer.Exit(code=2) from exc
     try:
         records = runner.sweep(worker_id=worker_id, limit=limit)
     except (LedgerConflict, KeyError, RunError, ValueError) as exc:
@@ -247,6 +301,10 @@ def worker(
     ] = 60.0,
     once: Annotated[bool, typer.Option("--once")] = False,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Run the local single-active SQLite Worker."""
     selected_package = package_option or package
@@ -266,6 +324,7 @@ def worker(
             poll_interval=poll_interval,
             limit=limit,
             claim_timeout_seconds=claim_timeout,
+            executor_registry=_load_registry(registry, as_json),
         )
     except (OSError, RunError, ValueError, WorkerLockError) as exc:
         _emit_error(str(exc), as_json)
@@ -339,10 +398,19 @@ def resume(
     reason: Annotated[str, typer.Option("--reason")],
     db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Resume local dispatch for a paused Run."""
     try:
-        record = Runner(package, binding_path=binding, database_path=db).resume(
+        record = Runner(
+            package,
+            binding_path=binding,
+            database_path=db,
+            executor_registry=_load_registry(registry, as_json),
+        ).resume(
             run_id,
             expected_version=expected_version,
             reason=reason,
@@ -386,10 +454,19 @@ def rerun(
     reason: Annotated[str, typer.Option("--reason")],
     db: Annotated[Path, typer.Option("--db")] = Path(".multiverse/runtime.db"),
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Create a separate local Run from a terminal Run's frozen input."""
     try:
-        record = Runner(package, binding_path=binding, database_path=db).rerun(
+        record = Runner(
+            package,
+            binding_path=binding,
+            database_path=db,
+            executor_registry=_load_registry(registry, as_json),
+        ).rerun(
             run_id,
             reason=reason,
         )
@@ -420,6 +497,10 @@ def decide(
     actor: Annotated[str, typer.Option("--actor")] = "example-reviewer",
     idempotency_key: Annotated[str | None, typer.Option("--idempotency-key")] = None,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    registry: Annotated[
+        Path | None,
+        typer.Option("--registry", help="Administrator-supplied executor catalog directory."),
+    ] = None,
 ) -> None:
     """Submit one authorized human decision and resume its run."""
     try:
@@ -428,7 +509,12 @@ def decide(
         decision: object | None = None
         if decision_file is not None:
             decision = json.loads(decision_file.read_text(encoding="utf-8"))
-        runner = Runner(package, binding_path=binding, database_path=db)
+        runner = Runner(
+            package,
+            binding_path=binding,
+            database_path=db,
+            executor_registry=_load_registry(registry, as_json),
+        )
         record = runner.decide(
             request_id,
             choice=choice,
@@ -489,8 +575,19 @@ def _emit_record(record: dict[str, object], as_json: bool) -> None:
         typer.echo(f"{record['id']}: {record['status']}")
 
 
-def _emit_error(message: str, as_json: bool) -> None:
+def _emit_error(message: str, as_json: bool, *, code: str | None = None) -> None:
     if as_json:
-        typer.echo(json.dumps({"ok": False, "error": message}, ensure_ascii=False))
+        payload: dict[str, object] = {"ok": False, "error": message}
+        if code is not None:
+            payload["code"] = code
+        typer.echo(json.dumps(payload, ensure_ascii=False))
     else:
         typer.echo(message, err=True)
+
+
+def _load_registry(path: Path | None, as_json: bool) -> ExecutorRegistry:
+    try:
+        return load_executor_registry(path)
+    except CatalogError as exc:
+        _emit_error(str(exc), as_json, code="CATALOG_INVALID")
+        raise typer.Exit(code=2) from exc

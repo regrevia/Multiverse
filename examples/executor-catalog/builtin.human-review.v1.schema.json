@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "string"
+    },
+    "authorizedSubjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requestType": {
+      "enum": [
+        "review",
+        "approval"
+      ]
+    },
+    "choices": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requireCommentFor": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

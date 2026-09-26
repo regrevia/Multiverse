@@ -1,0 +1,195 @@
+{
+  "catalogVersion": "multiverse.executor-catalog/v0.1",
+  "executors": [
+    {
+      "executorRef": "builtin.human-input.v1",
+      "adapter": "human",
+      "capabilities": [
+        "human.input@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": true,
+      "supportsIdempotency": true,
+      "supportsRecoveryQuery": true,
+      "observabilityLevel": "structured",
+      "permissionLevel": "enforced",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "builtin.human-input.v1.schema.json",
+      "configSchemaDigest": "sha256:7b00538fb3369d332d8fb50edab5cd60507d29d88594a45a2e7eb1aab0385a1c",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    },
+    {
+      "executorRef": "builtin.human-review.v1",
+      "adapter": "human",
+      "capabilities": [
+        "human.review@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": true,
+      "supportsIdempotency": true,
+      "supportsRecoveryQuery": true,
+      "observabilityLevel": "structured",
+      "permissionLevel": "enforced",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "builtin.human-review.v1.schema.json",
+      "configSchemaDigest": "sha256:f027a93fff54d6ff4497b1f7a1cc7222860d92029cb836b46575dfbead70d0d6",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    },
+    {
+      "executorRef": "builtin.nonempty-deliverable.v1",
+      "adapter": "builtin",
+      "capabilities": [
+        "data.validate@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": true,
+      "supportsIdempotency": true,
+      "supportsRecoveryQuery": true,
+      "observabilityLevel": "structured",
+      "permissionLevel": "enforced",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "builtin.nonempty-deliverable.v1.schema.json",
+      "configSchemaDigest": "sha256:84d2b97612ab693e84a4bf8b9870cbf30602fd669f90b7c7dee0fd88d1769bd6",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    },
+    {
+      "executorRef": "builtin.ollama-deliverable.v1",
+      "adapter": "builtin",
+      "capabilities": [
+        "content.produce@1",
+        "content.review@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": false,
+      "supportsIdempotency": false,
+      "supportsRecoveryQuery": false,
+      "observabilityLevel": "structured",
+      "permissionLevel": "enforced",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "builtin.ollama-deliverable.v1.schema.json",
+      "configSchemaDigest": "sha256:0d1471cdb76bdd7cb7e8640ac20881d464b24f53ebc1a04fc8917bf9ab0b5e90",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    },
+    {
+      "executorRef": "example.content-fixture.v1",
+      "adapter": "builtin",
+      "capabilities": [
+        "content.produce@1",
+        "content.review@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": true,
+      "supportsIdempotency": true,
+      "supportsRecoveryQuery": true,
+      "observabilityLevel": "structured",
+      "permissionLevel": "enforced",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "example.content-fixture.v1.schema.json",
+      "configSchemaDigest": "sha256:84d2b97612ab693e84a4bf8b9870cbf30602fd669f90b7c7dee0fd88d1769bd6",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    },
+    {
+      "executorRef": "example.remote-content.v1",
+      "adapter": "http_job",
+      "capabilities": [
+        "content.produce@1",
+        "content.review@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": true,
+      "supportsIdempotency": true,
+      "supportsRecoveryQuery": true,
+      "observabilityLevel": "external",
+      "permissionLevel": "enforced",
+      "installed": false,
+      "available": false,
+      "verified": false,
+      "configSchemaRef": "example.remote-content.v1.schema.json",
+      "configSchemaDigest": "sha256:35d267cf85b773e39c6aa1fdadde549ced2c9ab2b26c81b494e02e3a9f1c99cb"
+    },
+    {
+      "executorRef": "local.process.v1",
+      "adapter": "local_process",
+      "capabilities": [
+        "data.process@1"
+      ],
+      "contractVersion": "multiverse/v0.1",
+      "executorVersion": "1.0.0",
+      "supportsCancel": false,
+      "supportsIdempotency": false,
+      "supportsRecoveryQuery": false,
+      "observabilityLevel": "structured",
+      "permissionLevel": "trusted_local",
+      "installed": true,
+      "available": true,
+      "verified": true,
+      "configSchemaRef": "local.process.v1.schema.json",
+      "configSchemaDigest": "sha256:5b94eaac55e54452f770f3d473d5929d7ed2e390ab70d5057090422db16c2dd9",
+      "verificationEvidence": {
+        "kind": "operator-attestation",
+        "reference": "repository-tests/runtime",
+        "environment": "bundled-development-runtime",
+        "executorVersion": "1.0.0",
+        "cases": [
+          "bundled adapter regression tests"
+        ]
+      }
+    }
+  ]
+}

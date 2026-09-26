@@ -1,0 +1,29 @@
+{
+  "id": "ruff",
+  "command": [
+    "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+    "run",
+    "--locked",
+    "ruff",
+    "check",
+    "src",
+    "tests",
+    "scripts"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "tool_versions": {
+    "python": "Python 3.14.7",
+    "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+    "node": "v20.20.2",
+    "npm": "10.8.2"
+  },
+  "started_at": "2026-09-26T04:40:39.266268+00:00",
+  "finished_at": "2026-09-26T04:40:39.320401+00:00",
+  "exit_code": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "live": false,
+  "log_ref": "docs/development/reports/W01/final-tests-r3/ruff.log",
+  "snapshot_digest": "a639deecf827950b1f415e2e6527d32d15426dd2d2247d19ace2bb4de8cb5813"
+}

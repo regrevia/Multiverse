@@ -16,6 +16,7 @@ from multiverse_workflow.protocol.models import BindingSet
 from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 
 _SUGGESTIONS = {
+    "EXECUTOR_CONFIG_INVALID": "查询 capabilities --executor 的 configSchema，修正对应字段。",
     "EXECUTOR_NOT_INSTALLED": "安装已审核的执行器，或选择已经安装的兼容 Binding。",
     "EXECUTOR_UNAVAILABLE": "检查执行端可用性并更新注册记录，然后重新预检。",
     "EXECUTOR_UNVERIFIED": "完成执行器契约验证；不要通过删除验证要求绕过检查。",
@@ -26,6 +27,8 @@ _SUGGESTIONS = {
 class PreflightReport:
     diagnostics: tuple[Diagnostic, ...]
     plan_digests: dict[str, str]
+    registry_checked: bool = False
+    config_checked: bool = False
 
     @property
     def ok(self) -> bool:
@@ -36,15 +39,15 @@ class PreflightReport:
             "reportVersion": "multiverse.preflight/v0.1",
             "scope": "local-registry",
             "ok": self.ok,
-            "checked": (
-                ["static-validation", "executor-registry"]
-                if self.plan_digests
-                else ["static-validation"]
-            ),
+            "checked": [
+                "static-validation",
+                *(["executor-registry"] if self.registry_checked else []),
+                *(["executor-config"] if self.config_checked else []),
+            ],
             "notChecked": [
-                *([] if self.plan_digests else ["executor-registry"]),
+                *([] if self.registry_checked else ["executor-registry"]),
                 "live-connectivity",
-                "executor-config",
+                *([] if self.config_checked else ["executor-config"]),
                 "credentials",
                 "authorization",
                 "sandbox-enforcement",
@@ -87,15 +90,22 @@ def preflight_package(
         return _binding_changed(binding_path)
 
     diagnostics: list[Diagnostic] = []
+    config_checked = True
     for workflow_id, plan in sorted(result.plans.items()):
-        for issue in registry.preflight(nodes=plan.nodes, binding=binding):
+        checks = registry.preflight_result(nodes=plan.nodes, binding=binding)
+        config_checked = config_checked and checks.config_checked
+        for issue in checks.issues:
             slot = plan.nodes[issue.node_id]["definition"]["slot"]
             escaped_slot = slot.replace("~", "~0").replace("/", "~1")
             diagnostics.append(
                 Diagnostic(
                     code=issue.code,
                     file=str(binding_path.resolve()),
-                    pointer=f"/spec/slots/{escaped_slot}/executorRef",
+                    pointer=(
+                        f"/spec/slots/{escaped_slot}/config{issue.config_pointer}"
+                        if issue.config_pointer is not None
+                        else f"/spec/slots/{escaped_slot}/executorRef"
+                    ),
                     message=issue.message,
                     suggestion=_SUGGESTIONS.get(issue.code, "修复 Binding 并重新运行预检。"),
                     details={
@@ -103,6 +113,11 @@ def preflight_package(
                         "nodeId": issue.node_id,
                         "slot": slot,
                         "source": plan.source_map[issue.node_id],
+                        **(
+                            {"expected": issue.expected, "actual": issue.actual}
+                            if issue.config_pointer is not None
+                            else {}
+                        ),
                     },
                 )
             )
@@ -112,6 +127,8 @@ def preflight_package(
             workflow_id: plan.compiled_plan_digest
             for workflow_id, plan in sorted(result.plans.items())
         },
+        registry_checked=True,
+        config_checked=config_checked,
     )
 
 

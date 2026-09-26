@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "string"
+    },
+    "authorizedSubjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requestType": {
+      "const": "input"
+    },
+    "choices": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "requireCommentFor": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "deprecated": true,
+      "description": "Legacy compatibility only; ignored for input requests."
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

@@ -1,0 +1,257 @@
+{
+  "scope": "author-only CLI/schema repair; no model or workflow dispatch",
+  "source_snapshot": "2a3ffa2f8d990b2b6a02f0884a888d4fe3385ca7c9efd995b6e6d46772ab481a",
+  "steps": [
+    {
+      "name": "discover",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "capabilities",
+        "--executor",
+        "builtin.ollama-deliverable.v1",
+        "--registry",
+        "examples/executor-catalog",
+        "--json"
+      ],
+      "started_at": "2026-09-26T04:36:22.941932+00:00",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output": {
+        "executors": [
+          {
+            "adapter": "builtin",
+            "available": true,
+            "capabilities": [
+              "content.produce@1",
+              "content.review@1"
+            ],
+            "configSchema": {
+              "allOf": [
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "additionalProperties": false,
+                  "properties": {
+                    "artifactMaxBytes": {
+                      "maximum": 10000000,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "artifactMediaType": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "artifactName": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "pattern": "^http://127\\.0\\.0\\.1:",
+                      "type": "string"
+                    },
+                    "model": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "systemPrompt": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "timeoutSeconds": {
+                      "maximum": 600,
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "model"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "additionalProperties": false,
+                  "properties": {
+                    "artifactMaxBytes": {
+                      "maximum": 10000000,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "artifactMediaType": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "artifactName": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "endpoint": {
+                      "pattern": "^http://127\\.0\\.0\\.1:",
+                      "type": "string"
+                    },
+                    "model": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "systemPrompt": {
+                      "minLength": 1,
+                      "pattern": "\\S",
+                      "type": "string"
+                    },
+                    "timeoutSeconds": {
+                      "maximum": 600,
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "model"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "configSchemaDigest": "sha256:0d1471cdb76bdd7cb7e8640ac20881d464b24f53ebc1a04fc8917bf9ab0b5e90",
+            "configSchemaRef": "builtin.ollama-deliverable.v1.schema.json",
+            "contractVersion": "multiverse/v0.1",
+            "declared": true,
+            "effectiveConfigSchemaDigest": "sha256:813fc31d2abdee2f193a77a3c46d0758cd05b7e9a624cd80fb0d195d012a9799",
+            "executorRef": "builtin.ollama-deliverable.v1",
+            "executorVersion": "1.0.0",
+            "installed": true,
+            "observabilityLevel": "structured",
+            "permissionLevel": "enforced",
+            "supportsCancel": false,
+            "supportsIdempotency": false,
+            "supportsRecoveryQuery": false,
+            "verificationEvidence": {
+              "cases": [
+                "bundled adapter regression tests"
+              ],
+              "environment": "bundled-development-runtime",
+              "executorVersion": "1.0.0",
+              "kind": "operator-attestation",
+              "reference": "repository-tests/runtime"
+            },
+            "verified": true
+          }
+        ],
+        "protocolVersion": "multiverse/v0.1",
+        "scope": "local"
+      }
+    },
+    {
+      "name": "invalid-timeout",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "preflight",
+        "presets/content-delivery",
+        "--binding",
+        "/home/aied/tanyicheng/multiverse/.multiverse/author-w01-8gqgwjzt/binding.yaml",
+        "--registry",
+        "examples/executor-catalog",
+        "--json"
+      ],
+      "started_at": "2026-09-26T04:36:23.789066+00:00",
+      "exit_code": 2,
+      "expected_exit_code": 2,
+      "output": {
+        "checked": [
+          "static-validation",
+          "executor-registry",
+          "executor-config"
+        ],
+        "diagnostics": [
+          {
+            "code": "EXECUTOR_CONFIG_INVALID",
+            "details": {
+              "actual": "int (value redacted)",
+              "expected": "schema constraint: minimum 1",
+              "nodeId": "produce",
+              "slot": "producer",
+              "source": {
+                "file": "/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml",
+                "pointer": "/spec/nodes/produce"
+              },
+              "workflowId": "delivery"
+            },
+            "file": "/home/aied/tanyicheng/multiverse/.multiverse/author-w01-8gqgwjzt/binding.yaml",
+            "message": "执行器配置不符合已注册 Schema；配置值已隐藏。",
+            "pointer": "/spec/slots/producer/config/timeoutSeconds",
+            "severity": "error",
+            "suggestion": "查询 capabilities --executor 的 configSchema，修正对应字段。"
+          }
+        ],
+        "notChecked": [
+          "live-connectivity",
+          "credentials",
+          "authorization",
+          "sandbox-enforcement",
+          "human-channel-delivery",
+          "business-quality"
+        ],
+        "ok": false,
+        "planDigests": {
+          "delivery": "sha256:15389c5862252be65cc9904ec93b6c7380a0119b4bed351f61b32205a2eecc2b"
+        },
+        "reportVersion": "multiverse.preflight/v0.1",
+        "scope": "local-registry"
+      }
+    },
+    {
+      "name": "repaired",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "preflight",
+        "presets/content-delivery",
+        "--binding",
+        "/home/aied/tanyicheng/multiverse/.multiverse/author-w01-8gqgwjzt/binding.yaml",
+        "--registry",
+        "examples/executor-catalog",
+        "--json"
+      ],
+      "started_at": "2026-09-26T04:36:24.670731+00:00",
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "output": {
+        "checked": [
+          "static-validation",
+          "executor-registry",
+          "executor-config"
+        ],
+        "diagnostics": [],
+        "notChecked": [
+          "live-connectivity",
+          "credentials",
+          "authorization",
+          "sandbox-enforcement",
+          "human-channel-delivery",
+          "business-quality"
+        ],
+        "ok": true,
+        "planDigests": {
+          "delivery": "sha256:26f981e0aeaf81673603188dfcaf9907f1522e82ea19bdfc507be4e8f09bdc60"
+        },
+        "reportVersion": "multiverse.preflight/v0.1",
+        "scope": "local-registry"
+      }
+    }
+  ],
+  "result": "passed",
+  "limits": "Only registered config shape verified, no live model/authorization/sandbox claim"
+}

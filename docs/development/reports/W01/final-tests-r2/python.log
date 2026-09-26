@@ -1,0 +1,99 @@
+..............................................F......................... [ 24%]
+........................................................................ [ 49%]
+........................................................................ [ 74%]
+...........................................FF........................... [ 99%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_cli_runs_manual_input_artifact_trial_end_to_end _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-tanyicheng/pytest-32/test_cli_runs_manual_input_art0')
+
+    def test_cli_runs_manual_input_artifact_trial_end_to_end(tmp_path: Path) -> None:
+        database = tmp_path / "runtime.db"
+        request_input = tmp_path / "request.json"
+        request_input.write_text(json.dumps({"goal": "prepare a release"}), encoding="utf-8")
+        run_result = CLI.invoke(
+            app,
+            [
+                "run",
+                str(ROOT / "presets/manual-input"),
+                "--binding",
+                str(ROOT / "examples/bindings/manual-input-local.yaml"),
+                "--input",
+                str(request_input),
+                "--db",
+                str(database),
+                "--json",
+            ],
+        )
+>       assert run_result.exit_code == 4, run_result.stdout
+E       AssertionError: {"ok": false, "error": "runtime preflight failed: EXECUTOR_CONFIG_INVALID (work): 执行器配置不符合已注册 Schema；配置值已隐藏。; EXECUTOR_CONFIG_INVALID (work): 执行器配置不符合已注册 Schema；配置值已隐藏。"}
+E         
+E       assert 2 == 4
+E        +  where 2 = <Result SystemExit(2)>.exit_code
+
+tests/cli/test_runtime.py:323: AssertionError
+________ test_input_human_request_accepts_a_structured_artifact_result _________
+
+tmp_path = PosixPath('/tmp/pytest-of-tanyicheng/pytest-32/test_input_human_request_accep0')
+
+    def test_input_human_request_accepts_a_structured_artifact_result(tmp_path: Path) -> None:
+        package, binding = _write_manual_input_package(tmp_path)
+        runner = Runner(package, binding_path=binding, database_path=tmp_path / "runtime.db")
+>       waiting = runner.start({"goal": "prepare a release"})
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/runtime/test_runner.py:2768: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/multiverse_workflow/runtime/runner.py:578: in start
+    self._preflight_execution(candidate_plan)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <multiverse_workflow.runtime.runner.Runner object at 0x7f8b37c76180>
+plan = ExecutionPlan(plan_version='multiverse/v0.1', package_digest='sha256:b13860178c5df4cb43cede5b00aa0976a445af86030b9243c...human', 'core.switch'], compiled_plan_digest='sha256:e4c9f9c0a94f3e53bb6f8861a1b6c170e8fad177f33d74ec8f8ccef714de8a51')
+
+    def _preflight_execution(self, plan: ExecutionPlan) -> None:
+        issues = self._executor_registry.preflight(nodes=plan.nodes, binding=self._binding)
+        if issues:
+            detail = "; ".join(
+                f"{issue.code} ({issue.node_id}): {issue.message}" for issue in issues
+            )
+>           raise RunError(f"runtime preflight failed: {detail}")
+E           multiverse_workflow.runtime.runner.RunError: runtime preflight failed: EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。; EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。; EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。
+
+src/multiverse_workflow/runtime/runner.py:2498: RunError
+_____________ test_input_human_request_rejects_an_unknown_artifact _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-tanyicheng/pytest-32/test_input_human_request_rejec0')
+
+    def test_input_human_request_rejects_an_unknown_artifact(tmp_path: Path) -> None:
+        package, binding = _write_manual_input_package(tmp_path)
+        runner = Runner(package, binding_path=binding, database_path=tmp_path / "runtime.db")
+>       runner.start({"goal": "prepare a release"})
+
+tests/runtime/test_runner.py:2799: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/multiverse_workflow/runtime/runner.py:578: in start
+    self._preflight_execution(candidate_plan)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <multiverse_workflow.runtime.runner.Runner object at 0x7f8b37c76690>
+plan = ExecutionPlan(plan_version='multiverse/v0.1', package_digest='sha256:b13860178c5df4cb43cede5b00aa0976a445af86030b9243c...human', 'core.switch'], compiled_plan_digest='sha256:bc36cce9244ed69e5ef379db515835daad8a05c0a229041a2c0381265befae4e')
+
+    def _preflight_execution(self, plan: ExecutionPlan) -> None:
+        issues = self._executor_registry.preflight(nodes=plan.nodes, binding=self._binding)
+        if issues:
+            detail = "; ".join(
+                f"{issue.code} ({issue.node_id}): {issue.message}" for issue in issues
+            )
+>           raise RunError(f"runtime preflight failed: {detail}")
+E           multiverse_workflow.runtime.runner.RunError: runtime preflight failed: EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。; EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。; EXECUTOR_CONFIG_INVALID (review): 执行器配置不符合已注册 Schema；配置值已隐藏。
+
+src/multiverse_workflow/runtime/runner.py:2498: RunError
+=========================== short test summary info ============================
+FAILED tests/cli/test_runtime.py::test_cli_runs_manual_input_artifact_trial_end_to_end
+FAILED tests/runtime/test_runner.py::test_input_human_request_accepts_a_structured_artifact_result
+FAILED tests/runtime/test_runner.py::test_input_human_request_rejects_an_unknown_artifact
+3 failed, 286 passed in 52.44s
+
+[End of captured command output.]

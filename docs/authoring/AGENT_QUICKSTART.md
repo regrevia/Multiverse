@@ -11,6 +11,7 @@
 ```bash
 uv sync --locked
 uv run mverse capabilities --json
+uv run mverse capabilities --executor local.process.v1 --json
 uv run mverse validate presets/content-delivery \
   --binding examples/bindings/content-local.yaml --json
 uv run mverse preflight presets/content-delivery \
@@ -25,11 +26,22 @@ uv run mverse preflight presets/content-delivery \
 - `examples/bindings/content-ollama.yaml`：真实本地模型，需要实际可用的 Ollama 配置。
 - `examples/bindings/content-remote.yaml`：远程能力声明例子；默认注册状态未安装/不可用/未验证，预检应失败。
 
+操作者可显式选择受信任注册目录；目录完整替换默认集合，所需内建引用也必须列入：
+
+```bash
+uv run mverse capabilities --registry examples/executor-catalog --executor local.process.v1 --json
+uv run mverse preflight presets/content-delivery \
+  --binding examples/bindings/content-local.yaml --registry examples/executor-catalog --json
+```
+
+读取[完整目录与配置修复示例](../../examples/executor-catalog/README.md)，按返回的 `configSchema`
+填写 Binding。目录来自环境操作者审核，不由工作流包自动安装；verificationEvidence 是操作者证据声明，加载器不执行验证用例。
+
 ## 使用机器结果修复
 
-`validate` 检查声明契约。`preflight` 进一步检查同一个注册表快照中的安装、可用、验证状态，覆盖包内全部 Workflow。读取 `diagnostics[].code/file/pointer/suggestion`；注册状态问题还包含 `details.workflowId/nodeId/slot/source`，可直接定位需要修改的绑定及受影响节点。
+`validate` 检查声明契约。`preflight` 进一步检查同一个注册表快照中的安装、可用、验证状态，以及已注册后端的配置形状，覆盖包内全部 Workflow。配置错误还包含精确的 config 字段 pointer、details.expected 约束和脱敏 actual 类型。读取 `diagnostics[].code/file/pointer/suggestion`；注册状态问题还包含 `details.workflowId/nodeId/slot/source`，可直接定位需要修改的绑定及受影响节点。
 
-`preflight` 的报告 Schema 为 [preflight-report.schema.json](../../schemas/preflight-report.schema.json)。`checked` 是已经运行的阶段，`notChecked` 是尚未检查的内容。`ok=true` 仅表示该检查子集通过：没有连接远端，没有检查任意配置、真实权限、沙箱或业务质量，也没有执行节点。退出码 0 通过、2 存在问题。
+`preflight` 的报告 Schema 为 [preflight-report.schema.json](../../schemas/preflight-report.schema.json)。`checked` 是已经运行的阶段；全部调用配置校验完成后包含 `executor-config`；静态校验失败、目录撤销或 slot/执行器未解析导致配置校验跳过时，它仍在 `notChecked`。`ok=true` 仅表示该检查子集通过：只验证已注册后端支持的配置形状，没有探测连接、凭据、真实权限、沙箱、人工送达或业务质量，也没有执行节点。退出码 0 通过、2 存在问题。
 
 发现未绑定或不支持能力，报告缺口或选真实兼容执行器；不要编造 executorRef，不要把注册字段改成 true 作为“验证”，不要删掉验收、权限或人工节点来消除错误。包、Binding 或注册信息变化后重新检查。
 

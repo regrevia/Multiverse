@@ -846,6 +846,46 @@ Compiler 不得维护不断扩大的业务执行器 if/else；Runner 不得按�
 
 安装新插件不必强求进程热加载；受控重启可接受。已经启动的 Run 不能悄悄改用插件最新版本。原版本不可用或发生语义漂移时，明确阻止并说明。
 
+#### 8.6.1 W01 显式本地执行器目录（当前实现）
+
+`load_executor_registry(path=None)` 保留随 Runtime 提供的默认目录；显式目录读取
+`executor-registration.json`，**完整替换**默认集合。所需 builtin/human 引用也必须列入。
+格式由 `schemas/executor-registration.schema.json` 冻结：`catalogVersion` 固定为
+`multiverse.executor-catalog/v0.1`，每项包含 `executorRef`、三段数字 `executorVersion`、
+`contractVersion=multiverse/v0.1`、adapter、capabilities、取消/幂等/查询保证、观测与权限等级、
+installed/available/verified，以及 `configSchemaRef`、`configSchemaDigest`。
+目录只支持已实现的 builtin/local_process/http_job/human；builtin/human 只能使用已知实现 ID，
+不能增加实现未支持的能力或保证。local_process 只能声明 trusted_local，不能声明取消、幂等或恢复查询。
+不扫描包目录，不动态导入 Python，不自动下载或安装插件。
+
+`configSchemaRef` 必须解析为目录内的普通文件（含符号链接解析），摘要是该文件原始字节的
+`sha256:<hex>`。JSON 不得有重复键或非有限数字，包括指数溢出（如 `1e999`）及任意嵌套位置。配置 Schema 使用 Draft 2020-12；W01
+只支持自包含 Schema，拒绝 `$ref`、`$dynamicRef`、`$id`，包括本地 `#` 引用。
+执行配置必须同时满足已实现后端的字段白名单和目录的附加 Schema，附加 Schema 无法放宽后端。
+目录输出 `configSchema` 是实际校验的有效 Schema；`effectiveConfigSchemaDigest` 是该对象
+按键排序、无空白的 UTF-8 JSON 的 SHA256。默认目录无引用文件时，`configSchemaRef=null`，
+`configSchemaDigest` 等于有效 Schema 摘要。所有导出对象均为新副本，不能修改内部快照。
+
+`verified=true` 必须同时 installed/available 并带 `verificationEvidence`：
+`kind=operator-attestation`、reference、environment、与登记一致的 executorVersion 和非空 cases。
+这只是可信操作者提供的版本化验证证据描述，不代表加载器实际运行了用例、认证了证明内容或探测了服务。
+Binding 无权提供登记证据；在 config 内伪造 verified/能力/未知字段将失败。目录必须由操作者明确
+选择并保护写入权限，普通包作者不能通过提供目录得到管理权限。W01 未实现团队管理身份与远程认证。
+
+应用、Worker 共享构造时的不可变描述快照；新加载目录取得新配置。显式目录文件删除、字节修改
+或 Schema 摘要变化会在下一次 registry preflight 返回 `EXECUTOR_CATALOG_REVOKED`，阻止新 Run
+使用原快照，必须显式重载。此校验不终止在途执行，也不构成持续授权/热撤销保证；后续权限生命周期
+仍由 W18 实现。已经执行的任务不会悄悄改用新 Schema 或新执行器。
+
+预检及 Runner 执行前共用配置校验。诊断 `EXECUTOR_CONFIG_INVALID` 定位到
+`/spec/slots/<escaped-slot>/config/<field>`，details 提供 expected 约束与脱敏的 actual 类型，
+不回显配置内容。只有所有调用节点的配置校验实际完成后 checked 才增加 executor-config；静态编译失败、目录撤销或 slot/执行器未解析而跳过配置校验时仍列入 notChecked。
+这不检查 live-connectivity、credentials、authorization、sandbox-enforcement 或人工通道送达。
+`builtin.human-input.v1` 保留旧 Binding 的 `requestType: input`、`choices: []`；
+拒绝其他 requestType 与非空 choices。`requireCommentFor` 字符串数组仅作为 deprecated
+兼容字段接受，在 input 模式不生效，不引入审批语义。
+既有可信本地 Binding 的 command/cwd 形状保持兼容：command 每个参数是非空字符串，允许纯空白参数；cwd 仍必须含非空白字符。目录文件引用的防越界约束不等于进程文件系统沙箱。
+
 <a id="sec-8-7"></a>
 
 ### 8.7 安全与支持状态

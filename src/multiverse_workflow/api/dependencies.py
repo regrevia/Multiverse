@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from multiverse_workflow.runtime.catalog import load_executor_registry
+from multiverse_workflow.runtime.registry import ExecutorRegistry
+from multiverse_workflow.runtime.worker import LocalWorker
 from multiverse_workflow.service.application import RuntimeApplication
 
 Scope = Literal[
@@ -53,7 +56,18 @@ class ServiceSettings:
         "http://localhost:4173",
     )
 
+    registry_path: Path | None = None
+    executor_registry: ExecutorRegistry | None = field(default=None, repr=False)
+
     def __post_init__(self) -> None:
+        if self.registry_path is not None and self.executor_registry is not None:
+            raise ValueError("use registry_path or executor_registry, not both")
+        snapshot = (
+            self.executor_registry.snapshot()
+            if self.executor_registry is not None
+            else load_executor_registry(self.registry_path)
+        )
+        object.__setattr__(self, "executor_registry", snapshot)
         if not self.deployment_id.strip():
             raise ValueError("deployment_id must not be empty")
         if not self.namespace.strip():
@@ -76,4 +90,26 @@ class ServiceSettings:
             deployment_id=self.deployment_id,
             namespace=self.namespace,
             subject=self.subject,
+            executor_registry=self.executor_registry,
+        )
+
+    def create_worker(
+        self,
+        *,
+        worker_id: str,
+        poll_interval: float = 1.0,
+        limit: int = 100,
+        claim_timeout_seconds: float = 60.0,
+    ) -> LocalWorker:
+        """Use the same catalog snapshot as applications created by these settings."""
+        return LocalWorker.from_paths(
+            package_dir=self.package_dir,
+            binding_path=self.binding_path,
+            database_path=self.database_path,
+            namespace=self.namespace,
+            executor_registry=self.executor_registry,
+            worker_id=worker_id,
+            poll_interval=poll_interval,
+            limit=limit,
+            claim_timeout_seconds=claim_timeout_seconds,
         )

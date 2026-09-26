@@ -38,11 +38,16 @@ def test_static_valid_remote_binding_reports_all_registry_gaps() -> None:
         "EXECUTOR_NOT_INSTALLED",
         "EXECUTOR_UNAVAILABLE",
         "EXECUTOR_UNVERIFIED",
+        "EXECUTOR_CONFIG_INVALID",
     }
     for diagnostic in report["diagnostics"]:
         slot = diagnostic["details"]["slot"]
         node = {"producer": "produce", "critic": "critique"}[slot]
-        assert diagnostic["pointer"] == f"/spec/slots/{slot}/executorRef"
+        assert diagnostic["pointer"] == (
+            f"/spec/slots/{slot}/config/baseUrl"
+            if diagnostic["code"] == "EXECUTOR_CONFIG_INVALID"
+            else f"/spec/slots/{slot}/executorRef"
+        )
         assert diagnostic["details"]["nodeId"] == node
         assert diagnostic["details"]["source"]["pointer"] == f"/spec/nodes/{node}"
         assert diagnostic["suggestion"]
@@ -188,9 +193,14 @@ def test_remote_preflight_does_not_connect_to_executor(monkeypatch: pytest.Monke
     assert not preflight_package(PACKAGE, binding_path=REMOTE).ok
 
 
-@pytest.mark.parametrize("package,binding", [
-    (PACKAGE, LOCAL), (PACKAGE, REMOTE), (ROOT / "missing-package", LOCAL),
-])
+@pytest.mark.parametrize(
+    "package,binding",
+    [
+        (PACKAGE, LOCAL),
+        (PACKAGE, REMOTE),
+        (ROOT / "missing-package", LOCAL),
+    ],
+)
 def test_preflight_report_matches_schema(package: Path, binding: Path) -> None:
     schema = json.loads((ROOT / "schemas/preflight-report.schema.json").read_text())
     Draft202012Validator.check_schema(schema)

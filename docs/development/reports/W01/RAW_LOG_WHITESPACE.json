@@ -1,0 +1,8 @@
+{
+  "check": "git diff --cached --check",
+  "exit_code": 2,
+  "diagnostics": "docs/development/reports/W01/final-tests-r2/python.log:31: trailing whitespace.\n+E         \ndocs/development/reports/W01/final-tests-r2/python.log:46: trailing whitespace.\n+tests/runtime/test_runner.py:2768: \ndocs/development/reports/W01/final-tests-r2/python.log:47: trailing whitespace.\n+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ndocs/development/reports/W01/final-tests-r2/python.log:50: trailing whitespace.\n+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ndocs/development/reports/W01/final-tests-r2/python.log:74: trailing whitespace.\n+tests/runtime/test_runner.py:2799: \ndocs/development/reports/W01/final-tests-r2/python.log:75: trailing whitespace.\n+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \ndocs/development/reports/W01/final-tests-r2/python.log:78: trailing whitespace.\n+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n",
+  "disposition": "Seven trailing-whitespace lines originate verbatim from the preserved failed pytest r2 traceback. Raw historical evidence is kept byte-for-byte; this exception applies only to that log, not product files. All remaining staged files are checked normally.",
+  "raw_log": "docs/development/reports/W01/final-tests-r2/python.log",
+  "raw_sha256": "5ec3eb418f39e3d6030eb584aeeb5a12a3fe17b80f98d895f2e76808c339559f"
+}

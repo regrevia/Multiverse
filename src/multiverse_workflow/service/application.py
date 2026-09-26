@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from multiverse_workflow.runtime.ledger import LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
+from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.runner import RunError, Runner, SchemaValidationError
 
 from .contracts import (
@@ -33,6 +34,7 @@ class RuntimeApplication:
         deployment_id: str = "deployment_local",
         namespace: str = "local",
         subject: str = "local-user",
+        executor_registry: ExecutorRegistry | None = None,
     ) -> None:
         self.package_dir = package_dir.expanduser().resolve()
         self.binding_path = binding_path.expanduser().resolve()
@@ -45,6 +47,7 @@ class RuntimeApplication:
             database_path=database_path,
             deployment_id=deployment_id,
             namespace=namespace,
+            executor_registry=executor_registry,
         )
     def create_run(
         self,

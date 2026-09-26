@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "systemPrompt": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^http://127\\.0\\.0\\.1:"
+    },
+    "timeoutSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600
+    },
+    "artifactName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "artifactMediaType": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "artifactMaxBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000000
+    }
+  },
+  "required": [
+    "model"
+  ],
+  "additionalProperties": false
+}

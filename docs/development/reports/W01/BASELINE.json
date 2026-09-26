@@ -1,0 +1,23 @@
+{
+  "head": "125d4e3ee6225bfd0e754eadf2d84805c6ebbf17",
+  "branch": "dev",
+  "worktree_changes_before_start": [],
+  "remote_in_sync_at_start": true,
+  "started_at": "2026-09-26T04:25:31.424954+00:00",
+  "scope": "W01 executor schemas, explicit trusted registry and consistent entrypoint injection",
+  "delegation": [
+    {
+      "task_id": "/root/w01_catalog",
+      "role": "catalog_schema_preflight",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    },
+    {
+      "task_id": "/root/w01_integration",
+      "role": "cli_service_worker_injection",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    }
+  ],
+  "dependency_evidence": "W00 remote check passed after C and R push; C=0e4c84dc302270f303c82b6fb6438a649f004345"
+}

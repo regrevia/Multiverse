@@ -21,17 +21,33 @@ design targets, not completed integrations.
 
 ```bash
 uv run mverse capabilities --json
+uv run mverse capabilities --executor local.process.v1 --json
 uv run mverse validate presets/content-delivery \
   --binding examples/bindings/content-local.yaml --json
 uv run mverse preflight presets/content-delivery \
   --binding examples/bindings/content-local.yaml --json
 ```
 
-Preflight adds read-only executor registry checks to static validation and
-returns source-located diagnostics. It does not execute nodes or contact remote
-services. Read `notChecked` before treating a result as evidence: permissions,
-sandbox enforcement, credentials, executor configuration, and business quality
-are not verified by this local check. Failed checks exit with code 2.
+Preflight checks registry status and registered backend configuration shapes,
+returning source-located diagnostics with redacted values. Completed checks include
+`executor-config` in `checked` only when every call configuration was checked;
+static validation failures, revoked catalogs, and unresolved slots/executors leave
+it in `notChecked`.
+It does not execute nodes or check live connectivity, permissions, sandbox
+enforcement, credentials, human delivery, or business quality. Failed checks exit
+with code 2.
+
+An operator can explicitly select a trusted registration directory:
+
+```bash
+uv run mverse capabilities --registry examples/executor-catalog --executor local.process.v1 --json
+uv run mverse preflight presets/content-delivery \
+  --binding examples/bindings/content-local.yaml --registry examples/executor-catalog --json
+```
+
+See the [complete catalog example and configuration repair guide](examples/executor-catalog/README.md).
+An explicit directory replaces the default catalog; it must be operator-reviewed,
+and its verification evidence is an operator attestation, not a live test by the loader.
 
 ## Branches
 

@@ -21,7 +21,7 @@ The checked-in preview currently supports:
   `maxConcurrency`
 - builtin local executors
 - trusted local JSON-in/JSON-out process execution (not a sandbox)
-- read-only `preflight --json` for local registry readiness and source-located gaps
+- read-only `preflight --json` for local registry status, config shapes, and source-located gaps
 - persistent SQLite runs, scopes, invocations, attempts, events, and human requests
 - `review` human requests with version, subject, authorization, expiry, and idempotency checks
 - version-checked local pause, resume, cancel, and terminal-run rerun commands
@@ -60,7 +60,7 @@ read spec and schemas
   -> define explicit references and branches
   -> add a Binding example without secrets
   -> mverse validate
-  -> mverse preflight --json (local metadata only)
+  -> mverse preflight --json (registry status and config shapes)
   -> run the local fixture
   -> inspect the pending human request
   -> submit the authorized decision
@@ -70,8 +70,14 @@ read spec and schemas
 Validation is static. It must not invoke executors or perform business side
 effects. A local run invokes the configured executors; process and HTTP bindings can have
 real side effects. Preflight only reads package/Binding files and registered metadata;
-it does not check live connectivity, credentials, arbitrary executor config,
+it checks the configuration shapes supported by the registered backend and its
+additional config Schema. It does not check live connectivity, credentials,
 authorization, sandbox enforcement, human delivery, or business quality.
+Only completion of every call configuration check adds `executor-config` to
+`checked`; static validation failures, catalog revocation, and unresolved
+slots/executors leave it in `notChecked`. Config diagnostics identify the
+field with a JSON pointer and provide `expected` constraints and redacted `actual`
+types, so authors can repair a Binding without disclosing its values.
 
 ## Minimal Commands
 
@@ -87,12 +93,30 @@ List the local machine-readable capability catalog:
 
 ```bash
 uv run mverse capabilities --json
+uv run mverse capabilities --executor local.process.v1 --json
 ```
 
 The catalog reports `declared`, `installed`, `available`, and `verified`
 separately. In the current preview the builtin and human fixtures are
 available; the example HTTP executor is declared for validation examples but
 is not available for local execution.
+
+Use an explicitly reviewed operator catalog when the default registrations do not
+represent the execution environment:
+
+```bash
+uv run mverse capabilities --registry examples/executor-catalog --executor local.process.v1 --json
+uv run mverse preflight presets/content-delivery \
+  --binding examples/bindings/content-local.yaml --registry examples/executor-catalog --json
+```
+
+The [complete registration example](../../examples/executor-catalog/README.md)
+documents manifest fields, Schema digests, config repair, and snapshot changes.
+An explicit directory replaces all defaults, including builtin/human entries.
+Its versioned `verificationEvidence` is an operator attestation; loading a catalog
+does not run its claimed tests or grant trust to a package-provided directory.
+The same `--registry` option is available for validate/run/serve/worker and the
+sweep/resume/rerun/decide paths. Keep service and Worker on the same chosen catalog.
 
 Start a local run:
 
@@ -251,5 +275,7 @@ Every authoring change should report:
 
 The current preview's main trial package is
 `presets/content-delivery`. Its remote binding is intentionally rejected by the
-local runtime with `EXECUTOR_UNSUPPORTED`; this is an explicit support boundary,
-not a successful HTTP execution.
+default preflight because the HTTP executor is not installed/available/verified
+and its illustrative config lacks `baseUrl`. A trusted registration and valid
+HTTP Job configuration are required for execution; static validation alone does
+not establish remote readiness.

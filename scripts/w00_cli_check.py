@@ -98,6 +98,7 @@ with tempfile.TemporaryDirectory(prefix="cli-", dir=root / ".multiverse/w00") as
                 "EXECUTOR_NOT_INSTALLED",
                 "EXECUTOR_UNAVAILABLE",
                 "EXECUTOR_UNVERIFIED",
+                "EXECUTOR_CONFIG_INVALID",
             }
         print(name, "exit", r.returncode, "workspace remains empty")
     (out / "cli-results.json").write_text(json.dumps(records, indent=2) + "\n")

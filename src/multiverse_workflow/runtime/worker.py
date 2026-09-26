@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Event
 from typing import Any, TextIO
 
+from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.runner import Runner
 
 
@@ -46,6 +47,7 @@ class LocalWorker:
         poll_interval: float = 1.0,
         limit: int = 100,
         claim_timeout_seconds: float = 60.0,
+        executor_registry: ExecutorRegistry | None = None,
     ) -> LocalWorker:
         if not worker_id.strip():
             raise ValueError("worker id is required")
@@ -74,6 +76,7 @@ class LocalWorker:
                 binding_path=binding_path,
                 database_path=database_path,
                 namespace=namespace,
+                executor_registry=executor_registry,
             )
         except Exception:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

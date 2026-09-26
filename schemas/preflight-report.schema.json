@@ -12,7 +12,7 @@
     "ok": {"type": "boolean"},
     "checked": {
       "type": "array", "minItems": 1, "uniqueItems": true,
-      "items": {"enum": ["static-validation", "executor-registry"]}
+      "items": {"enum": ["static-validation", "executor-registry", "executor-config"]}
     },
     "notChecked": {
       "type": "array", "minItems": 1, "uniqueItems": true,
