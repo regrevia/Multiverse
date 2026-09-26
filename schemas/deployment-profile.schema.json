@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multiverse.local/schemas/deployment-profile.schema.json",
+  "title": "Multiverse v1 target deployment profile",
+  "description": "Target declaration only; validation does not install, authorize, or prove runtime support. See MULTIVERSE_SPEC \u00a721.11.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profileVersion",
+    "profile",
+    "database",
+    "scheduler",
+    "identity",
+    "network",
+    "isolation",
+    "optionalCapabilities"
+  ],
+  "properties": {
+    "profileVersion": {
+      "const": "multiverse.deployment-profile/v0.1"
+    },
+    "profile": {
+      "enum": [
+        "personal",
+        "team",
+        "offline"
+      ]
+    },
+    "database": {
+      "enum": [
+        "sqlite",
+        "postgresql17"
+      ]
+    },
+    "scheduler": {
+      "const": "single-active"
+    },
+    "identity": {
+      "enum": [
+        "single-user",
+        "same-organization"
+      ]
+    },
+    "network": {
+      "enum": [
+        "policy-controlled",
+        "external-denied"
+      ]
+    },
+    "isolation": {
+      "enum": [
+        "trusted-local",
+        "enforced"
+      ]
+    },
+    "optionalCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "connector",
+          "feishu",
+          "codex",
+          "claude",
+          "pi",
+          "latent"
+        ]
+      }
+    },
+    "localModelRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^local-resource:[A-Za-z0-9][A-Za-z0-9._/-]*(?![\\s\\S])"
+    },
+    "resourceManifestDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "personal"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "database": {
+            "const": "sqlite"
+          },
+          "identity": {
+            "const": "single-user"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "team"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "database": {
+            "const": "postgresql17"
+          },
+          "identity": {
+            "const": "same-organization"
+          },
+          "isolation": {
+            "const": "enforced"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "offline"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "localModelRef",
+          "resourceManifestDigest"
+        ],
+        "properties": {
+          "database": {
+            "const": "sqlite"
+          },
+          "identity": {
+            "const": "single-user"
+          },
+          "network": {
+            "const": "external-denied"
+          },
+          "optionalCapabilities": {
+            "items": {
+              "enum": [
+                "latent"
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "localModelRef"
+              ]
+            },
+            {
+              "required": [
+                "resourceManifestDigest"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

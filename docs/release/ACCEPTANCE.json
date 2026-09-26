@@ -1,0 +1,5102 @@
+{
+  "schema_version": "multiverse.acceptance/v0.1",
+  "spec_revision": "2.2.0",
+  "target_release": "1.0.0",
+  "implementation_baseline": "4a4cf9225e22a2539f83afd3e9907bc14861a1bc",
+  "status_meaning": {
+    "pending": "完整证据尚未验收；已有局部实现不改变本状态。",
+    "failed": "已经执行必需验收且未满足。",
+    "passed": "全部必需证据经审阅并绑定同一产物。",
+    "blocked": "外部条件阻塞完整验收；仍计入分母。"
+  },
+  "evidence_layer_meaning": {
+    "static": "声明/Schema/追踪静态验证",
+    "contract": "正反例与兼容边界",
+    "integration": "真实组件持久化/故障与跨层集成",
+    "real_execution": "实际目标环境/执行器/发布产物，Mock不可替代",
+    "human": "真实人类参与与主体证明，公开材料须脱敏"
+  },
+  "records": [
+    {
+      "id": "G-01",
+      "title": "注册式 Adapter，按平台复用。",
+      "requirement": "插件发现/安装接口、版本共存、注册清单格式与卸载约束。 | 新增第三方 Adapter 前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-02",
+      "title": "执行管理归属与实际位置分开。",
+      "requirement": "Descriptor 的扩展字段、枚举及兼容规则。 | 输出公共能力目录前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-03",
+      "title": "AgentProfile / 程序配置版本化。",
+      "requirement": "完整配置 Schema、引用、默认项、创建更新和导出接口。 | 受管配置页面/SDK 开发前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W06",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-04",
+      "title": "Managed Execution Host 执行与恢复。",
+      "requirement": "宿主命令、工具调用台账、实例引用及事件协议。 | 接入真实工具副作用前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-05",
+      "title": "隔离与资源限制要实际实施。",
+      "requirement": "首个沙箱/进程实现、支持平台、限额及停止策略。 | 开放多人或不可信代码执行前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W08",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-06",
+      "title": "Connector 配对与可撤销身份。",
+      "requirement": "端点、认证形式、凭据周期与批准流程。 | 对外提供接入安装包前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-07",
+      "title": "出站接入、持久领取及断线恢复。",
+      "requirement": "领取/确认/回传协议、游标、配额与过期处理。 | 声称跨电脑可靠接入前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-08",
+      "title": "Agent/工具内部步骤可观察。",
+      "requirement": "事件字段、父子关系、顺序/去重、截断及成本覆盖。 | 声称完整内部轨迹前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-09",
+      "title": "人工表单与外部查看入口。",
+      "requirement": "展示扩展键、控件支持矩阵、页面/链接注册及授权。 | 安装需要自定义页面的流程前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-10",
+      "title": "飞书等渠道与 Runtime 关联。",
+      "requirement": "通道配置、消息/请求映射、认证、待送达与失败回执。 | 真实通道接入前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W10A",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-11",
+      "title": "运行中可选交互，不改原始输入。",
+      "requirement": "交互请求/提交接口、身份、Schema、期限与恢复语义。 | 统一投递任意 Agent 中途消息前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-12",
+      "title": "Artifact 上传/外部登记完整闭环。",
+      "requirement": "上传会话、登记端点、完成验证与关联请求的响应。 | 发布远程文件提交入口前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-13",
+      "title": "Runnable Bundle 与依赖闭合检查。",
+      "requirement": "交付清单、依赖分类、摘要锁、资源分包和兼容报告格式。 | 输出正式可运行交付物前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-14",
+      "title": "安装/激活/更新/卸载可验证。",
+      "requirement": "安装 API/CLI、重复安装语义、权限、模板及保留策略。 | 自动化目标部署前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-15",
+      "title": "宿主一次接入、多流程复用。",
+      "requirement": "认证委托和映射方式、客户端生成入口、UI 承载及回调契约。 | 声称即插即用宿主兼容前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-16",
+      "title": "完全本地真实 Agent。",
+      "requirement": "本地推理后端、模型/工具兼容矩阵、资源与离线交付方式。 | 声称完全离线可用前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W22",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-17",
+      "title": "多会话身份、原生绑定与安全切换。",
+      "requirement": "关联/租约/版本模型、迁移/分叉命令、幂等、错误、授权与恢复证据。 | 发布会话管理与迁移 API 前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-18",
+      "title": "权限变化与执行策略映射。",
+      "requirement": "策略 Schema、原生后端能力、权限请求、失效/撤销和实施证据。 | 发布跨后端权限管理前。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W18",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_registry.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "G-19",
+      "title": "Agent 优先编辑与语义变更审阅。",
+      "requirement": "配置 Schema 发现、语义 Diff、并发编辑、安装版本匹配的作者契约。 | 发布统一作者 SDK/编辑器前；第 30.3 节仅冻结本地预检子集。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-0-5",
+      "owner": "W20",
+      "contributors": [
+        "W19"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整作者SDK/辅助编辑包含W20，W19提供作者工具链。"
+    },
+    {
+      "id": "AC-01",
+      "title": "导入合法包",
+      "requirement": "文件/Schema/入口均验证；无业务调用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W24",
+      "contributors": [
+        "W01"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整安全导入依赖W24；W01只贡献只读校验。"
+    },
+    {
+      "id": "AC-02",
+      "title": "重复键、未知必需功能、非法引用",
+      "requirement": "精确报错；不能忽略执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-03",
+      "title": "显式同级图环、递归或超限组合",
+      "requirement": "编译拒绝",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-04",
+      "title": "未绑定 slot、错误能力或不支持 Skill",
+      "requirement": "预检阻塞并说明",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-05",
+      "title": "Binding 权限超过部署/用户授权",
+      "requirement": "服务端拒绝，不只隐藏按钮",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-06",
+      "title": "相同包切换两种执行实现",
+      "requirement": "Workflow 内容和摘要不变；Binding 和评测分别记录",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W13",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-07",
+      "title": "同一命令重复 POST",
+      "requirement": "返回同一回执/资源，无重复 Run",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-08",
+      "title": "同 key 不同请求正文",
+      "requirement": "409，不覆盖旧执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-09",
+      "title": "外部创建成功后响应丢失",
+      "requirement": "按 key 找回同一执行或 blocked；绝不盲目新建",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-10",
+      "title": "保存提交意图后进程崩溃",
+      "requirement": "恢复后继续处理同一意图",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-11",
+      "title": "业务结果落库后 Checkpoint 保存失败",
+      "requirement": "重入复用结果，不重复外部调用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-12",
+      "title": "等待人工时重启 Runtime",
+      "requirement": "请求、版本和等待关系仍在",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W04",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-13",
+      "title": "人工双击/重复提交",
+      "requirement": "只有一份有效最终决定",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W04",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-14",
+      "title": "审批对象版本改变",
+      "requirement": "旧批准不可继续生效",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W04",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-15",
+      "title": "人工到期/拒绝",
+      "requirement": "不自动批准；沿显式业务路径或失败",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W04",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-16",
+      "title": "外部终态消息重复、乱序",
+      "requirement": "去重，不回退事实；冲突进入核对",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-17",
+      "title": "用户取消与结果完成竞争",
+      "requirement": "按持久顺序处理；取消后不派发新下游",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [
+        "W02"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "Runtime取消分发及完成竞争须W16完整控制语义；Bridge单测不足。"
+    },
+    {
+      "id": "AC-18",
+      "title": "无法确认外部已停止",
+      "requirement": "blocked/待核对，不显示安全取消",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [
+        "W02"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "未知停止及活动分支核对须W16，不能以supportsCancel声明代替。"
+    },
+    {
+      "id": "AC-19",
+      "title": "暂停时已有工作完成",
+      "requirement": "保存结果、不派发新工作；继续时不重跑已完成工作",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [
+        "W02"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整暂停与恢复语义由W16闭合；W02提供持久执行证据。"
+    },
+    {
+      "id": "AC-20",
+      "title": "写入后超时",
+      "requirement": "不因超时自动重复写入",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-21",
+      "title": "安全重试",
+      "requirement": "次数、输入、effect key、延迟均符合声明",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-22",
+      "title": "executor 拥有内部重试",
+      "requirement": "Runtime 不重复叠加自动重试",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-23",
+      "title": "switch 多项同时为 true",
+      "requirement": "首个匹配胜出，选择持久且可解释",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-24",
+      "title": "parallel 乱序完成",
+      "requirement": "按分支 ID 汇合，不按完成先后错配输出",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-25",
+      "title": "parallel 部分失败",
+      "requirement": "取消/核对其他活动分支后再结束，无悬挂执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-26",
+      "title": "repeat 达上限",
+      "requirement": "精确失败，保留每轮记录，不无限执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-27",
+      "title": "子流程失败/取消",
+      "requirement": "父级正确传播，无权限提升或丢失归属",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-28",
+      "title": "输出 Schema 错误或产物缺失",
+      "requirement": "不标成功；证据定位到具体调用/尝试",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-29",
+      "title": "Artifact 被改动或跨 namespace 访问",
+      "requirement": "摘要校验/授权拒绝",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W17",
+      "contributors": [
+        "W09"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整跨namespace授权依赖W17；避免W09反向依赖W17形成环。"
+    },
+    {
+      "id": "AC-30",
+      "title": "切换包或 Binding 新版本",
+      "requirement": "旧 Run 不热替换；新 Run 固定新部署",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-31",
+      "title": "回滚部署",
+      "requirement": "仅影响新 Run，不宣称撤销历史副作用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-32",
+      "title": "无 Langfuse/无 OTel 后端",
+      "requirement": "核心运行、日志、审阅、核对可用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W21",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ledger.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-33",
+      "title": "外部执行器没有内部 Trace",
+      "requirement": "明确显示观测范围，不伪造工具调用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-34",
+      "title": "SSE 断线/游标过期",
+      "requirement": "快照+游标恢复，不丢失界面关键状态",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-35",
+      "title": "嵌入 UI",
+      "requirement": "不破坏宿主样式/路由/登录；退出组件释放订阅",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-36",
+      "title": "CLI 与 UI 执行同一操作",
+      "requirement": "同一权限、状态和幂等语义",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-37",
+      "title": "Eval 含失败、未知和无成本样本",
+      "requirement": "全部计入并注明，不虚增成功率",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-38",
+      "title": "恶意归档、任意安装脚本、恶意 HTML",
+      "requirement": "拒绝/安全呈现，不执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-39",
+      "title": "Worker 双启动",
+      "requirement": "只有单活调度；另一实例不派发",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W15",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ledger.py",
+        "tests/runtime/test_worker.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-40",
+      "title": "数据库+Artifact+Checkpoint 备份恢复",
+      "requirement": "先核对活动外部工作，再恢复推进",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W21",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ledger.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-41",
+      "title": "真实非 Mock 外部执行器",
+      "requirement": "完成输入—执行—结果—人工—交付；保存实测报告",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W13",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-42",
+      "title": "第二个非同类业务示例",
+      "requirement": "不新增核心行业字段即可完成流程",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-43",
+      "title": "未知状态的人工核对",
+      "requirement": "需要授权与证据；不能伪造结果或自动满足审批",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-44",
+      "title": "凭据/权限撤销、执行器版本漂移",
+      "requirement": "后续派发被阻止；版本与原因可解释",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-45",
+      "title": "日志超限、遥测中断",
+      "requirement": "不丢控制事件，不拖垮核心运行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W21",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ledger.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-46",
+      "title": "关闭浏览器/CLI 连接",
+      "requirement": "不取消后台持久 Run；重新连接可查询",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-47",
+      "title": "通信字段缺省或 enabled=false",
+      "requirement": "均解析为标准模式；已有包/Binding 无需改写",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-48",
+      "title": "不安装 latent 插件、推理库、模型或向量服务",
+      "requirement": "默认关闭时核心运行、审计和 UI 全部可用；不探测 latent 依赖",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "AC-49",
+      "title": "enabled=true 但 routes 缺失、实现不可用或不兼容",
+      "requirement": "预检明确拒绝；无业务派发，不忽略开关、不假报 latent 已使用",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-1",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-01",
+      "title": "同一包同一组兼容执行器切换 enabled",
+      "requirement": "Workflow 摘要不变；创建不同部署；关闭时标准、开启时指定 route 使用 latent",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-02",
+      "title": "两个逻辑调用间真实交接",
+      "requirement": "导出真实模型表示，目标在模型计算中消费；保存载荷摘要、消费回执、模型/Codec/依赖版本和实测证据",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-03",
+      "title": "假向量、转成字符串、仅注入审计摘要",
+      "requirement": "不得通过真实后端验收，不得据此标为 latent 已支持",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-04",
+      "title": "模型/profile/Codec 版本不一致或漂移",
+      "requirement": "激活或后续派发受阻；不自动换模型/回退文本",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-05",
+      "title": "开启但路由不满足同 scope/依赖/单源限制",
+      "requirement": "预检定位到配置字段并拒绝；不修改 Workflow 拓扑“修好”它",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-06",
+      "title": "载荷损坏、过大或使用危险序列化",
+      "requirement": "校验拒绝；无不可信代码执行、无隐式截断",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-07",
+      "title": "导出后重启、接收端提交响应丢失",
+      "requirement": "重用原载荷、交接身份和 dispatchKey；核对同一执行，不重新生成/重复派发",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-08",
+      "title": "实际消费回执缺失、摘要不匹配或 consumed=false",
+      "requirement": "目标不得标成功；已提交的执行先查明状态，不盲目重派",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-09",
+      "title": "活动 Run 期间关掉/打开开关",
+      "requirement": "原 Run 模式与 profile 不变；新模式通过新部署/新 Run 生效",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-10",
+      "title": "人工/程序混合节点、分支未经过 route",
+      "requirement": "非 route 标准执行；本次零 latent 消费显示未使用，不冒充成功实验",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-11",
+      "title": "重复、并行和有界循环中的交接",
+      "requirement": "scope/轮次/目标隔离；不可变载荷不被并发修改；无错配消费",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-12",
+      "title": "审计摘要、证据和审批关联",
+      "requirement": "关联同一交接/产物版本；事实与模型解释区分；无旧批准复用、无伪造内部推理解释",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "LH-13",
+      "title": "跨 namespace/更低权限读取、载荷备份恢复",
+      "requirement": "权限拒绝；日志/OTel 不泄露原始载荷；备份完整，丢失时明确阻塞",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W29",
+      "contributors": [
+        "W23",
+        "W21"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/development/test_milestone_gate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "载荷备份恢复需要W21与W23汇合，W29已汇合两者。"
+    },
+    {
+      "id": "LH-14",
+      "title": "开关对照与真实成本报告",
+      "requirement": "同数据/验收与披露配置；含传输/摘要/资源/失败成本；零消费与失败样本不隐去，不要求 latent 必然更优",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-5",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-01",
+      "title": "外部 Agent 从自然语言创建新流程",
+      "requirement": "仅使用文档、Schema、能力信息与 CLI/API 完成包、测试和待绑定说明，不修改 Runtime、不自动化点击页面。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-02",
+      "title": "作者读取不支持功能或不存在执行器",
+      "requirement": "精确报告未实现/未绑定，不编造资源或忽略必需功能。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-03",
+      "title": "语法、引用或业务字段错误",
+      "requirement": "诊断可定位原文件和 JSON Pointer；修复后可重复校验。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-04",
+      "title": "为获得通过而降低验收",
+      "requirement": "必须形成显式规则变更与审阅，不能静默改测试、删除失败或绕过人工。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-05",
+      "title": "机器可读命令输出",
+      "requirement": "CLI/API 状态一致，JSON 结果可解析，不混入日志；未实现参数不在支持声明中出现。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-06",
+      "title": "静态、Mock、真实执行混合报告",
+      "requirement": "每种证据分开，Mock 不冒充真 Agent、真人或 latent 消费。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-07",
+      "title": "人、程序、Agent 执行同一可替换契约",
+      "requirement": "保留输入输出语义、权限与版本；替换不依赖某种私有返回结构。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W13",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-08",
+      "title": "要求真人的审批被 Agent 模拟",
+      "requirement": "即使 JSON 合法也拒绝冒充；schema 兼容不授予身份与权限。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-09",
+      "title": "程序成功返回 valid=false / 人拒绝",
+      "requirement": "表示业务结论并走显式分支，不误判为传输失败或自动返工。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-10",
+      "title": "退出 0 / HTTP 200 但结果不合规",
+      "requirement": "输出或必需产物不合法时不得推进；原因关联本次调用。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-11",
+      "title": "人工页面展示与提交",
+      "requirement": "冻结任务材料只读；结果按 decisionSchema/outputSchema 收集，不要求普通用户手写 JSON。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-12",
+      "title": "表单不支持某种契约",
+      "requirement": "预检报告可操作入口缺口，不能运行后才显示无法填写或静默丢字段。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-13",
+      "title": "默认值、页面打开或通知已读",
+      "requirement": "不自动产生审批/输出；显式提交前仍等待。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-14",
+      "title": "input 型人工任务",
+      "requirement": "成功提交结构化业务对象，审计 comment 不混入业务输出，结果被下游严格校验。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-15",
+      "title": "人工文件上传并交付",
+      "requirement": "先完成存储/登记/验证，再通过合法 ArtifactRef 提交；上传本身不完成节点。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-16",
+      "title": "部分上传、任意路径或非法 ArtifactRef",
+      "requirement": "拒绝作为已交付结果，不伪造可读产物。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-17",
+      "title": "上传与提交的跨权限引用",
+      "requirement": "服务端逐项拒绝越权；UI 隐藏和客户端校验不能替代权限。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-18",
+      "title": "人工等待时关闭浏览器或重启",
+      "requirement": "请求、输入版本、期限和操作关系可恢复；不重新创建审批。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-19",
+      "title": "并发/重复/过期/取消后提交",
+      "requirement": "只有一份有效决定；返回原回执或明确冲突，不覆盖或重新激活。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-20",
+      "title": "内建页与嵌入页处理同一请求",
+      "requirement": "共用权威和 API；决定、Schema、版本和权限一致。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-21",
+      "title": "外部人工服务回传或通知丢失",
+      "requirement": "以稳定引用核对；回调认证去重；无重复外部工作、无双重决定权威。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W10A",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-22",
+      "title": "人声明外部工作已完成",
+      "requirement": "展示声明与证据来源；需要独立验证时经后续节点确认，不夸大事实。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W04",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-23",
+      "title": "页面与结构化 CLI 提交同一类结果",
+      "requirement": "同一归一化对象、权限、subjectDigest、expectedVersion 和幂等语义。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W20",
+      "contributors": [
+        "W19"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "页面与任意结构化CLI输入的一致性须W20人工入口，W19提供CLI。"
+    },
+    {
+      "id": "SUP-24",
+      "title": "Agent 生成程序源码",
+      "requirement": "只形成待审阅实现，不因导入包自动安装、授权或执行。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-25",
+      "title": "遗留程序副作用结果未知",
+      "requirement": "Wrapper 不假报安全重试，先查明原工作，不能用输入输出包装伪造恢复能力。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-26",
+      "title": "切换标准/latent",
+      "requirement": "Workflow 和业务 Schema 不变；只有选定机器交接变化，人工页面与验收不变。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-27",
+      "title": "latent 结果交给程序或人",
+      "requirement": "必需结构化输出、约束、产物与可读证据仍存在，不要求读取不透明张量猜结果。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "SUP-28",
+      "title": "全部能力的对外支持声明",
+      "requirement": "原 AC/LH 与本 SUP 分别有证据；未实现、未验证、不支持如实公开，不以文档自证完成。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-6",
+      "owner": "W29",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/development/test_milestone_gate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-01",
+      "title": "统一调用契约",
+      "requirement": "人、程序、受管 Agent、外部 Agent 均经过相同输入输出校验和标准执行观察；不以私有结果结构推进。 | 第 4.4 节、第 27.6 节、第 9.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W13",
+      "contributors": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05A",
+        "W05B"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_runner.py",
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整统一调用须汇合人、程序、受管和外部真实Agent执行证据；W01只贡献目录与预检契约。"
+    },
+    {
+      "id": "RDI-02",
+      "title": "内外绑定替换",
+      "requirement": "同一 Workflow 与业务 Schema 不变，新 Binding/Deployment 可选择内建或外部实现；不迁移活动 Run。 | 第 4.4 节、第 27.1 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [
+        "W01",
+        "W13",
+        "W16"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/runtime/test_runner.py",
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "完整内外替换须有新Binding/Deployment和活动Run冻结证据；W01只贡献绑定预检，W13贡献真实替换，W16贡献运行快照语义。"
+    },
+    {
+      "id": "RDI-03",
+      "title": "管理归属与位置",
+      "requirement": "远程受管与外部平台可区分；连接位置不被当作生命周期权威。 | 第 4.4 节、第 5.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-04",
+      "title": "注册式扩展",
+      "requirement": "新增一个执行器实现或同平台第二个 Agent，无需修改 Compiler/Runner 的业务分支。 | 第 8.5 节、第 9.17 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-05",
+      "title": "能力支持报告",
+      "requirement": "已声明、已安装、可用、已验证及证据范围分开；未验证不能假报通过。 | 第 8.5 节、第 9.17 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-06",
+      "title": "全内建真实协作",
+      "requirement": "不连接第三方 Agent 平台，用真实模型、两份 Agent 配置、程序和真人完成交付。 | 第 1.4 节、第 27.6 节、第 21.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W22",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-07",
+      "title": "内建程序包装",
+      "requirement": "输入按 Schema 读取，日志不混入结果，输出有效后才释放下游。 | 第 4.4 节、第 27.6 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-08",
+      "title": "内建 Agent 内部步骤",
+      "requirement": "记录真实阶段、工具/模型调用与结果引用；不以生成解释冒充实际轨迹。 | 第 27.6 节、第 15.4 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-09",
+      "title": "业务失败与执行失败",
+      "requirement": "valid=false 或 decision=reject 走显式业务分支，不自动当传输错误重试。 | 第 4.4 节、第 13.24 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-10",
+      "title": "配置版本固定",
+      "requirement": "运行中更改 Profile/Binding/Schema 不改变旧实例；漂移阻塞并提供原因。 | 第 27.1 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-11",
+      "title": "Session 隔离",
+      "requirement": "并发任务不会共享未授权历史；显式复用的范围、源材料与调用关联可追溯。 | 第 27.1 节、第 27.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W06",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-12",
+      "title": "工作区隔离与并发",
+      "requirement": "共享可写工作区存在明确策略；一个调用不覆盖另一调用已固定产物。 | 第 27.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-13",
+      "title": "资源与凭据",
+      "requirement": "每次只注入所需凭据和授权资源；内建执行无法直接修改 Runtime/审批数据库。 | 第 27.6 节、第 10.6 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W18",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_registry.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-14",
+      "title": "导入不执行源码",
+      "requirement": "导入含脚本/安装钩子的未批准内容不会自动执行或取得可信注册。 | 第 27.6 节、第 10.6 节、第 16.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-15",
+      "title": "真实隔离声明",
+      "requirement": "可信本地模式不标沙箱；多人代码执行仅对已测试的隔离与限额组合声称支持。 | 第 27.6 节、第 10.6 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W08",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-16",
+      "title": "输出不合规",
+      "requirement": "保留原始观察和校验错误；不悬挂模糊状态，不盲目重跑可能已写入的业务。 | 第 27.6 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-17",
+      "title": "同 key 不同语义",
+      "requirement": "改变输入、决定、主题或主体却复用 key 时冲突；合法重放返回原结果。 | 第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-18",
+      "title": "决定后进程退出",
+      "requirement": "决定、事件和推进意图持久；重启后完成同一推进，不永久等待、不重复业务。 | 第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-19",
+      "title": "提交回执丢失",
+      "requirement": "先核对原提交或维持未知，不因网络失败新建业务动作。 | 第 28.1 节、第 9.12 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W02",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py",
+        "tests/runtime/test_http_job_runtime.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-20",
+      "title": "运行能力门禁",
+      "requirement": "可解析但当前不可执行的类型/依赖在业务派发前拒绝，不能中途才发现。 | 第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-21",
+      "title": "远程配对",
+      "requirement": "单次短时配对只得到受限身份，重复使用或撤销后的配对/凭据不能新增执行。 | 第 28.1 节、第 10.6 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-22",
+      "title": "出站接入",
+      "requirement": "在已声明可达网络中，远端无需公网入站服务完成领取与回传；不夸大网络穿透。 | 第 28.1 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-23",
+      "title": "一端多执行配置",
+      "requirement": "同一个 Connector 登记多个允许的 Agent/程序，不暴露未选择目录或能力。 | 第 28.1 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-24",
+      "title": "重复领取",
+      "requirement": "相同提交身份重复投递/领取找回同一次执行，不启动第二个进程。 | 第 28.1 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-25",
+      "title": "断线状态",
+      "requirement": "心跳丢失显示连接/新鲜度问题，不将其直接记为任务失败或可转派。 | 第 28.1 节、第 15.4 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-26",
+      "title": "重新连接",
+      "requirement": "按原引用回传待发送事件与结果；重复事件去重，不串 Run。 | 第 28.1 节、第 15.4 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-27",
+      "title": "无法核实旧进程",
+      "requirement": "PID/终端现象不足以证明停止时进入核对，不重新派发旧业务。 | 第 28.1 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-28",
+      "title": "外部平台对象选择",
+      "requirement": "通过授权发现或显式 ID 接入原 Agent/工作区/配置，不复制整个平台。 | 第 27.1 节、第 9.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-29",
+      "title": "远端保证不足",
+      "requirement": "缺取消/lookup/版本固定等能力时准确报告；严格部署条件不满足则拒绝。 | 第 9.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-30",
+      "title": "重试责任唯一",
+      "requirement": "远端内部重试或返工已生效时，Runtime 不再自动创建同类第二份工作。 | 第 9.12 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-31",
+      "title": "人工结构化结果",
+      "requirement": "人能填写规定结果或交付文件，服务端校验输出与 Artifact，不要求普通用户手写 JSON。 | 第 13.24 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-32",
+      "title": "人工入口可用性",
+      "requirement": "缺入口、未送达、已送达待处理和过期分别展示；没有实际入口时不能激活。 | 第 13.24 节、第 16.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-33",
+      "title": "Web 与飞书同时操作",
+      "requirement": "同一请求只有一份最终决定，旧版本/重复/过期操作被正确拒绝或重放。 | 第 13.24 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W10A",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-34",
+      "title": "可信操作者",
+      "requirement": "不能通过昵称、正文 actor、任意 userId 或服务 token 冒充真人决定。 | 第 13.24 节、第 10.6 节、第 17.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W17",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "tests/service/test_application.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-35",
+      "title": "多流程同一会话",
+      "requirement": "消息、卡片及结果按明确关联进入目标 Run/请求，不能猜“最近的 Agent”。 | 第 13.24 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W10A",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-36",
+      "title": "外部文件提交",
+      "requirement": "上传/登记完成后才产生可验证 ArtifactRef；跨权限读取和错误版本被拒绝。 | 第 27.12 节、第 13.24 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-37",
+      "title": "内部多轮交互",
+      "requirement": "仅对已实现可选交互的执行器投递，记录追加事件，不改写原输入或自行批准。 | 第 13.24 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W03",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_executors.py",
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-38",
+      "title": "开始和暂停派发",
+      "requirement": "创建持久 Run；暂停仅停止新派发，当前执行观察继续且 deadline 语义不变。 | 第 11.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-39",
+      "title": "停止与完成竞争",
+      "requirement": "遵守持久控制顺序，显示请求/确认差异，不因迟到结果派发取消后的下游。 | 第 11.8 节、第 12.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-40",
+      "title": "停止不影响共享资源",
+      "requirement": "单个 Run 取消不关闭其他 Run 的模型服务、工作区或执行宿主。 | 第 27.6 节、第 11.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-41",
+      "title": "重跑与单节点调试",
+      "requirement": "新建独立执行，不重写旧终态、不复制批准、不绕过依赖推进生产 Run。 | 第 11.8 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-42",
+      "title": "双击与替代入口",
+      "requirement": "单击摘要、双击详情及键盘/触屏访问一致；不同时误触画布缩放。 | 第 19.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-43",
+      "title": "定义与实例区分",
+      "requirement": "未选 Run 只显示定义；历史详情使用对应版本与 Attempt，不读取最新配置冒充历史。 | 第 19.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-44",
+      "title": "循环三层区分",
+      "requirement": "业务轮次、Attempt 和 Agent 内部步数可分别选择，前轮输出不被覆盖。 | 第 15.4 节、第 19.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-45",
+      "title": "外部观测范围",
+      "requirement": "只提供边界信息时明确标识，能跳转原生记录但不把外链当唯一详情。 | 第 15.4 节、第 19.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-46",
+      "title": "重新订阅与关闭页面",
+      "requirement": "断线可按快照/游标恢复，关闭 UI/CLI 不取消 Run，布局和选中不随事件抖动。 | 第 15.4 节、第 19.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-47",
+      "title": "外链与嵌入安全",
+      "requirement": "外部入口受信任与授权，不泄露长期 token，不执行不可信 HTML；宿主样式和路由不破坏。 | 第 19.7 节、第 10.6 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-48",
+      "title": "完全离线真实运行",
+      "requirement": "禁止外网后，真实本地模型、程序和人工产出文件；不使用固定字符串伪装 Agent。 | 第 21.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W22",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ollama.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-49",
+      "title": "Latent 非默认依赖",
+      "requirement": "关闭时不加载/探测 latent 依赖；普通内建/外部能力独立运行。 | 第 21.7 节、第 14.17 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-50",
+      "title": "Latent 交付与切换",
+      "requirement": "沿用 LH；目标环境重新验证组合，活动 Run 不热切换，失败不静默文本回退。 | 第 14.17 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-51",
+      "title": "交付依赖完整性",
+      "requirement": "包、实现、模型、UI、存储、身份和人工入口逐项归类；必需缺口阻止激活。 | 第 16.7 节、第 16.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-52",
+      "title": "无隐含源环境依赖",
+      "requirement": "交付检查定位原目录、原数据库 ID、未打包程序或原服务地址，不能伪装完整包。 | 第 16.7 节、第 16.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-53",
+      "title": "干净环境安装",
+      "requirement": "不复制开发数据库、个人授权或会话，使用交付物及明确 Binding 完成真实运行。 | 第 16.12 节、第 17.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-54",
+      "title": "原开发平台不可达",
+      "requirement": "切断原站点后目标实例仍能启动、人工处理、继续、停止及读取结果。 | 第 17.5 节、第 16.18 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-55",
+      "title": "宿主身份与命令复用",
+      "requirement": "宿主按受信任映射调用同一命令层；不另写流程状态机，不用管理员 token 代替用户。 | 第 17.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W11",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-56",
+      "title": "异步业务调用",
+      "requirement": "返回持久 Run 引用，宿主断开/重试查询不重新执行；事件丢失可重新查询。 | 第 17.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W11",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-57",
+      "title": "流程包与完整 Bundle",
+      "requirement": "已有 Runtime 能导入轻量包；无 Runtime 的目标使用随附/锁定组件独立部署。 | 第 16.7 节、第 16.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-58",
+      "title": "兼容性与离线资源",
+      "requirement": "版本/硬件/模型或资源不满足时预检明确；离线包不能仅依赖下载链接。 | 第 21.7 节、第 16.12 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-59",
+      "title": "重复安装及启动",
+      "requirement": "相同内容与合法重复命令可核对去重；同版本不同内容不得静默覆盖。 | 第 16.12 节、第 17.5 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-60",
+      "title": "升级与回滚",
+      "requirement": "新 Run 使用新部署，旧 Run 保持原依赖；回滚不宣称撤销历史业务副作用。 | 第 16.18 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-61",
+      "title": "卸载与共享运行环境",
+      "requirement": "停用新入口、处理活动执行后按策略卸载；共享资源和必须保留的记录不被删除。 | 第 16.18 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-62",
+      "title": "目标环境备份恢复",
+      "requirement": "恢复包/台账/Checkpoint/产物和必要关联，先核对外部工作，不形成两个同 Run 调度权威。 | 第 12.8 节、第 16.18 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W21",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_ledger.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-63",
+      "title": "原生作者闭环",
+      "requirement": "外部或本地作者通过契约/目录/诊断生成、修复、测试；不改核心，不删验收求通过。 | 第 9.17 节、第 21.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "RDI-64",
+      "title": "真实证据与完成声明",
+      "requirement": "每项报告版本、环境、命令与证据；未测/失败/不支持分开，Mock 不替代真实接入与离线验收。 | 第 23.5 节、第 24 节、第 25.7 节",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-7",
+      "owner": "W29",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/development/test_milestone_gate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-01",
+      "title": "同模板从 2 Agent 扩展为 3 Agent＋程序＋人",
+      "requirement": "不改 Runtime 核心；生成新定义与绑定即可表达",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-02",
+      "title": "纯程序或纯人工流程",
+      "requirement": "不加载或强制绑定模型",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-03",
+      "title": "角色改名、复用执行配置",
+      "requirement": "控制逻辑不依赖角色字符串；调用身份仍独立",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-04",
+      "title": "仅用两条分支表达并行",
+      "requirement": "编译拒绝隐式 fan-out；要求 parallel",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-05",
+      "title": "模板展开",
+      "requirement": "结果完全由六种核心节点表达，无隐藏私有解释器",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-06",
+      "title": "模板版本和传递依赖",
+      "requirement": "锁定摘要，保留 source map，不运行时下载最新版",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-07",
+      "title": "未安装组件/执行器",
+      "requirement": "目录报告缺口，激活前拒绝，不编造可用性",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-08",
+      "title": "Schema 字段缺失、null 与类型不匹配",
+      "requirement": "精确诊断，无隐式强转",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-09",
+      "title": "相同结构但能力/权限不同",
+      "requirement": "拒绝不满足绑定，Schema 不授予身份",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-10",
+      "title": "目标字段静态无法证明兼容",
+      "requirement": "标注需运行时校验，不假报已证明",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-11",
+      "title": "数据引用指向未选中分支",
+      "requirement": "静态拒绝或采用统一子流程输出；不读取不存在值",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W16",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py",
+        "tests/runtime/test_async_dispatch.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-12",
+      "title": "开发交付新版本",
+      "requirement": "旧评审/人工批准不能批准新版本",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-13",
+      "title": "评估报告缺失、重复、未知 ID",
+      "requirement": "gate 拒绝契约错误，不当通过或新增票数",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-14",
+      "title": "report subjects 与 product 不一致",
+      "requirement": "阻止推进，错误定位到报告/产物版本",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-15",
+      "title": "findings 有阻断项但 verdict=pass",
+      "requirement": "固定策略仍产生 revise，不只相信 verdict",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-16",
+      "title": "分支完成顺序颠倒",
+      "requirement": "按 branch ID 汇合，相同显式输入得到同一纯聚合结果",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-17",
+      "title": "并行一个分支失败/停止未知",
+      "requirement": "取消或核对其余活动，不能提前成功",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-18",
+      "title": "机器要求修改",
+      "requirement": "本轮正常输出 revise，生成新 Scope，而非技术重试",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-19",
+      "title": "人要求修改与拒绝",
+      "requirement": "前者进入下一轮，后者明确结束，不混淆 cancel",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-20",
+      "title": "人不参与的一轮",
+      "requirement": "humanDecision=null，不伪造 HumanRequest/真人决定",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-21",
+      "title": "always 人工策略且机器未通过",
+      "requirement": "默认不能用 approve 越过机器门槛",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-22",
+      "title": "多个独立真人请求",
+      "requirement": "每请求一份决定；需要身份隔离时由可信记录验证",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-23",
+      "title": "repeat 达到上限仍需修改",
+      "requirement": "LOOP_LIMIT_EXCEEDED，无隐式额外轮次或自动接受",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-24",
+      "title": "轮次输出与下一轮输入",
+      "requirement": "nextInput 通过同一约束 Schema，保留目标和必需约束",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-25",
+      "title": "业务反馈缺少明确内容",
+      "requirement": "可定位阻塞/契约错误，不生成无依据修改指令",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-26",
+      "title": "网络重发或恢复",
+      "requirement": "固定 input/Context 和原 key，不重新生成不同交接",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-27",
+      "title": "Context 超限",
+      "requirement": "只裁剪可选内容并记录；必需材料不能静默丢失",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-28",
+      "title": "跨机器相同路径",
+      "requirement": "必须验证/取得固定 Artifact，不能假设相同文件",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-29",
+      "title": "Artifact 无权限、内容变更",
+      "requirement": "拒绝读取/提交或核对，不能扩大权限",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-30",
+      "title": "外部自带返工/重试",
+      "requirement": "所有权明确，一类新执行不被两侧重复创建",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-31",
+      "title": "外部完整工作流作为 call",
+      "requirement": "原生内部状态由外部管理；只控制承诺的边界",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W09",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job_runtime.py",
+        "tests/api/test_app.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-32",
+      "title": "运行、草稿编辑、演示通道",
+      "requirement": "相互隔离；作者 status 补丁不改运行事实",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-33",
+      "title": "Scope 全失败或全未运行",
+      "requirement": "UI 不聚合显示成功，轮次与 Attempt 不串",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-34",
+      "title": "latent 路由跨轮次或多源隐式融合",
+      "requirement": "预检拒绝，不突破原 route/profile 边界",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-35",
+      "title": "标准模式相同组合",
+      "requirement": "无 latent/向量依赖仍完整执行",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W23",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_normative_examples.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-36",
+      "title": "输出代码或任意 URL",
+      "requirement": "不自动安装/执行/提权，走受控注册",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-37",
+      "title": "第二种非开发业务",
+      "requirement": "不增加核心角色/行业字段就能复用原语和交接",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-38",
+      "title": "干净目标环境安装组件模板",
+      "requirement": "依赖可解析，需填项明确；不依赖作者机器或源数据库",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W24",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/protocol/test_loader.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-39",
+      "title": "作者完成第二套流程",
+      "requirement": "主要改 Schema/节点/参数/绑定；记录实际核心改动为缺口",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "CMP-40",
+      "title": "Fixture、真人、模型、恢复报告",
+      "requirement": "分层记录；示例模拟不宣称真实协作/并发或生产恢复已通过",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-8",
+      "owner": "W29",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/development/test_milestone_gate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-01",
+      "title": "Agent 独立完成文件编写与修改",
+      "requirement": "无 GUI 必需步骤；发现、Validate、预检、测试与审阅材料可由 CLI/API 完成；未实现步骤明确拒绝。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W19",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/compiler/test_compile_package.py",
+        "tests/cli/test_validate.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-02",
+      "title": "第二流程与第二目标",
+      "requirement": "同宿主无需新 Glue；跨目标保留业务包，仅换 Binding；缺口在派发前呈现。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W11",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/e2e/test_service_workflow.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-03",
+      "title": "本地注册预检",
+      "requirement": "正例/反例、稳定 JSON、节点定位、无数据库/执行/网络副作用，未检查项准确。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W01",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "static",
+        "contract"
+      ],
+      "test_paths": [
+        "tests/cli/test_preflight.py",
+        "tests/runtime/test_catalog.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-04",
+      "title": "原生恢复与跨 CLI 续接",
+      "requirement": "同后端恢复证据、跨后端新关联与来源链；不复制旧批准。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-05",
+      "title": "并发与失联切换",
+      "requirement": "CAS/单写租约/迟到观察/unknown 写入核对；无重复派发。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-06",
+      "title": "工作区及权限变化",
+      "requirement": "重新校验、隔离并行写入、清理越权历史、策略实施与可解释拒绝。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W07",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/runtime/test_runner.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-07",
+      "title": "飞书两种接入",
+      "requirement": "人工主体不被程序身份替代；重复回调、失效卡片、断线投递和真实写入去重。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W10B",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/runtime/test_http_job.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    },
+    {
+      "id": "PORT-08",
+      "title": "作者效率与辅助编辑",
+      "requirement": "固定任务集完整统计；GUI 往返保持业务语义；并发编辑冲突可发现。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#s30",
+      "owner": "W20",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/api/test_app.py",
+        "inspector/src/runtime/client.test.ts"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "测试路径仅是现有相关线索；未签收完整规范结果。"
+    }
+  ],
+  "release_gates": [
+    {
+      "id": "V1-01",
+      "title": "真实核心闭环",
+      "requirement": "Agent、程序、真人、产物真实协作；关闭页面和重启不丢事实。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W19",
+      "contributors": [
+        "W03",
+        "W04",
+        "W16"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-02",
+      "title": "作者体验",
+      "requirement": "20项创建/修改/修复/重绑定任务完整统计；Schema、诊断、eval、语义diff均可用。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W19",
+      "contributors": [
+        "W13"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-03",
+      "title": "可替换性",
+      "requirement": "Codex、Claude、Pi真实执行；同包换Binding，固定原生版本及能力差异。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W25",
+      "contributors": [
+        "W05A",
+        "W05B"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-04",
+      "title": "会话与权限",
+      "requirement": "多会话单写、resume/fork协商、授权续接、收窄权限后清理越权上下文。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W18",
+      "contributors": [
+        "W06",
+        "W07"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-05",
+      "title": "远程通道与宿主",
+      "requirement": "第二机器Connector、飞书真实回调与程序写入、两个宿主技术栈实测。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W20",
+      "contributors": [
+        "W09",
+        "W10A",
+        "W10B",
+        "W11"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-06",
+      "title": "持久服务",
+      "requirement": "PostgreSQL真实事务、LangGraph持久checkpoint、单活及崩溃恢复。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W16",
+      "contributors": [
+        "W15"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-07",
+      "title": "安全",
+      "requirement": "实际沙箱、可信主体、Secret生命周期、跨namespace拒绝；无阻塞安全缺陷。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W26",
+      "contributors": [
+        "W08",
+        "W17",
+        "W18"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-08",
+      "title": "安装运维",
+      "requirement": "固定产物干净安装、旧Run升级兼容、回滚、备份恢复与安全GC。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W29",
+      "contributors": [
+        "W12",
+        "W21",
+        "W24"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-09",
+      "title": "离线",
+      "requirement": "禁外网真实本地模型/工具/真人/产物；安装资源与运行依赖闭合。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W22",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-10",
+      "title": "实验交付",
+      "requirement": "独立安装真实latent导出/消费，LH全验收，标准包默认不加载实验依赖。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W29",
+      "contributors": [
+        "W21",
+        "W23"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-11",
+      "title": "兼容矩阵",
+      "requirement": "§21.11所有必需目标有固定版本/产物digest/安装运行证据；无skip冒充支持。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W25",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-12",
+      "title": "稳定性",
+      "requirement": "§21.12完整6小时预检及72小时soak、基础SLO、故障矩阵达标，无一致性或权限破坏。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W27",
+      "contributors": [
+        "W21"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-13",
+      "title": "真实试用",
+      "requirement": "至少5套独立干净安装、2种宿主、10名真人、500个记录Run，其中50次真实Agent任务且包含真实人工决定；保留全部失败和弃用。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W28",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution",
+        "human"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-14",
+      "title": "证据完整",
+      "requirement": "每一必需ID有owner、必需证据层、测试/报告与结论；固定最终产物digest一致。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W29",
+      "contributors": [
+        "W14"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-15",
+      "title": "发布交付",
+      "requirement": "全部P0/P1和影响核心使用的P2关闭；剩余P3公开；最终独立review通过，实现/报告/状态回执均在origin/dev；正式发布另经授权。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W29",
+      "contributors": [],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    },
+    {
+      "id": "V1-16",
+      "title": "版本兼容",
+      "requirement": "§0.7各公开面未知版本/字段、v0.1导入、过期客户端及弃用行为有正反例和真实兼容证据。",
+      "spec_ref": "docs/spec/MULTIVERSE_SPEC.md#sec-25-10",
+      "owner": "W25",
+      "contributors": [
+        "W14",
+        "W20",
+        "W24"
+      ],
+      "mandatory": true,
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ],
+      "test_paths": [
+        "tests/release/test_release_contract.py"
+      ],
+      "evidence": [],
+      "status": "pending",
+      "note": "W14冻结门槛；静态追踪测试不代表产品门槛通过。"
+    }
+  ],
+  "future_compatibility_scenarios": [
+    {
+      "id": "COMPAT-IMPORT",
+      "owner": "W24",
+      "status": "pending",
+      "test_target": "tests/conformance/test_v01_import.py",
+      "setup": [
+        "固定v0.1合法归档和绑定摘要",
+        "启动全新目标Runtime及真实包存储"
+      ],
+      "actions": [
+        "导入同一包两次",
+        "将apiVersion改为未知版本再次导入",
+        "重启后运行原包并升级/回滚部署"
+      ],
+      "assertions": [
+        "重复导入复用同一内容",
+        "未知版本拒绝且无源码执行或部署激活",
+        "旧Run继续使用原摘要，新Run使用所选部署"
+      ],
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ]
+    },
+    {
+      "id": "COMPAT-CLIENT",
+      "owner": "W25",
+      "status": "pending",
+      "test_target": "tests/conformance/test_client_expiry.py",
+      "setup": [
+        "固定正式SDK及API契约版本",
+        "可控制时钟且保存弃用通知时间与两个minor发布时间"
+      ],
+      "actions": [
+        "在弃用期限内使用旧受支持客户端",
+        "越过90天和两个minor后请求新执行",
+        "查询已确认旧Run并提交未知协议版本"
+      ],
+      "assertions": [
+        "期限内原语义保持",
+        "过期请求明确拒绝并提供迁移诊断，无新派发",
+        "旧事实仍可按授权读取，未知版本不静默降级"
+      ],
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ]
+    },
+    {
+      "id": "COMPAT-EVENTS",
+      "owner": "W20",
+      "status": "pending",
+      "test_target": "tests/conformance/test_sdk_event_versions.py",
+      "setup": [
+        "固定SDK/API/事件版本及同一Run快照"
+      ],
+      "actions": [
+        "重放重复和未知可选事件",
+        "传入未知投影版本",
+        "断线后从游标重连"
+      ],
+      "assertions": [
+        "无重复业务推进，未知可选事件不伪造状态",
+        "不兼容投影显式拒绝并提示升级",
+        "已确认控制事实可从快照和游标恢复"
+      ],
+      "required_evidence_layers": [
+        "contract",
+        "integration",
+        "real_execution"
+      ]
+    }
+  ]
+}

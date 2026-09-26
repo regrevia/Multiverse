@@ -1,0 +1,23 @@
+{
+  "id": "cli-readonly",
+  "command": [
+    "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+    "scripts/w00_cli_check.py"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "tool_versions": {
+    "python": "Python 3.14.7",
+    "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+    "node": "v20.20.2",
+    "npm": "10.8.2"
+  },
+  "started_at": "2026-09-26T05:07:22.653738+00:00",
+  "finished_at": "2026-09-26T05:07:27.208409+00:00",
+  "exit_code": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "live": false,
+  "log_ref": "docs/development/reports/W14/final-tests/cli-readonly.log",
+  "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+}

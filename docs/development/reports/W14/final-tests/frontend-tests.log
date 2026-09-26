@@ -1,0 +1,20 @@
+
+> multiverse-inspector@0.1.0 test:run
+> vitest run
+
+
+ RUN  v3.2.7 /home/aied/tanyicheng/multiverse/inspector
+
+ ✓ src/graph/layout.test.ts (2 tests) 5ms
+ ✓ src/runtime/human.test.ts (9 tests) 12ms
+ ✓ src/graph/runtime.test.ts (5 tests) 9ms
+ ✓ src/graph/model.test.ts (3 tests) 6ms
+ ✓ src/runtime/client.test.ts (8 tests) 52ms
+
+ Test Files  5 passed (5)
+      Tests  27 passed (27)
+   Start at  05:07:21
+   Duration  626ms (transform 370ms, setup 0ms, collect 680ms, tests 84ms, environment 2ms, prepare 750ms)
+
+
+[End of captured command output.]

@@ -1,0 +1,249 @@
+[
+  {
+    "id": "uv-sync",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "sync",
+      "--locked"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:16.976232+00:00",
+    "finished_at": "2026-09-26T05:07:17.009294+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/uv-sync.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "npm-ci",
+    "command": [
+      "npm",
+      "ci"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/inspector",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:16.976847+00:00",
+    "finished_at": "2026-09-26T05:07:20.964492+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/npm-ci.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "python",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--locked",
+      "pytest",
+      "-q"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:20.965795+00:00",
+    "finished_at": "2026-09-26T05:08:09.622042+00:00",
+    "exit_code": 0,
+    "passed": 375,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/python.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "ruff",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--locked",
+      "ruff",
+      "check",
+      "src",
+      "tests",
+      "scripts"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:20.966048+00:00",
+    "finished_at": "2026-09-26T05:07:21.052146+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/ruff.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "mypy",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--locked",
+      "mypy",
+      "src"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:20.966619+00:00",
+    "finished_at": "2026-09-26T05:07:21.394453+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/mypy.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "frontend-tests",
+    "command": [
+      "npm",
+      "run",
+      "test:run"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/inspector",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:20.967146+00:00",
+    "finished_at": "2026-09-26T05:07:22.653398+00:00",
+    "exit_code": 0,
+    "passed": 27,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/frontend-tests.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "frontend-build",
+    "command": [
+      "npm",
+      "run",
+      "build"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/inspector",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:21.052615+00:00",
+    "finished_at": "2026-09-26T05:07:26.126629+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/frontend-build.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "plan",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "scripts/milestones.py",
+      "check-plan"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:21.394789+00:00",
+    "finished_at": "2026-09-26T05:07:23.949376+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/plan.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "cli-readonly",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "scripts/w00_cli_check.py"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:22.653738+00:00",
+    "finished_at": "2026-09-26T05:07:27.208409+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/cli-readonly.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  },
+  {
+    "id": "whitespace",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse",
+    "tool_versions": {
+      "python": "Python 3.14.7",
+      "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+      "node": "v20.20.2",
+      "npm": "10.8.2"
+    },
+    "started_at": "2026-09-26T05:07:23.949693+00:00",
+    "finished_at": "2026-09-26T05:07:23.961076+00:00",
+    "exit_code": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "live": false,
+    "log_ref": "docs/development/reports/W14/final-tests/whitespace.log",
+    "snapshot_digest": "3aa0cdb6d392e310063e6553af558e879dbc0e5d5c58ffd9ca8efc94943de3e9"
+  }
+]

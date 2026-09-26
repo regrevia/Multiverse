@@ -17,6 +17,10 @@ The implementation is a local development preview. Portable host embedding,
 remote Connectors, Feishu channels, and Codex/Pi/Claude session management are
 design targets, not completed integrations.
 
+The [release support matrix](docs/release/SUPPORT_MATRIX.md) separates current
+development evidence from mandatory v1 targets. The [acceptance ledger](docs/release/ACCEPTANCE.json)
+tracks every required criterion; profile Schema validation is not deployment support.
+
 ## Agent Authoring Preflight
 
 ```bash

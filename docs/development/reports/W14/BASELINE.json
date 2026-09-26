@@ -1,0 +1,17 @@
+{
+  "package_id": "W14",
+  "head": "4a4cf9225e22a2539f83afd3e9907bc14861a1bc",
+  "started_at": "2026-09-26T04:55:52.561753+00:00",
+  "worktree": "/home/aied/tanyicheng/multiverse/.multiverse/worktrees/w14",
+  "branch": "work/w14-release",
+  "dependencies_verified": "W01 implementation and receipt verified remotely; check W01 --phase remote passed",
+  "concurrency": "User-authorized parallel isolated worktrees; main serializes integration, reviews and pushes",
+  "agents": [
+    {
+      "task_id": "/root/w14_release_contract",
+      "role": "implementation",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    }
+  ]
+}
