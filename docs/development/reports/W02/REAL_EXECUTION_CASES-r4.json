@@ -1,0 +1,673 @@
+{
+  "scope": "Local deterministic Host subprocess/TCP/crash/artifacts plus generic HTTP client checks; includes pure validation cases; no external model or human acceptance",
+  "snapshot_digest": "9e016ee83e5dcc1f83b859bde615733f5aa1d1589337a9eca8b2fcf3da0f0fbd",
+  "source": "docs/development/reports/W02/final-tests-r4/python.junit.xml",
+  "cases": [
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[-declarations0]",
+      "time": "0.600",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[Path('bad').symlink_to('/etc/hosts')-declarations1]",
+      "time": "0.600",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[Path('bad').mkdir()-declarations2]",
+      "time": "0.648",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[Path('bad').write_bytes(b'x'*1048577)-declarations3]",
+      "time": "0.616",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[Path('bad').write_bytes(b'x')-declarations4]",
+      "time": "0.657",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_host_rejects_unsafe_or_excessive_artifacts[Path('bad').write_bytes(b'x'*1048576)-declarations5]",
+      "time": "0.713",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_artifacts",
+      "name": "test_real_program_file_imported_by_runtime_and_read_through_artifact_acl",
+      "time": "1.009",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_cli",
+      "name": "test_real_cli_runs_operator_program_and_shuts_down",
+      "time": "0.269",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_crash_recovery",
+      "name": "test_actual_sigkill_launch_windows_are_unknown_and_never_relaunched[after_intent]",
+      "time": "0.302",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_crash_recovery",
+      "name": "test_actual_sigkill_launch_windows_are_unknown_and_never_relaunched[before_launch]",
+      "time": "0.329",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_crash_recovery",
+      "name": "test_actual_sigkill_launch_windows_are_unknown_and_never_relaunched[after_launch]",
+      "time": "0.374",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_crash_recovery",
+      "name": "test_terminal_result_and_artifact_survive_real_service_restart",
+      "time": "0.400",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_durable_dedup_conflict_and_observation",
+      "time": "0.747",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_dropped_submit_response_recovers_original_real_execution",
+      "time": "0.637",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('x'*100000)-options0-PROCESS_OUTPUT_LIMIT]",
+      "time": "0.597",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[import sys; sys.stderr.write('x'*100000)-options1-PROCESS_LOG_LIMIT]",
+      "time": "0.592",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[import time; time.sleep(10)-options2-PROCESS_TIMEOUT]",
+      "time": "0.686",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('not json')-options3-PROCESS_OUTPUT_INVALID]",
+      "time": "0.605",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{}{}')-options4-PROCESS_OUTPUT_INVALID]",
+      "time": "0.595",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{},\"output\":{}}')-options5-PROCESS_OUTPUT_INVALID]",
+      "time": "0.600",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{\"x\":NaN}}')-options6-PROCESS_OUTPUT_INVALID]",
+      "time": "0.598",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{\"x\":Infinity}}')-options7-PROCESS_OUTPUT_INVALID]",
+      "time": "0.600",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{\"x\":1e999}}')-options8-PROCESS_OUTPUT_INVALID]",
+      "time": "0.592",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{\"x\":-1e999}}')-options9-PROCESS_OUTPUT_INVALID]",
+      "time": "0.599",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":{},\"unexpected\":1}')-options10-PROCESS_OUTPUT_INVALID]",
+      "time": "0.593",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_process_output_boundaries[print('{\"output\":[]}')-options11-PROCESS_OUTPUT_INVALID]",
+      "time": "0.594",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_real_cancel_only_owned_process_group_and_persisted_receipt",
+      "time": "0.636",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_environment_does_not_inherit_secrets",
+      "time": "0.664",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_http_rejects_ambiguous_or_nonfinite_json[{\"x\":1,\"x\":2}]",
+      "time": "0.921",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_http_rejects_ambiguous_or_nonfinite_json[{\"x\":NaN}]",
+      "time": "0.867",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_http_rejects_ambiguous_or_nonfinite_json[{\"x\":Infinity}]",
+      "time": "0.540",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_http_rejects_ambiguous_or_nonfinite_json[{\"x\":1e999}]",
+      "time": "0.553",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_http_rejects_ambiguous_or_nonfinite_json[{\"x\":-1e999}]",
+      "time": "0.546",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_cancel_before_launch_does_not_start_program",
+      "time": "0.598",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_closing_output_pipes_is_not_process_exit",
+      "time": "0.788",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_expired_deadline_is_rejected_without_intent",
+      "time": "0.545",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_browser_cross_site_and_dns_rebinding_cannot_create_intent[headers0-415]",
+      "time": "0.543",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_browser_cross_site_and_dns_rebinding_cannot_create_intent[headers1-415]",
+      "time": "0.547",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_browser_cross_site_and_dns_rebinding_cannot_create_intent[headers2-403]",
+      "time": "0.547",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_browser_cross_site_and_dns_rebinding_cannot_create_intent[headers3-403]",
+      "time": "0.538",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_browser_cross_site_and_dns_rebinding_cannot_create_intent[headers4-403]",
+      "time": "0.546",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_slow_request_body_has_absolute_deadline",
+      "time": "5.534",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_http_job_service",
+      "name": "test_expired_duplicate_returns_original_but_new_work_and_conflict_are_rejected",
+      "time": "1.564",
+      "passed": true
+    },
+    {
+      "classname": "tests.execution_host.test_store",
+      "name": "test_persisted_events_are_bounded_and_terminal_observation_is_immutable",
+      "time": "0.209",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_bytes_import_and_reopen_after_registration_before_attempt_finish",
+      "time": "0.868",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[namespace-other]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[executionRef-other]",
+      "time": "0.504",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[version-True]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[version-2]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[sizeBytes-True]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[sizeBytes--1]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[sizeBytes-1048577]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[artifactId-..]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[artifactId-%2fetc]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[artifactId-x/y]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[digest-sha256:gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[name-]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[mediaType-\\n]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_metadata_rejected_before_content_fetch[metadataURL-http://example.invalid/secret]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[digest]",
+      "time": "0.507",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[size]",
+      "time": "0.507",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[oversized]",
+      "time": "0.507",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[namespace]",
+      "time": "0.505",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[execution]",
+      "time": "0.504",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[changed]",
+      "time": "0.504",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[redirect]",
+      "time": "0.505",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[content_redirect]",
+      "time": "0.507",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_tcp_corrupt_or_misdirected_transfer_is_rejected[metadata_limit]",
+      "time": "0.506",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_batch_limits_reject_before_fetch[items0]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_batch_limits_reject_before_fetch[items1]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_batch_limits_reject_before_fetch[items2]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_old_executor_without_artifacts_needs_no_new_endpoint[True]",
+      "time": "0.749",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_old_executor_without_artifacts_needs_no_new_endpoint[False]",
+      "time": "0.745",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_bad_batch_never_registers_first_valid_item",
+      "time": "0.855",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_source_conflict_and_wrong_attempt_cannot_import",
+      "time": "0.750",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_business_refs_cannot_replace_import",
+      "time": "0.702",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_ledger_batch_transaction_rolls_back_ready_rows_and_sources",
+      "time": "0.729",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_downloaded_artifact_cannot_be_referenced_by_another_run",
+      "time": "0.720",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_artifact_import_after_cancel_does_not_dispatch_downstream",
+      "time": "0.755",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_bad_artifact_result_persistently_blocks_without_blind_retry[digest]",
+      "time": "0.714",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_bad_artifact_result_persistently_blocks_without_blind_retry[namespace]",
+      "time": "0.707",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_bad_artifact_result_persistently_blocks_without_blind_retry[schema]",
+      "time": "0.714",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_transport_failure_preserves_wait_for_recovery",
+      "time": "0.723",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_artifact_transfer",
+      "name": "test_submit_redirect_stays_unknown_and_is_never_followed",
+      "time": "0.506",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_http_job_client_supports_standard_lifecycle_and_deduplicates_submit",
+      "time": "0.515",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_http_job_client_reports_transport_uncertainty_without_retrying_submit",
+      "time": "0.505",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_legacy_no_artifact_execution_references_complete_real_http_lifecycle[job:123]",
+      "time": "0.509",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_legacy_no_artifact_execution_references_complete_real_http_lifecycle[job:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "time": "0.509",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_legacy_no_artifact_execution_references_complete_real_http_lifecycle[job:\\u4efb\\u52a1 123]",
+      "time": "0.509",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[ ]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[.]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[..]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[ .. ]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[../other]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job/other]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job\\\\other]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job?query=1]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job#fragment]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[%2e%2e]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job%2Fother]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[%252e%252e]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job\\x00]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job\\r\\nX-Injected: true]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job\\x7f]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_unsafe_execution_references_are_rejected_before_any_http_request[job\\x85]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_blob_id_constraints_remain_strict_independently_of_execution_reference[blob:123]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_blob_id_constraints_remain_strict_independently_of_execution_reference[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_blob_id_constraints_remain_strict_independently_of_execution_reference[\\u6587\\u4ef6]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_blob_id_constraints_remain_strict_independently_of_execution_reference[..]",
+      "time": "0.502",
+      "passed": true
+    },
+    {
+      "classname": "tests.runtime.test_http_job",
+      "name": "test_blob_id_constraints_remain_strict_independently_of_execution_reference[%2e%2e]",
+      "time": "0.502",
+      "passed": true
+    }
+  ]
+}

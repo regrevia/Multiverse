@@ -1,0 +1,23 @@
+{
+  "id": "npm-ci",
+  "command": [
+    "npm",
+    "ci"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse/inspector",
+  "tool_versions": {
+    "python": "Python 3.14.7",
+    "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+    "node": "v20.20.2",
+    "npm": "10.8.2"
+  },
+  "started_at": "2026-09-26T05:43:19.826535+00:00",
+  "finished_at": "2026-09-26T05:43:23.859871+00:00",
+  "exit_code": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "live": false,
+  "log_ref": "docs/development/reports/W02/final-tests-r4/npm-ci.log",
+  "snapshot_digest": "9e016ee83e5dcc1f83b859bde615733f5aa1d1589337a9eca8b2fcf3da0f0fbd"
+}

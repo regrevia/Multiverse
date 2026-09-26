@@ -1020,6 +1020,24 @@ V0.1 通用 HTTP Adapter 使用以下端点；第三方不具备这些接口时�
 | `POST /v1/executions/{id}/cancel` | 取消请求，接收成功返回 202 |
 | `GET /v1/executions/{id}/artifacts` | 获取 Artifact 元数据 |
 
+W02 的可信 loopback 宿主在既有元数据端点上返回
+`{executionRef, namespace, artifacts}`；每件元数据固定为
+`{artifactId, version: 1, executionRef, namespace, name, mediaType, sizeBytes, digest}`。
+有产物的终态观察包含同一 `artifacts` 列表；`output.artifact_refs` 留空，由 Runtime 导入后填写。
+字节读取补充端点为 `GET /v1/executions/{id}/artifacts/{artifactId}/content`。
+它返回原始字节，不返回文件路径。Runtime 仅构造同源固定端点、拒绝重定向，核对执行身份、
+本机配置 namespace、版本、SHA-256、实际字节数后进入既有受控 Artifact 存储和 ACL。
+本机宿主 namespace 由操作者配置（默认 `local`），不是调用者提供的权限证明。
+每件最多 1 MiB、最多 8 件、合计最多 4 MiB；元数据总响应最多 200 KB。
+按 `(attemptId, executionRef, artifactId, version)` 幂等登记，来源元数据变化必须拒绝；
+登记后 Runtime 崩溃重放不得重复创建引用。旧执行器未声明产物时保留原有观察行为。
+
+宿主只有标准执行事实权威，不拥有 Workflow 路由。SQLite 单活锁与提交意图先于原生启动；
+启动窗口或重启后缺权威终态证据时保留 `unknown / executionFinal=false / effectState=possible`，
+同 dispatchKey 不再启动。PID 缺失不能证明副作用为 none。Linux 可信本地实现的取消声明
+`best_effort`，仅操作当前宿主持有且尚未回收进程身份的任务专属进程组；不承诺杀死主动逃逸的进程。
+Runtime 完整取消分发与竞争闭合仍由 W16 负责；支持宿主 cancel 端点不代表 Runtime 已完成接线。
+
 lookup 的普通 404 不能自动解释为“可以安全重做”。只有 Descriptor 声明 strong，且响应明确为 `not_created`，才构成该提交没有创建工作的证明。业务系统的最终一致列表缺少某项不构成证明。
 
 请求认证使用部署配置的受限凭据。必须验证 TLS；禁止以禁用证书验证解决连接问题。允许对明确配置的开发地址使用 HTTP，但不可作为公共服务默认设置。

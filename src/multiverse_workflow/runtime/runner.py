@@ -21,6 +21,7 @@ from multiverse_workflow.runtime.executors import (
 from multiverse_workflow.runtime.http_job import (
     HttpJobClient,
     HttpJobError,
+    HttpJobProtocolError,
     HttpJobTransportError,
 )
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict, error_output
@@ -478,14 +479,72 @@ class Runner:
             if invocation is None:
                 raise RunError("external observation invocation is missing")
             node = plan.nodes[invocation["node_id"]]
-            self._validate_schema(output, node["definition"]["outputSchema"])
-            self._validate_artifact_refs(run["id"], output)
-            self.ledger.finish_attempt(attempt_id, status="succeeded", output=output)
+            observed_artifacts = observation.get("artifacts", [])
+            try:
+                if observed_artifacts != []:
+                    if not isinstance(output, dict) or output.get("artifact_refs", []) != []:
+                        raise RunError(
+                            "HTTP Job artifact output must be an object with empty artifact_refs"
+                        )
+                    if self._artifact_refs(output):
+                        raise RunError(
+                            "HTTP Job artifact output must not provide artifact references"
+                        )
+                    downloaded = self._http_job_client(attempt_id).download_artifacts(
+                        external_ref,
+                        run["namespace"],
+                        observed_artifacts,
+                    )
+                    refs = self.ledger.register_external_artifacts(
+                        attempt_id=attempt_id,
+                        execution_ref=external_ref,
+                        artifacts=downloaded,
+                    )
+                    output = {**output, "artifact_refs": refs}
+                self._validate_schema(output, node["definition"]["outputSchema"])
+                self._validate_artifact_refs(run["id"], output)
+            except (HttpJobProtocolError, LedgerConflict, RunError) as exc:
+                if observed_artifacts == []:
+                    raise
+                # Keep the original observation as evidence, but never copy remote
+                # output/metadata into the public diagnostic or retry a known bad batch.
+                artifact_error: dict[str, Any] = {
+                    "code": "EXECUTOR_PROTOCOL_VIOLATION",
+                    "message": "HTTP Job artifact result failed validation.",
+                    "details": {"failureType": type(exc).__name__},
+                }
+                self.ledger.record_event(
+                    run["id"], "executor.artifacts.rejected",
+                    {"attemptId": attempt_id, "externalRef": external_ref, "error": artifact_error},
+                    scope_id=attempt["scope_id"], invocation_id=attempt["invocation_id"],
+                    attempt_id=attempt_id,
+                )
+                self.ledger.update_run(
+                    run["id"], status="blocked", current_scope_id=attempt["scope_id"],
+                    current_node_id=invocation["node_id"],
+                    current_invocation_id=invocation["id"], error=artifact_error,
+                )
+                result["status"] = "blocked"
+                result["wait_status"] = "completed"
+                return result
+            self.ledger.finish_attempt(
+                attempt_id, status="succeeded", output=output, external_ref=external_ref,
+            )
             self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+            current_run = self.ledger.get_run(run["id"])
+            if current_run is not None and current_run["control_mode"] == "cancel":
+                self._cancel_scope(
+                    run["id"], scope["id"], invocation["node_id"],
+                    {"code": "RUN_CANCELLED", "message": "Cancelled before downstream dispatch."},
+                )
+                result["status"] = "cancelled"
+                result["wait_status"] = "completed"
+                return result
             next_node = node["definition"]["next"]
             self.ledger.update_run(
                 run["id"],
-                status="running",
+                status=("paused" if current_run and current_run["control_mode"] == "pause"
+                        else "running"),
                 current_scope_id=scope["id"],
                 current_node_id=next_node,
                 current_invocation_id=None,

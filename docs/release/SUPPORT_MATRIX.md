@@ -1,6 +1,6 @@
 # v1 发布支持矩阵
 
-唯一行为规范为 [MULTIVERSE_SPEC.md](../spec/MULTIVERSE_SPEC.md#sec-0-7)。本文件记录目标与证据，不新增协议。目标软件为1.0.0；当前0.1.0仍是本地开发预览。盘点基线为 `4a4cf9225e22a2539f83afd3e9907bc14861a1bc`（W01）。W14静态测试验证契约一致性，不新增平台或真实集成通过声明。
+唯一行为规范为 [MULTIVERSE_SPEC.md](../spec/MULTIVERSE_SPEC.md#sec-0-7)。本文件记录目标与证据，不新增协议。目标软件为1.0.0；当前0.1.0仍是本地开发预览。原有能力盘点基线为 `4a4cf9225e22a2539f83afd3e9907bc14861a1bc`（W01）；W02执行宿主行按该包报告增补，不扩展到其他平台。W14静态测试验证契约一致性，不新增平台或真实集成通过声明。
 
 `implemented` 表示存在限定实现；`verified` 必须注明实测范围和固定证据；`unsupported` 表示当前完整能力不可用。它们描述能力，不是ACCEPTANCE中的验收结论。`pending/failed/passed/blocked` 描述完整要求的验收状态。部分实现不会令完整ID自动passed。当前没有达到v1全部门槛的supported发行组合。
 
@@ -13,7 +13,7 @@
 | SQLite台账、持久Run/人工请求、幂等回执 | implemented；开发回归已验证子集 | runtime/ledger.py、tests/runtime/test_ledger.py、tests/runtime/test_runner.py | PostgreSQL/单活W15、真实人工W04/W20 |
 | workflow/parallel/repeat持久子scope与汇合 | implemented；完整语义pending | runtime/runner.py、tests/runtime/test_runner.py | W16完整调度、乱序/故障/取消传播；不得把图形或注释当保证 |
 | Runtime暂停/取消/核对 | implemented；端到端取消pending | Runner.cancel保存ledger控制意图；tests/runtime/test_runner.py | 当前Runner取消没有调用HTTP Job cancel；W02服务端进程取消不等于W16 Runtime完整分发/竞争语义 |
-| Local Process、HTTP Job客户端与运行适配 | implemented；受控测试子集 | runtime/executors.py、runtime/http_job.py；tests/runtime/test_http_job_runtime.py | 真实Bridge/进程树W02、恢复边界W16；当前HTTP产物字节导入未闭合 |
+| Local Process、HTTP Job客户端与本地执行宿主 | implemented；Linux可信loopback确定性程序范围 | execution_host/、runtime/http_job.py；tests/execution_host、tests/runtime/test_http_artifact_transfer.py；[W02报告](../development/reports/W02/REPORT.md) | W02有持久去重、真实启动崩溃/重启查询、best-effort进程组取消及有界同源产物校验登记；不等于公网认证、沙箱、原生会话恢复或W16完整Runtime取消 |
 | API/CLI/Inspector命令、事件与人工入口 | implemented；本地开发子集 | api/app.py、cli/main.py、inspector/src/runtime；tests/api、tests/cli、Inspector单测 | 任意结构化表单/上传/嵌入SDK W20；客户端过期W25 |
 | 本地默认身份与权限 | implemented（trusted-local） | api/dependencies.py的LocalPrincipal默认有本地全部scope；local.process.v1继承Worker权限 | 非默认最小授权证明；团队主体/namespace W17、策略W18 |
 | PostgreSQL 17 / LangGraph持久后端 | unsupported | SQLite不能替代；W15/W16为待实现要求 | 真实事务、checkpoint、崩溃和单活恢复 |

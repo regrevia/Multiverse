@@ -6,7 +6,10 @@ import asyncio
 import json
 import shutil
 import tomllib
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 import httpx
 import pytest
@@ -137,30 +140,52 @@ async def _check_api_compatibility(tmp_path: Path) -> None:
     application.state.runtime.close()
 
 
+@pytest.fixture
+def compatibility_job_server() -> Iterator[
+    tuple[str, dict[str, str], list[tuple[str, str, object]]]
+]:
+    payload = {"futureOptionalField": "retained"}
+    seen: list[tuple[str, str, object]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            seen.append((self.command, self.path, json.loads(self.rfile.read(length))))
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", payload, seen
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 @pytest.mark.parametrize("valid", [True, False])
 def test_http_job_v1_response_extensions_do_not_replace_required_fields(
-    monkeypatch: pytest.MonkeyPatch,
+    compatibility_job_server: tuple[str, dict[str, str], list[tuple[str, str, object]]],
     valid: bool,
 ) -> None:
-    from io import BytesIO
-    from urllib.request import Request
+    from multiverse_workflow.runtime.http_job import HttpJobClient, HttpJobProtocolError
 
-    import multiverse_workflow.runtime.http_job as http_job
-
-    payload = {"futureOptionalField": "retained"}
+    base_url, payload, seen = compatibility_job_server
     if valid:
         payload["executionRef"] = "exec-compat"
-    seen = []
-
-    def response(request: Request, **kwargs: object) -> BytesIO:
-        seen.append(request.full_url)
-        return BytesIO(json.dumps(payload).encode())
-
-    monkeypatch.setattr(http_job, "urlopen", response)
-    client = http_job.HttpJobClient("https://fixture.invalid")
+    client = HttpJobClient(base_url, timeout_seconds=2)
     if valid:
         assert client.submit({"dispatchKey": "fixture"}) == payload
     else:
-        with pytest.raises(http_job.HttpJobProtocolError, match="executionRef"):
+        with pytest.raises(HttpJobProtocolError, match="executionRef"):
             client.submit({"dispatchKey": "fixture"})
-    assert seen == ["https://fixture.invalid/v1/executions"]
+    assert seen == [("POST", "/v1/executions", {"dispatchKey": "fixture"})]

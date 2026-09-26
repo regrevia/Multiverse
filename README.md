@@ -97,6 +97,11 @@ production hosting/IAM, and Latent Handoff remain outside this preview.
 
 ### Standard HTTP Job Binding
 
+The [trusted local execution host](docs/authoring/EXECUTION_HOST.md) provides a
+Linux loopback reference service with durable dispatch, bounded program output,
+owned-process cancellation, and verified artifact byte transfer into the Runtime.
+It is a trusted development mode; it does not provide public authentication or a sandbox.
+
 An HTTP Job Binding uses the standard `/v1` lifecycle and must be registered as
 an installed, available, and verified executor. Its configuration supplies the
 service URL and request timeout:

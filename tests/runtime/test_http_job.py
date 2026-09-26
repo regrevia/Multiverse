@@ -4,12 +4,13 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import pytest
 
 from multiverse_workflow.runtime.http_job import (
     HttpJobClient,
+    HttpJobProtocolError,
     HttpJobTransportError,
 )
 
@@ -18,6 +19,7 @@ class _JobHandler(BaseHTTPRequestHandler):
     requests: list[tuple[str, str, dict[str, Any] | None]] = []
     executions: dict[str, dict[str, Any]] = {}
     fail_submit = False
+    execution_ref: str | None = None
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -61,7 +63,7 @@ class _JobHandler(BaseHTTPRequestHandler):
             self._json(200, {"status": "not_created", "dispatchKey": key})
             return
         if parsed.path.startswith("/v1/executions/"):
-            execution_id = parsed.path.rsplit("/", 1)[-1]
+            execution_id = unquote(parsed.path.rsplit("/", 1)[-1])
             execution = self.executions[execution_id]
             self._json(200, execution["observation"])
             return
@@ -80,7 +82,7 @@ class _JobHandler(BaseHTTPRequestHandler):
                 if execution["dispatchKey"] == dispatch_key:
                     self._json(200, {"executionRef": execution_id, "status": "accepted"})
                     return
-            execution_id = f"exec-{len(self.executions) + 1}"
+            execution_id = self.execution_ref or f"exec-{len(self.executions) + 1}"
             self.executions[execution_id] = {
                 "executionRef": execution_id,
                 "dispatchKey": dispatch_key,
@@ -97,6 +99,8 @@ class _JobHandler(BaseHTTPRequestHandler):
             self._json(201, {"executionRef": execution_id, "status": "accepted"})
             return
         if self.path.startswith("/v1/executions/") and self.path.endswith("/cancel"):
+            execution_id = unquote(self.path.removesuffix("/cancel").rsplit("/", 1)[-1])
+            assert execution_id in self.executions
             self._json(202, {"status": "accepted"})
             return
         self._json(404, {"error": "not found"})
@@ -107,6 +111,7 @@ def job_server() -> str:
     _JobHandler.requests = []
     _JobHandler.executions = {}
     _JobHandler.fail_submit = False
+    _JobHandler.execution_ref = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), _JobHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -170,3 +175,71 @@ def test_http_job_client_reports_transport_uncertainty_without_retrying_submit(
     with pytest.raises(HttpJobTransportError, match="submit result is unknown"):
         client.submit(_request())
 
+
+@pytest.mark.parametrize("execution_ref", ["job:123", "job:" + "x" * 300, "job:任务 123"])
+def test_legacy_no_artifact_execution_references_complete_real_http_lifecycle(
+    job_server: str,
+    execution_ref: str,
+) -> None:
+    _JobHandler.execution_ref = execution_ref
+    client = HttpJobClient(job_server, timeout_seconds=2)
+    accepted = client.submit(_request())
+    assert accepted["executionRef"] == execution_ref
+    assert client.observe(execution_ref)["executionRef"] == execution_ref
+    assert client.cancel(execution_ref, "legacy-cancel")["status"] == "accepted"
+    encoded = quote(execution_ref, safe=":@!$&'()*+,;=-._~")
+    assert [(method, path) for method, path, _ in _JobHandler.requests] == [
+        ("POST", "/v1/executions"),
+        ("GET", f"/v1/executions/{encoded}"),
+        ("POST", f"/v1/executions/{encoded}/cancel"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "execution_ref",
+    [
+        "",
+        " ",
+        ".",
+        "..",
+        " .. ",
+        "../other",
+        "job/other",
+        "job\\other",
+        "job?query=1",
+        "job#fragment",
+        "%2e%2e",
+        "job%2Fother",
+        "%252e%252e",
+        "job\x00",
+        "job\r\nX-Injected: true",
+        "job\x7f",
+        "job\x85",
+    ],
+)
+def test_unsafe_execution_references_are_rejected_before_any_http_request(
+    job_server: str,
+    execution_ref: str,
+) -> None:
+    client = HttpJobClient(job_server, timeout_seconds=2)
+    operations = [
+        lambda: client.observe(execution_ref),
+        lambda: client.cancel(execution_ref, "cancel-dangerous"),
+        lambda: client.fetch_artifacts(execution_ref),
+        lambda: client.fetch_artifact_content(execution_ref, "safe-blob"),
+    ]
+    for operation in operations:
+        with pytest.raises(HttpJobProtocolError, match="safe opaque path segment"):
+            operation()
+    assert not _JobHandler.requests
+
+
+@pytest.mark.parametrize("artifact_id", ["blob:123", "x" * 201, "文件", "..", "%2e%2e"])
+def test_blob_id_constraints_remain_strict_independently_of_execution_reference(
+    job_server: str,
+    artifact_id: str,
+) -> None:
+    client = HttpJobClient(job_server, timeout_seconds=2)
+    with pytest.raises(HttpJobProtocolError, match="safe opaque path segment"):
+        client.fetch_artifact_content("job:123", artifact_id)
+    assert not _JobHandler.requests

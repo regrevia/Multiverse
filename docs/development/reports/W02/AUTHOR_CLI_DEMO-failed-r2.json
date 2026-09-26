@@ -1,0 +1,75 @@
+{
+  "scope": "Real deterministic CLI host -> CLI run/worker -> Runtime artifacts -> pending human request; no model or human decision",
+  "snapshot_digest": "137f4078b8ca2b2a95a082e89a6bfb1117d168d899a248a7ac7385359f916e1a",
+  "started_at": "2026-09-26T05:30:40.509110+00:00",
+  "host": {
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "-m",
+      "multiverse_workflow.execution_host",
+      "--trusted-loopback",
+      "--database",
+      "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/host.db",
+      "--root",
+      "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/jobs",
+      "--executor-ref",
+      "example.remote-content.v1",
+      "--port",
+      "0",
+      "--capability",
+      "content.produce@1",
+      "--capability",
+      "content.review@1",
+      "--",
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "/home/aied/tanyicheng/multiverse/examples/execution-host/deterministic_program.py"
+    ],
+    "ready": "Trusted loopback execution host: http://127.0.0.1:42573"
+  },
+  "host_shutdown": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "steps": [
+    {
+      "name": "discover",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "capabilities",
+        "--executor",
+        "example.remote-content.v1",
+        "--registry",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/registry",
+        "--json"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "stdout": "{\"executors\": [{\"adapter\": \"http_job\", \"available\": true, \"capabilities\": [\"content.produce@1\", \"content.review@1\"], \"configSchema\": {\"allOf\": [{\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"additionalProperties\": false, \"properties\": {\"baseUrl\": {\"pattern\": \"^https?://[^\\\\s/?#]+(?:/[^\\\\s?#]*)?$\", \"type\": \"string\"}, \"timeoutSeconds\": {\"exclusiveMinimum\": 0, \"type\": \"number\"}}, \"required\": [\"baseUrl\"], \"type\": \"object\"}, {\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"additionalProperties\": false, \"properties\": {\"baseUrl\": {\"pattern\": \"^https?://[^\\\\s/?#]+(?:/[^\\\\s?#]*)?$\", \"type\": \"string\"}, \"timeoutSeconds\": {\"exclusiveMinimum\": 0, \"type\": \"number\"}}, \"required\": [\"baseUrl\"], \"type\": \"object\"}]}, \"configSchemaDigest\": \"sha256:35d267cf85b773e39c6aa1fdadde549ced2c9ab2b26c81b494e02e3a9f1c99cb\", \"configSchemaRef\": \"example.remote-content.v1.schema.json\", \"contractVersion\": \"multiverse/v0.1\", \"declared\": true, \"effectiveConfigSchemaDigest\": \"sha256:2d60ae21f546166af02222ef554ebb78e3f6fbb953a762419eca49f3f38a2b62\", \"executorRef\": \"example.remote-content.v1\", \"executorVersion\": \"1.0.0\", \"installed\": true, \"observabilityLevel\": \"external\", \"permissionLevel\": \"trusted_local\", \"supportsCancel\": true, \"supportsIdempotency\": true, \"supportsRecoveryQuery\": true, \"verificationEvidence\": {\"cases\": [\"real subprocess, crash recovery, owned-group cancel, artifact import\"], \"environment\": \"trusted-loopback Linux deterministic program\", \"executorVersion\": \"1.0.0\", \"kind\": \"operator-attestation\", \"reference\": \"tests/execution_host\"}, \"verified\": true}], \"protocolVersion\": \"multiverse/v0.1\", \"scope\": \"local\"}\n",
+      "stderr": ""
+    },
+    {
+      "name": "preflight",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "preflight",
+        "presets/content-delivery",
+        "--binding",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/binding.yaml",
+        "--registry",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/registry",
+        "--json"
+      ],
+      "exit_code": 2,
+      "expected_exit_code": 0,
+      "stdout": "{\"checked\": [\"static-validation\"], \"diagnostics\": [{\"code\": \"INVALID_SPEC\", \"details\": {\"type\": \"value_error\"}, \"file\": \"/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-g97hof1y/binding.yaml\", \"message\": \"Value error, secretRefs.authorization must use secret:// references\", \"pointer\": \"/spec/slots/producer/secretRefs\", \"severity\": \"error\"}], \"notChecked\": [\"executor-registry\", \"live-connectivity\", \"executor-config\", \"credentials\", \"authorization\", \"sandbox-enforcement\", \"human-channel-delivery\", \"business-quality\"], \"ok\": false, \"planDigests\": {}, \"reportVersion\": \"multiverse.preflight/v0.1\", \"scope\": \"local-registry\"}\n",
+      "stderr": ""
+    }
+  ]
+}

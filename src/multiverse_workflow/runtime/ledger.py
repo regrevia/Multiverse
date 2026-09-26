@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from collections.abc import Iterator
@@ -9,6 +10,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
+
+from multiverse_workflow.runtime.http_job import (
+    validate_artifact_content,
+    validate_artifact_metadata,
+)
 
 _UNSET = object()
 
@@ -2388,6 +2394,109 @@ class Ledger:
             )
         return self.get_artifact(artifact_id)  # type: ignore[return-value]
 
+    def register_external_artifacts(
+        self,
+        *,
+        attempt_id: str,
+        execution_ref: str,
+        artifacts: list[tuple[dict[str, Any], bytes]],
+    ) -> list[str]:
+        """Import a verified batch atomically, deduplicated by immutable source identity.
+
+        Files are durable before any ready row becomes visible. A crash before the
+        transaction commits can leave unreferenced files, never a partial ready row.
+        """
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None or attempt["external_ref"] != execution_ref:
+            raise LedgerConflict("artifact source does not match attempt")
+        run = self.get_run(attempt["run_id"])
+        invocation = self.get_invocation(attempt["invocation_id"])
+        if (
+            run is None
+            or invocation is None
+            or invocation["run_id"] != run["id"]
+            or invocation["scope_id"] != attempt["scope_id"]
+        ):
+            raise LedgerConflict("artifact attempt ownership is invalid")
+        metadata = [item for item, _ in artifacts]
+        validate_artifact_metadata(metadata, execution_ref, run["namespace"])
+        observation = json.loads(attempt["observation_json"] or "null")
+        if (
+            not isinstance(observation, dict)
+            or observation.get("status") != "succeeded"
+            or observation.get("executionFinal") is not True
+            or observation.get("executionRef") != execution_ref
+            or observation.get("artifacts") != metadata
+        ):
+            raise LedgerConflict("artifact source differs from persisted observation")
+        for item, content in artifacts:
+            validate_artifact_content(item, content)
+        refs = []
+        with self._transaction() as connection:
+            current = self._require_attempt(connection, attempt_id)
+            if (
+                current["external_ref"] != execution_ref
+                or current["observation_json"] != attempt["observation_json"]
+            ):
+                raise LedgerConflict("artifact source changed during import")
+            for item, content in artifacts:
+                source_key = (attempt_id, execution_ref, item["artifactId"], item["version"])
+                existing = connection.execute(
+                    "SELECT * FROM external_artifact_sources WHERE attempt_id = ? "
+                    "AND execution_ref = ? AND source_artifact_id = ? AND version = ?",
+                    source_key,
+                ).fetchone()
+                if existing is not None:
+                    if existing["metadata_json"] != _json(item):
+                        raise LedgerConflict("artifact source metadata conflict")
+                    self.validate_artifact_refs(run["id"], [existing["artifact_id"]])
+                    refs.append(existing["artifact_id"])
+                    continue
+                artifact_id = _new_id("artifact")
+                destination = self._artifact_root / artifact_id
+                with destination.open("xb") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                directory_fd = os.open(self._artifact_root, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                connection.execute(
+                    "INSERT INTO artifacts (id, namespace, run_id, invocation_id, name, "
+                    "media_type, size_bytes, digest, storage_ref, status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?)",
+                    (
+                        artifact_id,
+                        run["namespace"],
+                        run["id"],
+                        invocation["id"],
+                        item["name"],
+                        item["mediaType"],
+                        item["sizeBytes"],
+                        item["digest"],
+                        str(destination),
+                        _now(),
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO external_artifact_sources (attempt_id, execution_ref, "
+                    "source_artifact_id, version, metadata_json, artifact_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (*source_key, _json(item), artifact_id),
+                )
+                self._event(
+                    connection,
+                    run["id"],
+                    "artifact.created",
+                    {"artifactId": artifact_id, "digest": item["digest"], "status": "ready"},
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt_id,
+                )
+                refs.append(artifact_id)
+        return refs
+
     def get_artifact(self, artifact_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
             "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
@@ -2595,7 +2704,7 @@ class Ledger:
             ).fetchone()
             if row is None:
                 raise KeyError(f"wait not found: {wait_id}")
-            if row["status"] == "completed":
+            if row["status"] in {"completed", "cancelled"}:
                 return dict(row)
             if row["status"] != "claimed":
                 raise LedgerConflict(f"wait is not claimed: {row['status']}")
@@ -3035,6 +3144,15 @@ class Ledger:
                 payload_json TEXT NOT NULL,
                 occurred_at TEXT NOT NULL,
                 UNIQUE(run_id, seq)
+            );
+            CREATE TABLE IF NOT EXISTS external_artifact_sources (
+                attempt_id TEXT NOT NULL REFERENCES attempts(id),
+                execution_ref TEXT NOT NULL,
+                source_artifact_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                metadata_json TEXT NOT NULL,
+                artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+                PRIMARY KEY (attempt_id, execution_ref, source_artifact_id, version)
             );
             CREATE TABLE IF NOT EXISTS artifacts (
                 id TEXT PRIMARY KEY,

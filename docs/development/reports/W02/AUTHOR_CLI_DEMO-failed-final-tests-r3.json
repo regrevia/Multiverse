@@ -1,0 +1,99 @@
+{
+  "scope": "Real deterministic CLI host -> CLI run/worker -> Runtime artifacts -> pending human request; no model or human decision",
+  "snapshot_digest": "d3d296a2ea23f8ed0780da53c6c57fff9787507f27ffa58d4847cfcf32112205",
+  "started_at": "2026-09-26T05:32:24.827510+00:00",
+  "host": {
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "-m",
+      "multiverse_workflow.execution_host",
+      "--trusted-loopback",
+      "--database",
+      "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/host.db",
+      "--root",
+      "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/jobs",
+      "--executor-ref",
+      "example.remote-content.v1",
+      "--port",
+      "0",
+      "--capability",
+      "content.produce@1",
+      "--capability",
+      "content.review@1",
+      "--",
+      "/home/aied/tanyicheng/multiverse/.venv/bin/python",
+      "/home/aied/tanyicheng/multiverse/examples/execution-host/deterministic_program.py"
+    ],
+    "ready": "Trusted loopback execution host: http://127.0.0.1:40101"
+  },
+  "host_shutdown": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "steps": [
+    {
+      "name": "discover",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "capabilities",
+        "--executor",
+        "example.remote-content.v1",
+        "--registry",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/registry",
+        "--json"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "stdout": "{\"executors\": [{\"adapter\": \"http_job\", \"available\": true, \"capabilities\": [\"content.produce@1\", \"content.review@1\"], \"configSchema\": {\"allOf\": [{\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"additionalProperties\": false, \"properties\": {\"baseUrl\": {\"pattern\": \"^https?://[^\\\\s/?#]+(?:/[^\\\\s?#]*)?$\", \"type\": \"string\"}, \"timeoutSeconds\": {\"exclusiveMinimum\": 0, \"type\": \"number\"}}, \"required\": [\"baseUrl\"], \"type\": \"object\"}, {\"$schema\": \"https://json-schema.org/draft/2020-12/schema\", \"additionalProperties\": false, \"properties\": {\"baseUrl\": {\"pattern\": \"^https?://[^\\\\s/?#]+(?:/[^\\\\s?#]*)?$\", \"type\": \"string\"}, \"timeoutSeconds\": {\"exclusiveMinimum\": 0, \"type\": \"number\"}}, \"required\": [\"baseUrl\"], \"type\": \"object\"}]}, \"configSchemaDigest\": \"sha256:35d267cf85b773e39c6aa1fdadde549ced2c9ab2b26c81b494e02e3a9f1c99cb\", \"configSchemaRef\": \"example.remote-content.v1.schema.json\", \"contractVersion\": \"multiverse/v0.1\", \"declared\": true, \"effectiveConfigSchemaDigest\": \"sha256:2d60ae21f546166af02222ef554ebb78e3f6fbb953a762419eca49f3f38a2b62\", \"executorRef\": \"example.remote-content.v1\", \"executorVersion\": \"1.0.0\", \"installed\": true, \"observabilityLevel\": \"external\", \"permissionLevel\": \"trusted_local\", \"supportsCancel\": true, \"supportsIdempotency\": true, \"supportsRecoveryQuery\": true, \"verificationEvidence\": {\"cases\": [\"real subprocess, crash recovery, owned-group cancel, artifact import\"], \"environment\": \"trusted-loopback Linux deterministic program\", \"executorVersion\": \"1.0.0\", \"kind\": \"operator-attestation\", \"reference\": \"tests/execution_host\"}, \"verified\": true}], \"protocolVersion\": \"multiverse/v0.1\", \"scope\": \"local\"}\n",
+      "stderr": ""
+    },
+    {
+      "name": "preflight",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "preflight",
+        "presets/content-delivery",
+        "--binding",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/binding.yaml",
+        "--registry",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/registry",
+        "--json"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "stdout": "{\"checked\": [\"static-validation\", \"executor-registry\", \"executor-config\"], \"diagnostics\": [], \"notChecked\": [\"live-connectivity\", \"credentials\", \"authorization\", \"sandbox-enforcement\", \"human-channel-delivery\", \"business-quality\"], \"ok\": true, \"planDigests\": {\"delivery\": \"sha256:c1f8a43833730e47f72651b2eb23de9a820a383092f63e02d63f6c7f08b80650\"}, \"reportVersion\": \"multiverse.preflight/v0.1\", \"scope\": \"local-registry\"}\n",
+      "stderr": ""
+    },
+    {
+      "name": "run",
+      "command": [
+        "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mverse",
+        "run",
+        "presets/content-delivery",
+        "--binding",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/binding.yaml",
+        "--registry",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/registry",
+        "--db",
+        "/home/aied/tanyicheng/multiverse/.multiverse/w02-cli-demo-ozd52wly/runtime.db",
+        "--input",
+        "examples/execution-host/input.json",
+        "--json"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 4,
+      "stdout": "{\"binding_digest\": \"sha256:8f3049a98cea95d0bb7169f89aff0a6ad9514eb812cc37042f7f1f95af08008a\", \"control_mode\": \"run\", \"created_at\": \"2026-09-26T05:32:27.646660Z\", \"current_invocation_id\": \"inv_c8adbde71e464f53a297b8d7096f811f\", \"current_node_id\": \"produce\", \"current_scope_id\": \"scope_e389d2c6482e415db21fb7e6d6f70496\", \"deadline_at\": \"2026-10-03T05:32:27.646585Z\", \"deployment_id\": null, \"error_json\": null, \"id\": \"run_913f8f3f87b54fcf8624520ef912ce2d\", \"input_digest\": \"sha256:9f3e993ba916b5c6535753bcf37f4cc76f1f9a42f15a6fbeeaebe34f1202c74a\", \"input_json\": \"{\\\"goal\\\":\\\"Write a local host demonstration\\\"}\", \"namespace\": \"local\", \"next_attempt_at\": null, \"output_json\": null, \"package_digest\": \"sha256:a534b8139ce957a25da9f21e4ef824c78c2ed930c12783a854b73b6475fe9a06\", \"plan_json\": \"{\\\"rootWorkflowId\\\":\\\"delivery\\\",\\\"workflows\\\":{\\\"delivery\\\":{\\\"bindingDigest\\\":\\\"sha256:8f3049a98cea95d0bb7169f89aff0a6ad9514eb812cc37042f7f1f95af08008a\\\",\\\"compiledPlanDigest\\\":\\\"sha256:c1f8a43833730e47f72651b2eb23de9a820a383092f63e02d63f6c7f08b80650\\\",\\\"defaults\\\":{\\\"callDeadlineSeconds\\\":3600,\\\"maxAttempts\\\":1,\\\"maxConcurrency\\\":4,\\\"runDeadlineSeconds\\\":604800},\\\"edges\\\":[{\\\"from\\\":\\\"produce\\\",\\\"to\\\":\\\"critique\\\"},{\\\"from\\\":\\\"critique\\\",\\\"to\\\":\\\"verify\\\"},{\\\"from\\\":\\\"verify\\\",\\\"to\\\":\\\"verify-route\\\"},{\\\"from\\\":\\\"verify-route\\\",\\\"to\\\":\\\"review\\\"},{\\\"from\\\":\\\"verify-route\\\",\\\"to\\\":\\\"invalid\\\"},{\\\"from\\\":\\\"review\\\",\\\"to\\\":\\\"review-route\\\"},{\\\"from\\\":\\\"review-route\\\",\\\"to\\\":\\\"complete\\\"},{\\\"from\\\":\\\"review-route\\\",\\\"to\\\":\\\"rejected\\\"}],\\\"inputSchemaDigest\\\":\\\"sha256:aabc1bafd7ae8f536e22ae66a4f9fc8b2d0b36adc1352d48225e63d054d644b2\\\",\\\"nodes\\\":{\\\"complete\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{}},\\\"definition\\\":{\\\"extensions\\\":{},\\\"outcome\\\":\\\"succeeded\\\",\\\"output\\\":{\\\"object\\\":{\\\"agentReview\\\":{\\\"ref\\\":\\\"nodes.critique.output#\\\"},\\\"deliverable\\\":{\\\"ref\\\":\\\"nodes.produce.output#\\\"},\\\"review\\\":{\\\"ref\\\":\\\"nodes.review.output#\\\"}}},\\\"type\\\":\\\"end\\\"},\\\"id\\\":\\\"complete\\\",\\\"type\\\":\\\"end\\\"},\\\"critique\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]}},\\\"definition\\\":{\\\"effects\\\":{\\\"actions\\\":[],\\\"class\\\":\\\"none\\\"},\\\"extensions\\\":{},\\\"input\\\":{\\\"object\\\":{\\\"deliverable\\\":{\\\"ref\\\":\\\"nodes.produce.output#\\\"},\\\"goal\\\":{\\\"ref\\\":\\\"input#/goal\\\"}}},\\\"inputSchema\\\":\\\"schemas/agent-review-request.json\\\",\\\"next\\\":\\\"verify\\\",\\\"outputSchema\\\":\\\"schemas/deliverable.json\\\",\\\"requires\\\":{\\\"capabilities\\\":[\\\"content.review@1\\\"]},\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]},\\\"slot\\\":\\\"critic\\\",\\\"title\\\":\\\"Agent review\\\",\\\"type\\\":\\\"call\\\"},\\\"id\\\":\\\"critique\\\",\\\"type\\\":\\\"call\\\"},\\\"invalid\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{}},\\\"definition\\\":{\\\"error\\\":{\\\"code\\\":\\\"DELIVERABLE_INVALID\\\",\\\"message\\\":\\\"Deliverable did not pass workflow validation.\\\"},\\\"extensions\\\":{},\\\"outcome\\\":\\\"failed\\\",\\\"type\\\":\\\"end\\\"},\\\"id\\\":\\\"invalid\\\",\\\"type\\\":\\\"end\\\"},\\\"produce\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]}},\\\"definition\\\":{\\\"effects\\\":{\\\"actions\\\":[\\\"content.produce\\\"],\\\"class\\\":\\\"write\\\"},\\\"extensions\\\":{},\\\"input\\\":{\\\"ref\\\":\\\"input#\\\"},\\\"inputSchema\\\":\\\"schemas/request.json\\\",\\\"next\\\":\\\"critique\\\",\\\"outputSchema\\\":\\\"schemas/deliverable.json\\\",\\\"requires\\\":{\\\"capabilities\\\":[\\\"content.produce@1\\\"]},\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]},\\\"slot\\\":\\\"producer\\\",\\\"title\\\":\\\"Produce deliverable\\\",\\\"type\\\":\\\"call\\\"},\\\"id\\\":\\\"produce\\\",\\\"type\\\":\\\"call\\\"},\\\"rejected\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{}},\\\"definition\\\":{\\\"error\\\":{\\\"code\\\":\\\"DELIVERABLE_REJECTED\\\",\\\"message\\\":\\\"Reviewer rejected the current deliverable version.\\\"},\\\"extensions\\\":{},\\\"outcome\\\":\\\"failed\\\",\\\"type\\\":\\\"end\\\"},\\\"id\\\":\\\"rejected\\\",\\\"type\\\":\\\"end\\\"},\\\"review\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":259200,\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]}},\\\"definition\\\":{\\\"deadlineSeconds\\\":259200,\\\"effects\\\":{\\\"actions\\\":[],\\\"class\\\":\\\"none\\\"},\\\"extensions\\\":{},\\\"input\\\":{\\\"object\\\":{\\\"agentReview\\\":{\\\"ref\\\":\\\"nodes.critique.output#\\\"},\\\"deliverable\\\":{\\\"ref\\\":\\\"nodes.produce.output#\\\"},\\\"verification\\\":{\\\"ref\\\":\\\"nodes.verify.output#\\\"}}},\\\"inputSchema\\\":\\\"schemas/review-input.json\\\",\\\"next\\\":\\\"review-route\\\",\\\"outputSchema\\\":\\\"schemas/review-output.json\\\",\\\"requires\\\":{\\\"capabilities\\\":[\\\"human.review@1\\\"]},\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]},\\\"slot\\\":\\\"reviewer\\\",\\\"title\\\":\\\"Human review\\\",\\\"type\\\":\\\"call\\\"},\\\"id\\\":\\\"review\\\",\\\"type\\\":\\\"call\\\"},\\\"review-route\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{}},\\\"definition\\\":{\\\"cases\\\":[{\\\"id\\\":\\\"approved\\\",\\\"next\\\":\\\"complete\\\",\\\"when\\\":{\\\"left\\\":{\\\"ref\\\":\\\"nodes.review.output#/decision\\\"},\\\"op\\\":\\\"eq\\\",\\\"right\\\":{\\\"literal\\\":\\\"approve\\\"}}}],\\\"default\\\":\\\"rejected\\\",\\\"extensions\\\":{},\\\"type\\\":\\\"switch\\\"},\\\"id\\\":\\\"review-route\\\",\\\"type\\\":\\\"switch\\\"},\\\"verify\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]}},\\\"definition\\\":{\\\"effects\\\":{\\\"actions\\\":[],\\\"class\\\":\\\"none\\\"},\\\"extensions\\\":{},\\\"input\\\":{\\\"object\\\":{\\\"agentReview\\\":{\\\"ref\\\":\\\"nodes.critique.output#\\\"},\\\"deliverable\\\":{\\\"ref\\\":\\\"nodes.produce.output#\\\"}}},\\\"inputSchema\\\":\\\"schemas/verification-input.json\\\",\\\"next\\\":\\\"verify-route\\\",\\\"outputSchema\\\":\\\"schemas/verification.json\\\",\\\"requires\\\":{\\\"capabilities\\\":[\\\"data.validate@1\\\"]},\\\"retry\\\":{\\\"backoffMultiplier\\\":2,\\\"initialDelaySeconds\\\":2,\\\"maxAttempts\\\":1,\\\"maxDelaySeconds\\\":30,\\\"retryableCodes\\\":[]},\\\"slot\\\":\\\"verifier\\\",\\\"title\\\":\\\"Validate deliverable contract\\\",\\\"type\\\":\\\"call\\\"},\\\"id\\\":\\\"verify\\\",\\\"type\\\":\\\"call\\\"},\\\"verify-route\\\":{\\\"defaults\\\":{\\\"deadlineSeconds\\\":3600,\\\"retry\\\":{}},\\\"definition\\\":{\\\"cases\\\":[{\\\"id\\\":\\\"valid\\\",\\\"next\\\":\\\"review\\\",\\\"when\\\":{\\\"left\\\":{\\\"ref\\\":\\\"nodes.verify.output#/valid\\\"},\\\"op\\\":\\\"eq\\\",\\\"right\\\":{\\\"literal\\\":true}}}],\\\"default\\\":\\\"invalid\\\",\\\"extensions\\\":{},\\\"type\\\":\\\"switch\\\"},\\\"id\\\":\\\"verify-route\\\",\\\"type\\\":\\\"switch\\\"}},\\\"outputSchemaDigest\\\":\\\"sha256:bdda068328ba2be56bb1945eb2836140e5c065fb947cd1586341067e8ac1391a\\\",\\\"packageDigest\\\":\\\"sha256:a534b8139ce957a25da9f21e4ef824c78c2ed930c12783a854b73b6475fe9a06\\\",\\\"planVersion\\\":\\\"multiverse/v0.1\\\",\\\"requiredFeatures\\\":[\\\"core.call\\\",\\\"core.human\\\",\\\"core.switch\\\"],\\\"sourceMap\\\":{\\\"complete\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/complete\\\"},\\\"critique\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/critique\\\"},\\\"invalid\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/invalid\\\"},\\\"produce\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/produce\\\"},\\\"rejected\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/rejected\\\"},\\\"review\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/review\\\"},\\\"review-route\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/review-route\\\"},\\\"verify\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/verify\\\"},\\\"verify-route\\\":{\\\"file\\\":\\\"/home/aied/tanyicheng/multiverse/presets/content-delivery/workflows/delivery.yaml\\\",\\\"pointer\\\":\\\"/spec/nodes/verify-route\\\"}},\\\"workflowId\\\":\\\"delivery\\\"}}}\", \"rerun_of\": null, \"rerun_reason\": null, \"status\": \"running\", \"updated_at\": \"2026-09-26T05:32:27.672220Z\", \"version\": 3, \"workflow_id\": \"delivery\"}\n",
+      "stderr": ""
+    }
+  ]
+}

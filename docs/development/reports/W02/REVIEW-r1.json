@@ -1,0 +1,28 @@
+{
+  "reviewer": "/root/w02_independent_review",
+  "model": "gpt-6-sol",
+  "reasoning_effort": "medium",
+  "verdict": "changes_requested",
+  "snapshot_digest": "d3d296a2ea23f8ed0780da53c6c57fff9787507f27ffa58d4847cfcf32112205",
+  "file_count": 221,
+  "findings": [
+    {
+      "id": "W02-R1",
+      "severity": "P2",
+      "status": "open",
+      "owner": "/root/w02_execution_host",
+      "summary": "Generic executionRef unexpectedly restricted to Host blob ID syntax; job:123 submit succeeds but observe/cancel fail before HTTP"
+    }
+  ],
+  "validation": {
+    "command": ".venv/bin/python -m pytest tests/execution_host tests/runtime/test_http_job.py tests/runtime/test_http_job_runtime.py tests/runtime/test_http_artifact_transfer.py tests/release/test_version_compatibility.py -q",
+    "passed": 104,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 60.14,
+    "snapshot_unchanged": true,
+    "diff_check_exit_code": 0
+  },
+  "reproduction": "Real TCP submit returns job:123; observe raises HttpJobProtocolError before HTTP request. No artifact executor also affected.",
+  "limitations": "Independent directed checks only; no full frontend/build rerun, model call or human decision."
+}

@@ -1,0 +1,36 @@
+{
+  "reason": "Preserve original failed-test output and JUnit failure trace bytes; only these historical raw evidence files contain trailing whitespace. Final source and all other staged files pass.",
+  "full_check": {
+    "command": [
+      "git",
+      "diff",
+      "--cached",
+      "--check"
+    ],
+    "exit_code": 2,
+    "output": "docs/development/reports/W02/final-tests/python.junit.xml:11: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:13: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:18: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:22: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:36: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:38: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:43: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.junit.xml:47: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:21: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:23: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:28: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:32: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:49: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:51: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:56: trailing whitespace.\n+    \ndocs/development/reports/W02/final-tests/python.log:60: trailing whitespace.\n+    \n"
+  },
+  "all_other_files": {
+    "command": [
+      "git",
+      "diff",
+      "--cached",
+      "--check",
+      "--",
+      ".",
+      ":(exclude)docs/development/reports/W02/final-tests/python.log",
+      ":(exclude)docs/development/reports/W02/final-tests/python.junit.xml"
+    ],
+    "exit_code": 0
+  },
+  "preserved_files": [
+    {
+      "path": "docs/development/reports/W02/final-tests/python.log",
+      "sha256": "5d7251fe3be3c86c2e9971fe1d5362dc311b789e8c66fa514ddc4c984b7aa4bd"
+    },
+    {
+      "path": "docs/development/reports/W02/final-tests/python.junit.xml",
+      "sha256": "bc997d69b3e9230757692d4981efe0794da7c831061cb3f71aa9399403b84daf"
+    }
+  ]
+}

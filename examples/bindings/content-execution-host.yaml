@@ -1,0 +1,43 @@
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: content-execution-host
+  version: 0.1.0
+spec:
+  slots:
+    producer:
+      adapter: http_job
+      executorRef: example.remote-content.v1
+      config:
+        baseUrl: http://127.0.0.1:8790
+        timeoutSeconds: 2
+      secretRefs: {}
+      grants:
+        - action: content.produce
+          resource: namespace:demo
+    critic:
+      adapter: http_job
+      executorRef: example.remote-content.v1
+      config:
+        baseUrl: http://127.0.0.1:8790
+        timeoutSeconds: 2
+      secretRefs: {}
+      grants:
+        - action: content.review
+          resource: namespace:demo
+    verifier:
+      adapter: builtin
+      executorRef: builtin.nonempty-deliverable.v1
+      config: {}
+      secretRefs: {}
+      grants: []
+    reviewer:
+      adapter: human
+      executorRef: builtin.human-review.v1
+      config:
+        requestType: review
+        choices: [approve, reject]
+        authorizedSubjects: [example-reviewer]
+        requireCommentFor: [reject]
+      secretRefs: {}
+      grants: []

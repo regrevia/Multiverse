@@ -1,0 +1,14 @@
+{
+  "case": "identical retry after original deadline expires",
+  "first": {
+    "executionRef": "exec-de79a26c010446d09d30bc919d38cea2",
+    "status": "accepted"
+  },
+  "created": true,
+  "stored_phase": "final",
+  "actual_retry": {
+    "error_type": "ValueError",
+    "error": "deadline must be an unexpired timezone-aware timestamp"
+  },
+  "expected": "same executionRef and created=false without another native launch"
+}
