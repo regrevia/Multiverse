@@ -1,0 +1,745 @@
+{
+  "digest": "eb3e82fb9ccbaea77052feae12357a056734fabba457fc015c57bb5d71f8c761",
+  "files": {
+    ".gitignore": {
+      "mode": "100644",
+      "sha256": "e61c1bdb99b5b1ed83480dd9c8021f5649ea99dfa1fc644d32c6d4a273f6b61a"
+    },
+    ".python-version": {
+      "mode": "100644",
+      "sha256": "922fe0c3de073b01988e23348ea184456161678c5e329e6f34be89be24383f93"
+    },
+    "AGENTS.md": {
+      "mode": "100644",
+      "sha256": "c47bfc463b1524bb51f5e5d0b9a5063426c7cf81ccf7bfefb7184c010d1eaf32"
+    },
+    "LICENSE": {
+      "mode": "100644",
+      "sha256": "bc24da24259fc1828270a15bccf5d2daeec2472b6acb170ae027c0a365db0873"
+    },
+    "README.md": {
+      "mode": "100644",
+      "sha256": "a796920a5fa2f6d348b03ccabf3dee1c88145ebbd99f9642605b4cd077585a35"
+    },
+    "docs/authoring/AGENT_QUICKSTART.md": {
+      "mode": "100644",
+      "sha256": "ae130cfc05e847f374d3d62e59688c459c659432091226408626e786c58083c3"
+    },
+    "docs/authoring/AUTHORING_GUIDE.md": {
+      "mode": "100644",
+      "sha256": "8d0f04b558bf6ffb7c7cebc9eb1943ea87564d5423fd24350fe4a61e4c04aa8f"
+    },
+    "docs/development/ENVIRONMENT.md": {
+      "mode": "100644",
+      "sha256": "541ea3d5fce6b93795ce58dab65e142fe0c73bc1916037ab6904f93021dde336"
+    },
+    "docs/development/EXECUTION_PROTOCOL.md": {
+      "mode": "100644",
+      "sha256": "fca4db675dd3efeddf486a9ed5ce9b33e43c2c6d202927847dd9447e7ed9833e"
+    },
+    "docs/development/MILESTONE_EVIDENCE.md": {
+      "mode": "100644",
+      "sha256": "74a5be5889c09e36fc8f243ec6f34582e2fda8b81bfff8b2ed20a3365a020662"
+    },
+    "docs/development/README.md": {
+      "mode": "100644",
+      "sha256": "77f969377c1872ddd8af8461475288ba5d6714100b722c764c5b442658a83a2b"
+    },
+    "docs/development/packages/W00-baseline.md": {
+      "mode": "100644",
+      "sha256": "29e35028e14fa87fddddf81c6b4ae6db9e8fffc07fc5505076873bfd778f6e1e"
+    },
+    "docs/development/packages/W01-author-contracts.md": {
+      "mode": "100644",
+      "sha256": "91aab628189cba556e23f8f182decab4bf0668eab0fa7bcac041c3938751d2bf"
+    },
+    "docs/development/packages/W02-durable-bridge.md": {
+      "mode": "100644",
+      "sha256": "e8e04580ce2816d71881499b83e982f88d0e1a73a90cce5109b5d582f4883e69"
+    },
+    "docs/development/packages/W03-codex.md": {
+      "mode": "100644",
+      "sha256": "06c367beec9688b2867b16ed3c2af5993f748b6c5fa8e50bbbaa1264cd3ce738"
+    },
+    "docs/development/packages/W04-human-loop.md": {
+      "mode": "100644",
+      "sha256": "b54f2d73c7cd6942ac3cebde0c9b61b9331ab3ed10a0c5b578a5cd5156ec6edc"
+    },
+    "docs/development/packages/W05A-claude.md": {
+      "mode": "100644",
+      "sha256": "146bf1062b9b11b3d41316c3f9421fa631fa1a5727e285d42882f6d459251e82"
+    },
+    "docs/development/packages/W05B-pi.md": {
+      "mode": "100644",
+      "sha256": "5b77b39ca9f37c663b7b81213ee65a77aa234ed30de6eaf10b025f4cad7e9708"
+    },
+    "docs/development/packages/W06-sessions.md": {
+      "mode": "100644",
+      "sha256": "46409aa9d993ba1eb85e9df1fc87c797ab0c9fa709f23217dff2b9e910af81ba"
+    },
+    "docs/development/packages/W07-handoff.md": {
+      "mode": "100644",
+      "sha256": "70e7b3b3ad26a75fc868d522f0c36526e6842b5de4a7ef69b9c0d95a70d899a6"
+    },
+    "docs/development/packages/W08-sandbox.md": {
+      "mode": "100644",
+      "sha256": "e4aa1c591c02888a178effa81ad1517b6c438fb09a849dde989de3f4e5b33cef"
+    },
+    "docs/development/packages/W09-connector.md": {
+      "mode": "100644",
+      "sha256": "567f347579f987e24fbc0d5bad2e73963dc7f9d91e40e8e863b03e644a22b66b"
+    },
+    "docs/development/packages/W10A-feishu-human.md": {
+      "mode": "100644",
+      "sha256": "e06e564d2347b3eb40be22515e877d5f6aa4ce6784400b91ec5c111dc4a55023"
+    },
+    "docs/development/packages/W10B-feishu-program.md": {
+      "mode": "100644",
+      "sha256": "c49c04828f15631fd4dc7ed9b8a1733a8622ca5e129e7838999886a6a68cb183"
+    },
+    "docs/development/packages/W11-host-embed.md": {
+      "mode": "100644",
+      "sha256": "39702a5039a4d6f5ea7ac4f419a61724a62b8fe0a7ff78d300b5c4a6d8ec0ac3"
+    },
+    "docs/development/packages/W12-bundle.md": {
+      "mode": "100644",
+      "sha256": "f59f18481a35a1a4d1d227ee13132c23f1366a99cdc55ef105d1958e100673f0"
+    },
+    "docs/development/packages/W13-acceptance.md": {
+      "mode": "100644",
+      "sha256": "330f89883322ccdd12e6487c6c820d56a3765a3b8e7861e07e01fe2985226b0b"
+    },
+    "docs/development/templates/MILESTONE_REPORT.md": {
+      "mode": "100644",
+      "sha256": "36adae26381534311967372434994cbe3bdd16ce5633db1a51cbb4b58cc946e5"
+    },
+    "docs/development/templates/REVIEW_PROMPT.md": {
+      "mode": "100644",
+      "sha256": "609b3bc8d42a7ab131489e30752a0ea7e5e38e2ca567eab89a066255f0f7a03c"
+    },
+    "docs/research/2026-09-26-portability-and-agent-authoring.md": {
+      "mode": "100644",
+      "sha256": "d12d9a4390e476d0096cc8e8879b65574caab71dda207f45b6f7ca3942385273"
+    },
+    "docs/research/2026-09-26-repository-snapshot.json": {
+      "mode": "100644",
+      "sha256": "42f68036f25e1dc7678e9ca84c5df1b3b48948c75c47ac622602b5ae6dc5f70c"
+    },
+    "docs/spec/MULTIVERSE_SPEC.md": {
+      "mode": "100644",
+      "sha256": "2642eda23418dbadc753b45136435ee052c98c7f509fd53e9596e078a3cf817b"
+    },
+    "docs/spec/README.md": {
+      "mode": "100644",
+      "sha256": "3c4aaa82bd50def6854e57b4db1f00a02e9d7c164caf6e18300112f0360ed743"
+    },
+    "docs/superpowers/plans/2026-09-19-p0-protocol-validator.md": {
+      "mode": "100644",
+      "sha256": "1520925815ebcbf77c75cd3143ae19574ca74d0115377d30200a3c3ab6b4b4da"
+    },
+    "docs/superpowers/plans/2026-09-20-async-runtime-dispatch.md": {
+      "mode": "100644",
+      "sha256": "66c3270bd4a972b124d317a799b4f73637f137d1354b2ce86671551f43d60ee1"
+    },
+    "docs/superpowers/plans/2026-09-20-attempt-reconciliation.md": {
+      "mode": "100644",
+      "sha256": "85fc33d65e7c1baec0144038c7e037a08de4e3e4609a104f37c0c2df49d71216"
+    },
+    "docs/superpowers/plans/2026-09-20-d0-definition-drift-gate.md": {
+      "mode": "100644",
+      "sha256": "8652798789dd193aca9c01d879e50367bb9a1c0e462b24893926f5e3537fc17c"
+    },
+    "docs/superpowers/plans/2026-09-20-d0-runtime-capability-gate.md": {
+      "mode": "100644",
+      "sha256": "2a42ad1353ea49c2e47f7d933e3cc43a40512c38ffe7c301dacd598b0b950ead"
+    },
+    "docs/superpowers/plans/2026-09-20-inspector-snapshot-import.md": {
+      "mode": "100644",
+      "sha256": "0d20dfd8bd41afc9d23c2eea21e71ef69e01ffb02ece0692ec035222e492835c"
+    },
+    "docs/superpowers/plans/2026-09-20-local-run-controls.md": {
+      "mode": "100644",
+      "sha256": "da83448d74e6e960481288dcab90832b272024339fbc327fb8b6e3a00b778d02"
+    },
+    "docs/superpowers/plans/2026-09-20-on-error-routing.md": {
+      "mode": "100644",
+      "sha256": "bf9cdb629347f65d22ee274deeb50873b1bd877b66d06fffad6cf01e028e1288"
+    },
+    "docs/superpowers/plans/2026-09-20-persistent-retry-wait.md": {
+      "mode": "100644",
+      "sha256": "b3cc197837740edcae884e4a8cc3a8a1808a6a0162d0b2f2bf5fcb183d336def"
+    },
+    "docs/superpowers/plans/2026-09-20-persistent-waits-sweep.md": {
+      "mode": "100644",
+      "sha256": "07655f5b748d7034f83d7360bc07c794034a9c9a9ea6adf1748be74a4d1431dd"
+    },
+    "docs/superpowers/plans/2026-09-20-repeat-runtime.md": {
+      "mode": "100644",
+      "sha256": "58d7bbdeadc0e637377663734ded0a09c610a04e785c958eb9451386e1070f0b"
+    },
+    "docs/superpowers/plans/2026-09-20-run-inspector-projection.md": {
+      "mode": "100644",
+      "sha256": "e90e71b3f20e3f40837afd6eec7d0f59ffbf01680769fdb77b31a91eec541f2d"
+    },
+    "docs/superpowers/plans/2026-09-20-runtime-service-vertical-slice.md": {
+      "mode": "100644",
+      "sha256": "fcc621c78bff3f0073156e51ca213a4cb0ebf3219c87ecdaa533fe9e225237d6"
+    },
+    "docs/superpowers/plans/2026-09-21-http-job-runtime.md": {
+      "mode": "100644",
+      "sha256": "955d98d158901f0217c9dcdfe39315428135ad26a57775c877fcb513af9bc099"
+    },
+    "docs/superpowers/plans/2026-09-21-persistent-worker.md": {
+      "mode": "100644",
+      "sha256": "26c51133223deb0ff65430be19c78c8f9b065921a2f7bba5d50f0a1614823f60"
+    },
+    "docs/superpowers/plans/2026-09-21-worker-driven-attempt-reconciliation.md": {
+      "mode": "100644",
+      "sha256": "b838e15c08142b86ff6eb687ac9c3bbbdd407f9bb80566a93265835835edd39f"
+    },
+    "examples/bindings/content-local.yaml": {
+      "mode": "100644",
+      "sha256": "90ee517b05b4f1879a167fd82219cabca76d9759e41eeb31b96c48a27a514c5a"
+    },
+    "examples/bindings/content-ollama.yaml": {
+      "mode": "100644",
+      "sha256": "28f6dbb265d1a0fe69afc8acd7a34cfb478f2aa96d2d992e0c13fc667617cf04"
+    },
+    "examples/bindings/content-remote.yaml": {
+      "mode": "100644",
+      "sha256": "ea6375a2231d194c0480113e292f735661f22ad92e5beb13c49453d86ebd2cf6"
+    },
+    "examples/bindings/manual-input-local.yaml": {
+      "mode": "100644",
+      "sha256": "412219bcd19776a85c718d4d72b18c83e45178fec0d4a463f519eef35cd0c853"
+    },
+    "inspector/.npmrc": {
+      "mode": "100644",
+      "sha256": "7151cf397def0c2cb0ab65643701d27d335a72c90f775675b5f826bc7005818a"
+    },
+    "inspector/.nvmrc": {
+      "mode": "100644",
+      "sha256": "75053fb82fe4512318dd99556daf58b862fb81c96cf1153249b75f8116edf440"
+    },
+    "inspector/index.html": {
+      "mode": "100644",
+      "sha256": "b66b41e76d64162e0f25c01ca9b890b944adabf24ea271a66176bd47f008004d"
+    },
+    "inspector/package-lock.json": {
+      "mode": "100644",
+      "sha256": "9c4277f675f61abba5d63c4fe44a4e43748e3091e126f035ae71365b5056278f"
+    },
+    "inspector/package.json": {
+      "mode": "100644",
+      "sha256": "d9b01d9951b1bdf6250bda5dbb0eb6a9fa7d4d1d8ee149def8122e351fd1ca9f"
+    },
+    "inspector/public/favicon.svg": {
+      "mode": "100644",
+      "sha256": "ffe5c955bfc1a842033d34e01062e0b3a7ad11d46b848a2b2bdd35343b37cdcf"
+    },
+    "inspector/src/App.tsx": {
+      "mode": "100644",
+      "sha256": "d84cb2c326040cbbe6377cf5b7301e2905a70edfdef8a80804dc11c89d07be1c"
+    },
+    "inspector/src/graph/layout.test.ts": {
+      "mode": "100644",
+      "sha256": "0037318da79e07375ff3a4e0f82bb08ecf02c5b46d6d7ee75f0c3bc2509dc233"
+    },
+    "inspector/src/graph/layout.ts": {
+      "mode": "100644",
+      "sha256": "28808b5b6481b05f6ec872658bab772e85428a6006a59fcbef4c1a825bacf836"
+    },
+    "inspector/src/graph/model.test.ts": {
+      "mode": "100644",
+      "sha256": "89bc989e2a374b50f1c1ddedf733a75413755615e9b0efe14beb2c838dae58c7"
+    },
+    "inspector/src/graph/model.ts": {
+      "mode": "100644",
+      "sha256": "9856c1927ac44e7ee527bfc071f0ab5a0329f37021fe20dc230f9343a0d77991"
+    },
+    "inspector/src/graph/runtime.test.ts": {
+      "mode": "100644",
+      "sha256": "a304d7a9d183448881e766f6456e84cc2fb92a5b918c71b119f685a09cc243fb"
+    },
+    "inspector/src/graph/runtime.ts": {
+      "mode": "100644",
+      "sha256": "4193bdf4e213e1a0408f1fe521e5779f55bfd8f7621279f63005c9fb33ecc72d"
+    },
+    "inspector/src/main.tsx": {
+      "mode": "100644",
+      "sha256": "ccbefe7be6c69706a1bb01c4c3f20492eb002435af6ba7e5a6d45f7c6aa3a140"
+    },
+    "inspector/src/runtime/client.test.ts": {
+      "mode": "100644",
+      "sha256": "4ff61014a9000df8b8f374e3f48004c39e0f2a31152085ae6ed6c3d557a38390"
+    },
+    "inspector/src/runtime/client.ts": {
+      "mode": "100644",
+      "sha256": "419ed2b345d337dc5e84da47cbe68d6aba68a1e4c13fccb5047f2bfd23aa5e58"
+    },
+    "inspector/src/runtime/human.test.ts": {
+      "mode": "100644",
+      "sha256": "95b1c7b69f950a047b9906a5408cba5e15444cb72cb8b84caa5c7377fed29ad4"
+    },
+    "inspector/src/runtime/human.ts": {
+      "mode": "100644",
+      "sha256": "b3dd9d44cbdaa79ebae505d9af0e99c900d0021b957e26f1461af41611373b1a"
+    },
+    "inspector/src/styles.css": {
+      "mode": "100644",
+      "sha256": "f3618ede2760c98e7928f72ae7916ca6e3f5803746e69bad5a1eedbac14b3120"
+    },
+    "inspector/src/vite-env.d.ts": {
+      "mode": "100644",
+      "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5"
+    },
+    "inspector/tsconfig.app.json": {
+      "mode": "100644",
+      "sha256": "18eef6f87ef638fb29585831d4c1898a1d06b725164f01d36be48120f6afa6d7"
+    },
+    "inspector/tsconfig.json": {
+      "mode": "100644",
+      "sha256": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808"
+    },
+    "inspector/tsconfig.node.json": {
+      "mode": "100644",
+      "sha256": "e6a630cab1b49e23234688d840146f3c5f541f50c9529bad051c2d729e3eb4fd"
+    },
+    "inspector/vite.config.ts": {
+      "mode": "100644",
+      "sha256": "270b6282efd34266a413e4848603990916d422d7673764a69d2b983289691071"
+    },
+    "inspector/vitest.config.ts": {
+      "mode": "100644",
+      "sha256": "4f49d01f0120eff8b5bac0c9abc9bf6263c8da9834d288ff884c1e397436209f"
+    },
+    "presets/content-delivery/evals/cases.jsonl": {
+      "mode": "100644",
+      "sha256": "821d3d23217c38b264678ec6c6c0b925eed32f6ffa948b650cdc6549284abc19"
+    },
+    "presets/content-delivery/evals/suite.yaml": {
+      "mode": "100644",
+      "sha256": "5d51ba03d56c6b8f487f95559cf0cba60f6f17df076824d4b4d77600dd028796"
+    },
+    "presets/content-delivery/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "685b26cd838913a5e11340d5e8cd76030cfb1903776220dd8606eb18e48eba0b"
+    },
+    "presets/content-delivery/schemas/agent-review-request.json": {
+      "mode": "100644",
+      "sha256": "d7613d5e8cd14c6f5c76be73ad85cc1ce9c46d435ef8693868a761cd84a21f70"
+    },
+    "presets/content-delivery/schemas/deliverable.json": {
+      "mode": "100644",
+      "sha256": "7d800c2acb7382ea3dd2410b8dc1f93fa08e972bc7af85244c0d431f7f5db0d6"
+    },
+    "presets/content-delivery/schemas/final-output.json": {
+      "mode": "100644",
+      "sha256": "bdda068328ba2be56bb1945eb2836140e5c065fb947cd1586341067e8ac1391a"
+    },
+    "presets/content-delivery/schemas/request.json": {
+      "mode": "100644",
+      "sha256": "aabc1bafd7ae8f536e22ae66a4f9fc8b2d0b36adc1352d48225e63d054d644b2"
+    },
+    "presets/content-delivery/schemas/review-input.json": {
+      "mode": "100644",
+      "sha256": "c529bc9759857295cc99dde3c4429f8de6021d88835acdf5dc242c70ef01cd12"
+    },
+    "presets/content-delivery/schemas/review-output.json": {
+      "mode": "100644",
+      "sha256": "7ffb264954a3aa8514a43c81c4c8732750fb9589f1d7776e5aa69d31aa7ab64f"
+    },
+    "presets/content-delivery/schemas/verification-input.json": {
+      "mode": "100644",
+      "sha256": "57f2ddf3534da2e1b6226c5a54dc06decc877d8a4b8a24fd5a8117da18c13535"
+    },
+    "presets/content-delivery/schemas/verification.json": {
+      "mode": "100644",
+      "sha256": "04659c005ad1666a971bb0886b77dfd34929e69e3568af297232c6b95c186862"
+    },
+    "presets/content-delivery/workflows/delivery.yaml": {
+      "mode": "100644",
+      "sha256": "1bce16bc69bd05348a4197fbc64aa8553a8f95047c6f965223c5d59b415e256b"
+    },
+    "presets/manual-input/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "a5a320d68e107f2dd6f51fa5acae1b7bb988799b866e799485f739b937323b57"
+    },
+    "presets/manual-input/schemas/final-output.json": {
+      "mode": "100644",
+      "sha256": "2780e2c626cb0e4526bacf0762a135f8c0bfcf8cdfbbc31c2ef9416d6bfcfe0e"
+    },
+    "presets/manual-input/schemas/output.json": {
+      "mode": "100644",
+      "sha256": "274e2a75813aa46e54e79e7abd0aa7e537a849b1dc516754dc7ad97d6375f369"
+    },
+    "presets/manual-input/schemas/request.json": {
+      "mode": "100644",
+      "sha256": "ff5ec2346c0788dbf6932a69879af259e3248a49fa4ed9337ec986ae54bb71c1"
+    },
+    "presets/manual-input/workflows/manual.yaml": {
+      "mode": "100644",
+      "sha256": "f1d374b7e482417a466d27382728565aa781e6d7809a22841fbc42d2fa3f7542"
+    },
+    "pyproject.toml": {
+      "mode": "100644",
+      "sha256": "2816418dc6475713697dd9b7628aa320662e128c25d4e78fbe3120698e9ceb4e"
+    },
+    "schemas/binding-set.schema.json": {
+      "mode": "100644",
+      "sha256": "e817cc05aa08be7ba510d5a382687aa180664e4133999f416c12e697cedc0ee5"
+    },
+    "schemas/predicate.schema.json": {
+      "mode": "100644",
+      "sha256": "013ad8309a53cace82b17ba4023a89b9d2c5ae9712c42e158e4085ac9f788ec5"
+    },
+    "schemas/preflight-report.schema.json": {
+      "mode": "100644",
+      "sha256": "687b858133d33179bc4d21978f2f7fe90b7138db0f01afc201faff718789d84b"
+    },
+    "schemas/value-expr.schema.json": {
+      "mode": "100644",
+      "sha256": "79ea85d6559622a496134cc6f725f09ef678b2cd859df7c51b8890d0cac6666e"
+    },
+    "schemas/workflow-package.schema.json": {
+      "mode": "100644",
+      "sha256": "fb1c26c545212fbe01932199720cab0e361104fd20dd07cffa553e8be6c3740d"
+    },
+    "schemas/workflow.schema.json": {
+      "mode": "100644",
+      "sha256": "24c2bd00f6422a097e6eec5a1b067fc9eab090ad34ebc9ad8404882d972a3fb3"
+    },
+    "scripts/bootstrap-dev-tools.sh": {
+      "mode": "100755",
+      "sha256": "ff38c14e201aee35cbc72a230fa802b3fc0155bc6d5acdff6f34786a44db189f"
+    },
+    "scripts/milestones.py": {
+      "mode": "100644",
+      "sha256": "b8daa6a13fc18365fd9869ac307349ad7af645185d89f0bff2a9e6bed157b2fa"
+    },
+    "scripts/record_validation.py": {
+      "mode": "100644",
+      "sha256": "df62e6edc15b08a3c65e7812c1737d3dccc0845add48b8de06af78040ea85d50"
+    },
+    "scripts/w00_cli_check.py": {
+      "mode": "100644",
+      "sha256": "09caee79e284a68408db52e04c33e3c1ccd7503f63a636a4334973b6bb2db339"
+    },
+    "src/multiverse_workflow/__init__.py": {
+      "mode": "100644",
+      "sha256": "5637f13d62f94c2c0db8a81d13aabf0b05f2afcb7e5565f7bbc21ac83d140783"
+    },
+    "src/multiverse_workflow/api/__init__.py": {
+      "mode": "100644",
+      "sha256": "0c31953053cfaa2a8bf9c61af134afe053247ea838d11b4e61a15a765e3f64bb"
+    },
+    "src/multiverse_workflow/api/app.py": {
+      "mode": "100644",
+      "sha256": "f5de5bba791e9814875fefd25be8030a609914aea71c67ac4610b3237f6ff01a"
+    },
+    "src/multiverse_workflow/api/dependencies.py": {
+      "mode": "100644",
+      "sha256": "69cbcae510d2efd216f5610cabe7b1bbe324a9b9275734d67cfee8eb310677bd"
+    },
+    "src/multiverse_workflow/cli/__init__.py": {
+      "mode": "100644",
+      "sha256": "d28bb3e79049150b43cae3ac30021a23e448d2f096a997e8b3a385d650dcfe3b"
+    },
+    "src/multiverse_workflow/cli/main.py": {
+      "mode": "100644",
+      "sha256": "a9b89cef157f5f8a738d3fb0883556067ddd097819ff80aa3940a47e66e9d36b"
+    },
+    "src/multiverse_workflow/compiler/__init__.py": {
+      "mode": "100644",
+      "sha256": "da936cfc82745288c02980d0a9fbce31ff322e77bf6fe027ed4639ee32aef5ea"
+    },
+    "src/multiverse_workflow/compiler/compiler.py": {
+      "mode": "100644",
+      "sha256": "2d5db31bf1716a8759022168001998cb6150e6f10f99f1abb9b092000c85982f"
+    },
+    "src/multiverse_workflow/compiler/digests.py": {
+      "mode": "100644",
+      "sha256": "0490834896a91f1cfb28d42d84a29731c6baf99bad604a0f04ae68ee3dc8c958"
+    },
+    "src/multiverse_workflow/compiler/graph.py": {
+      "mode": "100644",
+      "sha256": "2f63519d22af81daed7037258d12e8df2d2711ceb805f218eae181fc05a72291"
+    },
+    "src/multiverse_workflow/compiler/preflight.py": {
+      "mode": "100644",
+      "sha256": "8a00c2a0829e2f398191829ca27121135707f1c93163ee68de58925974d27658"
+    },
+    "src/multiverse_workflow/compiler/references.py": {
+      "mode": "100644",
+      "sha256": "6c42cbe01125b85543c4151a9a362fbc466e02f5ec6ee749fc931e3e6e17b6f1"
+    },
+    "src/multiverse_workflow/protocol/__init__.py": {
+      "mode": "100644",
+      "sha256": "21116e8696b485b1d08f9030f6836e1a7e19a9d2bb5da351b05d8f9546e4f976"
+    },
+    "src/multiverse_workflow/protocol/diagnostics.py": {
+      "mode": "100644",
+      "sha256": "c646244e4a80b7652ded41b73c3c0bc524ddbf5b7e861e862955034972457e70"
+    },
+    "src/multiverse_workflow/protocol/loader.py": {
+      "mode": "100644",
+      "sha256": "c3f438e301e4360fd60afdc5236c340f7e0ca5e79d1794eda14facfbaea73141"
+    },
+    "src/multiverse_workflow/protocol/models.py": {
+      "mode": "100644",
+      "sha256": "cd8eaee908c9288fdf38f0f05a30d7bf55851bf482b9f465795c8fa81703298d"
+    },
+    "src/multiverse_workflow/runtime/__init__.py": {
+      "mode": "100644",
+      "sha256": "222c7459bab353a5608d113a14407936dd0fe5e23aa090b6c3143fde3b2a0f34"
+    },
+    "src/multiverse_workflow/runtime/executors.py": {
+      "mode": "100644",
+      "sha256": "b27ffba85e810568dc9d002b43101b9d743a3e90269c787a5b0a7c5dc074091c"
+    },
+    "src/multiverse_workflow/runtime/http_job.py": {
+      "mode": "100644",
+      "sha256": "e6b5fedfdaa18e78a4177f4ca329cf7e2c315957a17c217a06146cc61d6d6d11"
+    },
+    "src/multiverse_workflow/runtime/ledger.py": {
+      "mode": "100644",
+      "sha256": "6fc7a8f51673b131a4845b9d9732fe5341ef9a7c28543666220fb25b66cb80e4"
+    },
+    "src/multiverse_workflow/runtime/ollama.py": {
+      "mode": "100644",
+      "sha256": "b1497f43ebabcc630fc316c981467797a1ece3c660e4c068fe0000063a9602cb"
+    },
+    "src/multiverse_workflow/runtime/projection.py": {
+      "mode": "100644",
+      "sha256": "8b6e97721af885ce0abb4bab174471ede9c6da529053855c6ce095541b5d49c6"
+    },
+    "src/multiverse_workflow/runtime/registry.py": {
+      "mode": "100644",
+      "sha256": "8939cacac666c773e989d25e97c28c06138b7ee604a0b773e5739169df27132b"
+    },
+    "src/multiverse_workflow/runtime/runner.py": {
+      "mode": "100644",
+      "sha256": "0655d7b538624205198b0be148e5a124ea6b55cf547f4956484735adc8311c8d"
+    },
+    "src/multiverse_workflow/runtime/worker.py": {
+      "mode": "100644",
+      "sha256": "6f221ee0fbecbd83029b16e6c6a7c4ade959820791e94d99cc7fafe0e2d1f56d"
+    },
+    "src/multiverse_workflow/service/__init__.py": {
+      "mode": "100644",
+      "sha256": "c1e34b1bed8882d1ca5674d3ba1364254e1430003c78ad5bbd99b5f7b8cb6c32"
+    },
+    "src/multiverse_workflow/service/application.py": {
+      "mode": "100644",
+      "sha256": "dee51614107e20913d41c3429f385181c239dd639b989411b8b8a202286fb6ff"
+    },
+    "src/multiverse_workflow/service/contracts.py": {
+      "mode": "100644",
+      "sha256": "f45f152cb42808b7dc8102785a98fdf6efe07654fcddffdc5b8306aa8bd815c0"
+    },
+    "src/multiverse_workflow/service/errors.py": {
+      "mode": "100644",
+      "sha256": "d2b0900c7b559603c429fc25dc6f44af22a2282b2ba32bc791edd25e436fd2f7"
+    },
+    "tests/api/__init__.py": {
+      "mode": "100644",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "tests/api/test_app.py": {
+      "mode": "100644",
+      "sha256": "75ae5d2934502a0322b635a2ce44753f68eef259204bf1a6192a8969053128de"
+    },
+    "tests/cli/test_preflight.py": {
+      "mode": "100644",
+      "sha256": "7c54cd4c791b678c9f1353f8754f49de66f8654af47008a230152de81ac0b3af"
+    },
+    "tests/cli/test_runtime.py": {
+      "mode": "100644",
+      "sha256": "a876a8b5bef8f58cf43d0e3f1e5acd850382f98697bfb49de351ab568919c696"
+    },
+    "tests/cli/test_serve.py": {
+      "mode": "100644",
+      "sha256": "b9e1ea2c3a3f7d475b0ffff9316bd3ab6be34c28a202ffc3557273e56eb7ebc0"
+    },
+    "tests/cli/test_validate.py": {
+      "mode": "100644",
+      "sha256": "cb94868b439b6e9fed9c745421c7b341395d21593f812e2906ec2bad5f92f315"
+    },
+    "tests/compiler/test_compile_package.py": {
+      "mode": "100644",
+      "sha256": "d0c96de8d88cf1acb936a30239d9f4cdfadccb0b797d911d9ab61f8455a56506"
+    },
+    "tests/compiler/test_negative_packages.py": {
+      "mode": "100644",
+      "sha256": "a85c65f67dc2ac0dd9a4123ad85c66d515ff9f90d33e1495b7af76804d119b7f"
+    },
+    "tests/compiler/test_schema_references.py": {
+      "mode": "100644",
+      "sha256": "47dc21a9c3c67d0204726fc46b7cc9807ed037698452a21bf7d42a7acc8cc4cd"
+    },
+    "tests/development/test_milestone_gate.py": {
+      "mode": "100644",
+      "sha256": "5e31d58a0e07b0b7e41db9dfdb9335230e8c058abdf9dd48c1b7e923de681a94"
+    },
+    "tests/e2e/__init__.py": {
+      "mode": "100644",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "tests/e2e/test_service_workflow.py": {
+      "mode": "100644",
+      "sha256": "23a49cdaef2047c3f695773219fa54a8ac1609d64c9e1e332c71331a3fc6dd9a"
+    },
+    "tests/fixtures/invalid/dangling-edge/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "20b8e7441c2821fb0555e9dbc8501353d9c29495a403db5a419bfa9a27ef964f"
+    },
+    "tests/fixtures/invalid/dangling-edge/schemas/output.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/dangling-edge/schemas/request.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/dangling-edge/workflows/main.yaml": {
+      "mode": "100644",
+      "sha256": "2583e1b9454698e87dc99429df13b13004670533ebc77a8a49922bf04113d32e"
+    },
+    "tests/fixtures/invalid/missing-data-reference/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "6bcd785e1c6862eb893f340be3b090370b949e64a1f4da0ad18bfbde76b31ed4"
+    },
+    "tests/fixtures/invalid/missing-data-reference/schemas/output.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/missing-data-reference/schemas/request.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/missing-data-reference/workflows/main.yaml": {
+      "mode": "100644",
+      "sha256": "190bed512d32eb4fd8a8f64e94fe984847e18256c00d8422ba3e4e3dd95be431"
+    },
+    "tests/fixtures/invalid/repeat-overflow/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "7d95cf55ea2707ca0cbe4055ad04a6de03a9e52af9399646b1138f36bdbb3bf1"
+    },
+    "tests/fixtures/invalid/repeat-overflow/workflows/main.yaml": {
+      "mode": "100644",
+      "sha256": "c7ee58dea1349d2236c1c239d4e074a20b3da14b32c943c68b2addfccea291ea"
+    },
+    "tests/fixtures/invalid/same-level-cycle/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "4c0c8dbabe76c53dc4cce18b5fa4ab5e68ed920c297ba12f528c2da0a635919b"
+    },
+    "tests/fixtures/invalid/same-level-cycle/schemas/output.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/same-level-cycle/schemas/request.json": {
+      "mode": "100644",
+      "sha256": "a0311c353aec0c57946a8ca657370a474532175265455995160cfe83d8ce2b4f"
+    },
+    "tests/fixtures/invalid/same-level-cycle/workflows/main.yaml": {
+      "mode": "100644",
+      "sha256": "c40e61e1e7aa2c46830a28bc2783bd52ed6c94936fceff311f22a76655d2e017"
+    },
+    "tests/fixtures/invalid/secret-material/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "2375ceb389992bf3a8f41773f6dac1fc5f22d9615d68efb9568134760109377c"
+    },
+    "tests/fixtures/invalid/secret-material/secrets.json": {
+      "mode": "100644",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "tests/fixtures/invalid/switch-without-default/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "a476eb742c4a419d3be74beda17ddec718a42b6f2178d100255e3f47545271a7"
+    },
+    "tests/fixtures/invalid/switch-without-default/workflows/main.yaml": {
+      "mode": "100644",
+      "sha256": "23f9e33c9f8cbf0c681278713d8ebdf2cb3526c734043b3f8cb22232e9277fe1"
+    },
+    "tests/fixtures/invalid/unknown-required-feature/manifest.yaml": {
+      "mode": "100644",
+      "sha256": "f7997fd84452c5d2c6e0c15a16b3f2258fb4e74439765984095387170fd3ef60"
+    },
+    "tests/protocol/test_loader.py": {
+      "mode": "100644",
+      "sha256": "68fa3e4d3e718a667fe6608778c189dd91b732c804afc2720c2fd275778b1ac8"
+    },
+    "tests/protocol/test_models.py": {
+      "mode": "100644",
+      "sha256": "e06128451740b56afa010f6e82b7a37a65a25779a2c26ebf51256ffe61446bfa"
+    },
+    "tests/protocol/test_normative_examples.py": {
+      "mode": "100644",
+      "sha256": "6220597e3ebd633a917ce0ac3c76030bc547f3c636edc95814315d36710df392"
+    },
+    "tests/protocol/test_schemas.py": {
+      "mode": "100644",
+      "sha256": "f0524d20d7bbc5043721934f6442800441c81c6766d82940e14f02ed39982e15"
+    },
+    "tests/runtime/test_async_dispatch.py": {
+      "mode": "100644",
+      "sha256": "dfa7f0e453eeeecb2cb3ee14876f26acc9786c61e79a4d3ac3b1b01cb23ff0db"
+    },
+    "tests/runtime/test_executors.py": {
+      "mode": "100644",
+      "sha256": "21921358cf0f1441d7d162901e4f1670a4887a5221d38fa49fcccb28769f0fc0"
+    },
+    "tests/runtime/test_http_job.py": {
+      "mode": "100644",
+      "sha256": "7b1d4f36e975e4c3ec8e0a51562a5e5a053d2ea738350192b8d94060c3308986"
+    },
+    "tests/runtime/test_http_job_runtime.py": {
+      "mode": "100644",
+      "sha256": "ab0ce96f51ecbe0b290a5682581829218bc9a36cb4f9c18218707a6b9e9fdfd9"
+    },
+    "tests/runtime/test_ledger.py": {
+      "mode": "100644",
+      "sha256": "efaaadcc815aa82fb83e5e4aed2c1295c5a4e7cc5bd29fed743f80024c0bac92"
+    },
+    "tests/runtime/test_ollama.py": {
+      "mode": "100644",
+      "sha256": "4b28f8a9f41055d65ea6ee5146a7ab7ae0ee30b73ab6fd642257ee15d8b24aa4"
+    },
+    "tests/runtime/test_projection.py": {
+      "mode": "100644",
+      "sha256": "6509ffaa9ab852fb79fb2d6b201a4642c23c091ba4d438f2ee304ce77464634d"
+    },
+    "tests/runtime/test_registry.py": {
+      "mode": "100644",
+      "sha256": "45dabed695a74c0708fcd6f785e964a31f640c565091179b399fe1ea78515ab3"
+    },
+    "tests/runtime/test_runner.py": {
+      "mode": "100644",
+      "sha256": "891b316baf0cc5c2fface98c6fa6911fe0c3f7a4a2ef8ea3cc7dc8a99265a378"
+    },
+    "tests/runtime/test_worker.py": {
+      "mode": "100644",
+      "sha256": "613b44d46222a0643a43203f0b64e12eeb43890b322e7fad795911330de87766"
+    },
+    "tests/service/test_application.py": {
+      "mode": "100644",
+      "sha256": "0e0e4eb79ea8d6841c98f16187fc98d7929d0d603d6d1b14dd2369cc2d2f9bd1"
+    },
+    "tests/service/test_contracts.py": {
+      "mode": "100644",
+      "sha256": "d0e289a996d4ff389ea455652a42aac1b7bfef24651e6fdd578b9cd6ebf4ee29"
+    },
+    "tests/test_cli_smoke.py": {
+      "mode": "100644",
+      "sha256": "0f001973c73b2a4ff7fd6840d0bd212f34d71d5dfc2862d51528797f68477a25"
+    },
+    "uv.lock": {
+      "mode": "100644",
+      "sha256": "a1625fa5eab15870d4570f880e93349f536f796314696128e364cf0bd2bf4a3f"
+    },
+    "\u5de5\u4f5c\u5305\u89c4\u5212.md": {
+      "mode": "100644",
+      "sha256": "a6ce1b663b444a15e78c9a4662a5127b8a708738646b9bc45637a1a16d3e9dcb"
+    }
+  }
+}

@@ -1,0 +1,119 @@
+[
+  {
+    "name": "capabilities",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--project",
+      "/home/aied/tanyicheng/multiverse",
+      "--locked",
+      "mverse",
+      "capabilities",
+      "--json"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/.multiverse/w00/cli-t2oyezix",
+    "started_at": "2026-09-26T04:11:32.406765+00:00",
+    "finished_at": "2026-09-26T04:11:33.207004+00:00",
+    "exit_code": 0,
+    "expected_exit_code": 0,
+    "files_before": [],
+    "files_after": [],
+    "log": "capabilities.log"
+  },
+  {
+    "name": "validate-local",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--project",
+      "/home/aied/tanyicheng/multiverse",
+      "--locked",
+      "mverse",
+      "validate",
+      "/home/aied/tanyicheng/multiverse/presets/content-delivery",
+      "--binding",
+      "/home/aied/tanyicheng/multiverse/examples/bindings/content-local.yaml",
+      "--json"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/.multiverse/w00/cli-t2oyezix",
+    "started_at": "2026-09-26T04:11:33.207124+00:00",
+    "finished_at": "2026-09-26T04:11:34.097587+00:00",
+    "exit_code": 0,
+    "expected_exit_code": 0,
+    "files_before": [],
+    "files_after": [],
+    "log": "validate-local.log"
+  },
+  {
+    "name": "validate-remote",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--project",
+      "/home/aied/tanyicheng/multiverse",
+      "--locked",
+      "mverse",
+      "validate",
+      "/home/aied/tanyicheng/multiverse/presets/content-delivery",
+      "--binding",
+      "/home/aied/tanyicheng/multiverse/examples/bindings/content-remote.yaml",
+      "--json"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/.multiverse/w00/cli-t2oyezix",
+    "started_at": "2026-09-26T04:11:34.097704+00:00",
+    "finished_at": "2026-09-26T04:11:34.976160+00:00",
+    "exit_code": 0,
+    "expected_exit_code": 0,
+    "files_before": [],
+    "files_after": [],
+    "log": "validate-remote.log"
+  },
+  {
+    "name": "preflight-local",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--project",
+      "/home/aied/tanyicheng/multiverse",
+      "--locked",
+      "mverse",
+      "preflight",
+      "/home/aied/tanyicheng/multiverse/presets/content-delivery",
+      "--binding",
+      "/home/aied/tanyicheng/multiverse/examples/bindings/content-local.yaml",
+      "--json"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/.multiverse/w00/cli-t2oyezix",
+    "started_at": "2026-09-26T04:11:34.976279+00:00",
+    "finished_at": "2026-09-26T04:11:35.820949+00:00",
+    "exit_code": 0,
+    "expected_exit_code": 0,
+    "files_before": [],
+    "files_after": [],
+    "log": "preflight-local.log"
+  },
+  {
+    "name": "preflight-remote",
+    "command": [
+      "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+      "run",
+      "--project",
+      "/home/aied/tanyicheng/multiverse",
+      "--locked",
+      "mverse",
+      "preflight",
+      "/home/aied/tanyicheng/multiverse/presets/content-delivery",
+      "--binding",
+      "/home/aied/tanyicheng/multiverse/examples/bindings/content-remote.yaml",
+      "--json"
+    ],
+    "cwd": "/home/aied/tanyicheng/multiverse/.multiverse/w00/cli-t2oyezix",
+    "started_at": "2026-09-26T04:11:35.821066+00:00",
+    "finished_at": "2026-09-26T04:11:36.641711+00:00",
+    "exit_code": 2,
+    "expected_exit_code": 2,
+    "files_before": [],
+    "files_after": [],
+    "log": "preflight-remote.log"
+  }
+]

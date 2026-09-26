@@ -1,0 +1,17 @@
+{
+  "command": [
+    ".multiverse/devtools/bin/uv",
+    "run",
+    "--locked",
+    "pytest",
+    "-q",
+    "tests/development"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "started_at": "2026-09-26T04:15:18.684578+00:00",
+  "finished_at": "2026-09-26T04:15:21.131701+00:00",
+  "exit_code": 0,
+  "log": "development-tests.log",
+  "snapshot_ref": "source-snapshot-ec96866f40d7.json",
+  "snapshot_digest": "sha256:ec96866f40d71419fb6a5a79740aedbf0cb8baa105776dc3d78d5b1d11aadc68"
+}

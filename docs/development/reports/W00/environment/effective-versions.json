@@ -1,0 +1,73 @@
+{
+  "observed_at": "2026-09-26T04:11:53.633147+00:00",
+  "commands": [
+    {
+      "command": [
+        ".multiverse/devtools/bin/uv",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "uv 0.12.19 (x86_64-unknown-linux-gnu)\n"
+    },
+    {
+      "command": [
+        ".multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "python",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "Python 3.14.7\n"
+    },
+    {
+      "command": [
+        ".multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "pytest",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "pytest 8.4.2\n"
+    },
+    {
+      "command": [
+        ".multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "ruff",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "ruff 0.16.8\n"
+    },
+    {
+      "command": [
+        ".multiverse/devtools/bin/uv",
+        "run",
+        "--locked",
+        "mypy",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "mypy 1.20.2 (compiled: yes)\n"
+    },
+    {
+      "command": [
+        "node",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "v20.20.2\n"
+    },
+    {
+      "command": [
+        "npm",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "10.8.2\n"
+    }
+  ]
+}

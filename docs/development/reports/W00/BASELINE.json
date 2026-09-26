@@ -1,0 +1,22 @@
+{
+  "head": "7fff55086c4a49209ec1cec839e209a9d758ea73",
+  "branch": "dev",
+  "worktree_changes_before_start": [],
+  "remote_in_sync_at_start": true,
+  "started_at": "2026-09-26T04:09:54.273453+00:00",
+  "scope": "W00 baseline, tools and milestone evidence checker",
+  "delegation": [
+    {
+      "task_id": "/root/w00_gate_impl",
+      "role": "implementation",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    },
+    {
+      "task_id": "/root/w00_environment",
+      "role": "environment_and_baseline",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+capabilities exit 0 workspace remains empty
+validate-local exit 0 workspace remains empty
+validate-remote exit 0 workspace remains empty
+preflight-local exit 0 workspace remains empty
+preflight-remote exit 2 workspace remains empty

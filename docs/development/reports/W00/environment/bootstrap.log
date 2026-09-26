@@ -1,0 +1,6 @@
+Collecting uv==0.12.19
+  Using cached uv-0.12.19-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (20.5 MB)
+Installing collected packages: uv
+Successfully installed uv-0.12.19
+uv 0.12.19 (x86_64-unknown-linux-gnu)
+Use: export PATH="/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin:$PATH"

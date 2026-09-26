@@ -1,0 +1,13 @@
+{
+  "command": [
+    "python3",
+    ".multiverse/w00/cli-check.py"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "started_at": "2026-09-26T04:10:15.008585+00:00",
+  "finished_at": "2026-09-26T04:10:19.334999+00:00",
+  "exit_code": 0,
+  "log": "cli-check.log",
+  "snapshot_ref": "source-snapshot-ba91cc66323c.json",
+  "snapshot_digest": "sha256:ba91cc66323ced3a266b2d22dda6cbb71c2423861abe93efe7f8ab96f3bb6e9e"
+}

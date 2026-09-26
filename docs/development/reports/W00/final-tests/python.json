@@ -1,0 +1,26 @@
+{
+  "id": "python",
+  "command": [
+    "/home/aied/tanyicheng/multiverse/.multiverse/devtools/bin/uv",
+    "run",
+    "--locked",
+    "pytest",
+    "-q"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "tool_versions": {
+    "python": "Python 3.14.7",
+    "uv": "uv 0.12.19 (x86_64-unknown-linux-gnu)",
+    "node": "v20.20.2",
+    "npm": "10.8.2"
+  },
+  "started_at": "2026-09-26T04:15:39.338068+00:00",
+  "finished_at": "2026-09-26T04:16:21.250109+00:00",
+  "exit_code": 0,
+  "passed": 230,
+  "failed": 0,
+  "skipped": 0,
+  "live": false,
+  "log_ref": "docs/development/reports/W00/final-tests/python.log",
+  "snapshot_digest": "eb3e82fb9ccbaea77052feae12357a056734fabba457fc015c57bb5d71f8c761"
+}

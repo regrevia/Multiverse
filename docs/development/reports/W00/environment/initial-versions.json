@@ -1,0 +1,64 @@
+{
+  "observed_at": "2026-09-26T04:09:21.481691+00:00",
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "Python 3.10.12\n"
+    },
+    {
+      "command": [
+        ".venv/bin/python",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "Python 3.14.7\n"
+    },
+    {
+      "command": [
+        "/tmp/multiverse-devtools/bin/uv",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "uv 0.12.19 (x86_64-unknown-linux-gnu)\n"
+    },
+    {
+      "command": [
+        "node",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "v20.20.2\n"
+    },
+    {
+      "command": [
+        "npm",
+        "--version"
+      ],
+      "exit_code": 0,
+      "output": "10.8.2\n"
+    },
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "output": "7fff55086c4a49209ec1cec839e209a9d758ea73\n"
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "exit_code": 0,
+      "output": "## dev...origin/dev\n?? docs/development/reports/W00/\n?? scripts/\n"
+    }
+  ]
+}

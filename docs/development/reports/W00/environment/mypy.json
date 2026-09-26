@@ -1,0 +1,16 @@
+{
+  "command": [
+    ".multiverse/devtools/bin/uv",
+    "run",
+    "--locked",
+    "mypy",
+    "src"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "started_at": "2026-09-26T04:09:37.148319+00:00",
+  "finished_at": "2026-09-26T04:09:37.592234+00:00",
+  "exit_code": 0,
+  "log": "mypy.log",
+  "snapshot_ref": "source-snapshot-c7bbed499a3d.json",
+  "snapshot_digest": "sha256:c7bbed499a3dbc93f1938bfc387020b326511ff4e83a14f9c7371aeab3debb0e"
+}

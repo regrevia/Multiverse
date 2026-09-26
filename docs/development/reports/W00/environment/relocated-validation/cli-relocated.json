@@ -1,0 +1,15 @@
+{
+  "command": [
+    "python3",
+    "scripts/w00_cli_check.py",
+    "--output",
+    "docs/development/reports/W00/environment/relocated-cli"
+  ],
+  "cwd": "/home/aied/tanyicheng/multiverse",
+  "started_at": "2026-09-26T04:15:14.065000+00:00",
+  "finished_at": "2026-09-26T04:15:18.487161+00:00",
+  "exit_code": 0,
+  "log": "cli-relocated.log",
+  "snapshot_ref": "source-snapshot-ec96866f40d7.json",
+  "snapshot_digest": "sha256:ec96866f40d71419fb6a5a79740aedbf0cb8baa105776dc3d78d5b1d11aadc68"
+}
