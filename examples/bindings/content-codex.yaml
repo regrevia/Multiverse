@@ -12,6 +12,7 @@ spec:
         cwd: /absolute/path/to/approved/workspace
         workspaceRoot: /absolute/path/to/approved/workspace
         homeDir: /absolute/path/to/approved/codex-home
+        interactionAuthorizedSubjects: [example-reviewer]
         model: gpt-5.5
         systemPrompt: Return only concise JSON with a non-empty text field and an empty artifact_refs array. Do not invent Artifact IDs.
         artifactName: codex-deliverable.md
@@ -28,6 +29,7 @@ spec:
         cwd: /absolute/path/to/approved/workspace
         workspaceRoot: /absolute/path/to/approved/workspace
         homeDir: /absolute/path/to/approved/codex-home
+        interactionAuthorizedSubjects: [example-reviewer]
         model: gpt-5.5
         systemPrompt: Review the candidate deliverable. Return only concise JSON with a non-empty text field and an empty artifact_refs array. Do not approve the workflow.
         artifactName: codex-review.md

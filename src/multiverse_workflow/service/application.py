@@ -14,6 +14,7 @@ from multiverse_workflow.runtime.runner import RunError, Runner, SchemaValidatio
 
 from .contracts import (
     AttemptReconcileRequest,
+    CodexInteractionResponseRequest,
     CommandReceipt,
     HumanDecisionRequest,
     RunControlRequest,
@@ -520,6 +521,107 @@ class RuntimeApplication:
             for request in requests
             if request["run_id"] and self._run_namespace(request["run_id"]) == namespace
         ]
+
+    def list_codex_interactions(
+        self,
+        namespace: str,
+        *,
+        run_id: str,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self._require_run(namespace, run_id)
+        self.runner.ledger.expire_codex_interactions()
+        return self.runner.ledger.list_codex_interactions(run_id=run_id, status=status)
+
+    def get_codex_interaction(
+        self, namespace: str, interaction_id: str
+    ) -> dict[str, Any]:
+        interaction = self.runner.ledger.get_codex_interaction(interaction_id)
+        if interaction is None:
+            raise not_found(f"codex interaction not found: {interaction_id}")
+        self._require_run(namespace, interaction["run_id"])
+        return interaction
+
+    def respond_codex_interaction(
+        self,
+        namespace: str,
+        interaction_id: str,
+        request: CodexInteractionResponseRequest,
+        *,
+        idempotency_key: str,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        interaction = self.get_codex_interaction(namespace, interaction_id)
+        self._require_idempotency_key(idempotency_key)
+        self._validate_codex_interaction_response(interaction, request.response)
+        actor = actor or self.subject
+        try:
+            return self.runner.ledger.respond_codex_interaction(
+                interaction_id,
+                expected_version=request.expected_version,
+                actor=actor,
+                response=request.response,
+                idempotency_key=idempotency_key,
+            )
+        except (KeyError, LedgerConflict) as exc:
+            raise state_conflict(str(exc)) from exc
+
+    @staticmethod
+    def _validate_codex_interaction_response(
+        interaction: dict[str, Any], response: dict[str, Any]
+    ) -> None:
+        kind = interaction["kind"]
+        if kind in {
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+        }:
+            if (
+                set(response) != {"decision"}
+                or response["decision"] not in {"accept", "acceptForSession", "decline", "cancel"}
+            ):
+                raise ServiceError(
+                    "INVALID_ARGUMENT",
+                    "approval response must contain one supported decision",
+                    status_code=422,
+                )
+            return
+        if kind == "item/tool/requestUserInput":
+            if set(response) != {"answers"} or not isinstance(response["answers"], dict):
+                raise ServiceError(
+                    "INVALID_ARGUMENT",
+                    "user-input response must contain an answers object",
+                    status_code=422,
+                )
+            payload = json.loads(interaction["payload_json"])
+            question_ids = {
+                question.get("id")
+                for question in payload.get("questions", [])
+                if isinstance(question, dict)
+            }
+            if set(response["answers"]) != question_ids:
+                raise ServiceError(
+                    "INVALID_ARGUMENT",
+                    "answers must match the native request question IDs",
+                    status_code=422,
+                )
+            for answer in response["answers"].values():
+                if (
+                    not isinstance(answer, dict)
+                    or set(answer) != {"answers"}
+                    or not isinstance(answer["answers"], list)
+                    or not all(isinstance(value, str) for value in answer["answers"])
+                ):
+                    raise ServiceError(
+                        "INVALID_ARGUMENT",
+                        "each answer must contain a string array",
+                        status_code=422,
+                    )
+            return
+        raise ServiceError(
+            "UNSUPPORTED_INTERACTION",
+            f"Codex interaction kind is not supported: {kind}",
+            status_code=422,
+        )
 
     def decide_human_request(
         self,

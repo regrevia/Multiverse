@@ -137,6 +137,158 @@ async def test_invocation_and_human_request_read_endpoints_are_namespace_scoped(
 
 
 @pytest.mark.anyio
+async def test_codex_interaction_read_and_reply_require_runtime_identity(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "codex-interaction-run",
+            },
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+        )
+        run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="interaction-api")
+        runner = application.state.runtime.runner
+        invocation = next(
+            item
+            for item in runner.ledger.list_invocations(run_id)
+            if item["node_id"] == "produce"
+        )
+        attempt = runner.ledger.latest_attempt(invocation["id"])
+        interaction = runner.ledger.create_codex_interaction(
+            run_id=run_id,
+            scope_id=invocation["scope_id"],
+            invocation_id=invocation["id"],
+            attempt_id=attempt["id"],
+            native_request_id="native-api-1",
+            thread_id="thread-1",
+            turn_id="turn-1",
+            kind="item/commandExecution/requestApproval",
+            payload={"threadId": "thread-1", "turnId": "turn-1", "command": "pytest"},
+            authorized_subjects=["example-reviewer"],
+            expires_at="2099-01-01T00:00:00Z",
+        )
+        auth = {"Authorization": "Bearer test-token"}
+        listed = await client.get(
+            f"/api/v1/namespaces/local/runs/{run_id}/codex-interactions",
+            headers=auth,
+        )
+        response_url = (
+            f"/api/v1/namespaces/local/codex-interactions/{interaction['id']}/responses"
+        )
+        replied = await client.post(
+            response_url,
+            headers={**auth, "Idempotency-Key": "native-api-reply"},
+            json={
+                "expectedVersion": 1,
+                "response": {"decision": "accept"},
+            },
+        )
+        stale = await client.post(
+            response_url,
+            headers={**auth, "Idempotency-Key": "native-api-reply-conflict"},
+            json={
+                "expectedVersion": 1,
+                "response": {"decision": "decline"},
+            },
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()["interactions"][0]["nativeRequestId"] == "native-api-1"
+    assert listed.json()["interactions"][0]["deliveryStatus"] == "not_sent"
+    assert replied.status_code == 202
+    assert replied.json()["status"] == "replied"
+    assert stale.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_codex_interaction_api_is_versioned_idempotent_and_subject_authorized(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/runs",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "codex-interaction-run",
+            },
+            json={
+                "deploymentId": "deployment_local",
+                "workflowId": "delivery",
+                "input": {"goal": "write a release note"},
+            },
+        )
+        run_id = created.json()["resourceId"]
+        application.state.runtime.runner.sweep(worker_id="interaction-test")
+        runner = application.state.runtime.runner
+        invocation = next(
+            item
+            for item in runner.ledger.list_invocations(run_id)
+            if item["node_id"] == "produce"
+        )
+        attempt = runner.ledger.latest_attempt(invocation["id"])
+        scope = runner.ledger.get_scope(invocation["scope_id"])
+        interaction = runner.ledger.create_codex_interaction(
+            run_id=run_id,
+            scope_id=scope["id"],
+            invocation_id=invocation["id"],
+            attempt_id=attempt["id"],
+            native_request_id="native-request-1",
+            thread_id="thread-1",
+            turn_id="turn-1",
+            kind="item/commandExecution/requestApproval",
+            payload={"threadId": "thread-1", "turnId": "turn-1", "command": "ls"},
+            authorized_subjects=["example-reviewer"],
+            expires_at="2099-01-01T00:00:00Z",
+        )
+
+        listed = await client.get(
+            f"/api/v1/namespaces/local/runs/{run_id}/codex-interactions",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        response_url = (
+            f"/api/v1/namespaces/local/codex-interactions/{interaction['id']}/responses"
+        )
+        response_headers = {
+            "Authorization": "Bearer test-token",
+            "Idempotency-Key": "native-response-1",
+        }
+        response_body = {
+            "expectedVersion": interaction["version"],
+            "response": {"decision": "accept"},
+        }
+        replied = await client.post(response_url, headers=response_headers, json=response_body)
+        replay = await client.post(response_url, headers=response_headers, json=response_body)
+        conflict = await client.post(
+            response_url,
+            headers=response_headers,
+            json={
+                "expectedVersion": interaction["version"],
+                "response": {"decision": "decline"},
+            },
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()["interactions"][0]["id"] == interaction["id"]
+    assert replied.status_code == 202
+    assert replied.json()["status"] == "replied"
+    assert replay.status_code == 202
+    assert replay.json()["response"] == {"decision": "accept"}
+    assert conflict.status_code == 409
+
+
+@pytest.mark.anyio
 async def test_runtime_allows_local_inspector_origin(settings: ServiceSettings) -> None:
     application = create_app(settings)
     transport = httpx.ASGITransport(app=application)

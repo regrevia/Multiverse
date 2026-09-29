@@ -46,6 +46,11 @@ class HumanDecisionRequest(ServiceModel):
     _validate_text = field_validator("subject_digest")(_non_empty)
 
 
+class CodexInteractionResponseRequest(ServiceModel):
+    expected_version: int = Field(alias="expectedVersion", ge=1)
+    response: dict[str, Any]
+
+
 ReconcileConclusion = Literal[
     "confirmed_succeeded",
     "confirmed_failed",

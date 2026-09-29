@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ from multiverse_workflow.compiler import ExecutionPlan, compile_package
 from multiverse_workflow.compiler.references import schema_validator, validate_schema_file
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
+from multiverse_workflow.runtime.codex import CodexProtocolError
 from multiverse_workflow.runtime.executors import (
     ExecutorCancelledError,
     ExecutorError,
@@ -1993,11 +1995,58 @@ class Runner:
                     float(codex_config.get("timeoutSeconds", 180)),
                     remaining,
                 )
-                result = execute_codex(input_value, codex_config)
+
+                def handle_codex_request(
+                    native_request_id: str,
+                    request_kind: str,
+                    request_payload: dict[str, Any],
+                ) -> dict[str, Any]:
+                    return self._wait_for_codex_interaction(
+                        run_id=run_id,
+                        scope_id=scope_id,
+                        invocation=invocation,
+                        attempt=attempt,
+                        binding_config=binding.config,
+                        request_id=native_request_id,
+                        kind=request_kind,
+                        payload=request_payload,
+                        expires_at=_timestamp(
+                            min(
+                                datetime.fromisoformat(
+                                    run["deadline_at"].replace("Z", "+00:00")
+                                ),
+                                attempt_deadline,
+                            )
+                        ),
+                    )
+
+                def confirm_codex_response(
+                    native_request_id: str, response: dict[str, Any]
+                ) -> None:
+                    interaction = self.ledger.get_codex_interaction_for_native_request(
+                        attempt["id"], native_request_id
+                    )
+                    if interaction is not None:
+                        self.ledger.confirm_codex_interaction_delivery(
+                            interaction["id"]
+                        )
+
+                result = execute_codex(
+                    input_value,
+                    codex_config,
+                    on_server_request=handle_codex_request,
+                    on_server_response=confirm_codex_response,
+                )
             except ExecutorUnknownError as exc:
                 error = {"code": "EXECUTOR_RESULT_UNKNOWN", "message": str(exc)}
+                self.ledger.invalidate_codex_interactions_for_attempt(
+                    attempt["id"], reason=str(exc)
+                )
                 self.ledger.finish_attempt(
                     attempt["id"], status="unknown", error=error
+                )
+                self.ledger.ensure_attempt_reconciliation_wait(
+                    attempt["id"], allow_unknown=True
                 )
                 return None
             except ExecutorCancelledError as exc:
@@ -2536,6 +2585,66 @@ class Runner:
                 self.ledger.finish_attempt(attempt["id"], status="unknown", error=error)
                 return self.ledger.get_run(run_id)  # type: ignore[return-value]
         return self._fail_scope(run_id, scope_id, node_id, error)
+
+    def _wait_for_codex_interaction(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        invocation: dict[str, Any],
+        attempt: dict[str, Any],
+        binding_config: dict[str, Any],
+        request_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        expires_at: str,
+    ) -> dict[str, Any]:
+        supported = {
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+            "item/tool/requestUserInput",
+        }
+        authorized_subjects = binding_config.get("interactionAuthorizedSubjects", [])
+        if not isinstance(authorized_subjects, list) or not all(
+            isinstance(subject, str) for subject in authorized_subjects
+        ):
+            raise CodexProtocolError("Codex interaction authorization is invalid")
+        if not authorized_subjects:
+            raise CodexProtocolError("Codex interaction has no authorized subjects")
+        native_thread_id = payload.get("threadId")
+        native_turn_id = payload.get("turnId")
+        if not isinstance(native_thread_id, str) or not isinstance(native_turn_id, str):
+            raise CodexProtocolError("Codex interaction is missing native thread/turn identity")
+        interaction = self.ledger.create_codex_interaction(
+            run_id=run_id,
+            scope_id=scope_id,
+            invocation_id=invocation["id"],
+            attempt_id=attempt["id"],
+            native_request_id=request_id,
+            thread_id=native_thread_id,
+            turn_id=native_turn_id,
+            kind=kind,
+            payload=payload,
+            authorized_subjects=authorized_subjects,
+            expires_at=expires_at,
+        )
+        if kind not in supported:
+            self.ledger.invalidate_codex_interaction(
+                interaction["id"], reason="unsupported native request kind"
+            )
+            raise CodexProtocolError(f"unsupported Codex interaction kind: {kind}")
+        while True:
+            self.ledger.expire_codex_interactions()
+            current = self.ledger.get_codex_interaction(interaction["id"])
+            if current is None:
+                raise CodexProtocolError("Codex interaction disappeared")
+            if current["status"] == "replied":
+                return json.loads(current["response_json"])
+            if current["status"] != "pending":
+                raise CodexProtocolError(
+                    f"Codex interaction is {current['status']}"
+                )
+            time.sleep(0.1)
 
     def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
         self.ledger.validate_artifact_refs(run_id, self._artifact_refs(value))

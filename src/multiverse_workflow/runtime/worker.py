@@ -34,6 +34,7 @@ class LocalWorker:
         self.claim_timeout_seconds = claim_timeout_seconds
         self._lock_file = lock_file
         self._closed = False
+        self._recover_codex_interactions()
 
     @classmethod
     def from_paths(
@@ -144,6 +145,43 @@ class LocalWorker:
     def _ensure_open(self) -> None:
         if self._closed:
             raise RuntimeError("worker is closed")
+
+    def _recover_codex_interactions(self) -> None:
+        for interaction in self.runner.ledger.list_codex_interactions(
+            namespace=self.runner.namespace
+        ):
+            if not (
+                interaction["status"] == "pending"
+                or (
+                    interaction["status"] == "replied"
+                    and interaction.get("delivery_status") in {"pending", "sent"}
+                )
+            ):
+                continue
+            self.runner.ledger.invalidate_codex_interactions_for_attempt(
+                interaction["attempt_id"],
+                reason="worker restart invalidated the native Codex interaction",
+            )
+            attempt = self.runner.ledger.get_attempt(interaction["attempt_id"])
+            if attempt is not None and attempt["status"] not in {
+                "succeeded",
+                "failed",
+                "cancelled",
+                "unknown",
+            }:
+                self.runner.ledger.finish_attempt(
+                    attempt["id"],
+                    status="unknown",
+                    error={
+                        "code": "CODEX_CONNECTION_LOST",
+                        "message": "Worker restart invalidated the native Codex interaction.",
+                    },
+                )
+                attempt = self.runner.ledger.get_attempt(attempt["id"])
+            if attempt is not None and attempt["status"] == "unknown":
+                self.runner.ledger.ensure_attempt_reconciliation_wait(
+                    attempt["id"], allow_unknown=True
+                )
 
 
 def _timestamp(value: datetime) -> str:

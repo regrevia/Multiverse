@@ -5,6 +5,7 @@ import os
 import selectors
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,8 @@ class CodexAppServer:
         cwd: Path,
         home_dir: Path,
         output_schema: dict[str, Any],
+        on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
+        on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> CodexResult:
         process = subprocess.Popen(
             self.command,
@@ -71,7 +74,7 @@ class CodexAppServer:
                     "capabilities": {},
                 },
             )
-            self._read_response(process, request_id)
+            self._read_response(process, request_id, on_server_request)
             self._send_notification(process, "initialized", {})
             request_id = 2
             self._send(
@@ -85,7 +88,9 @@ class CodexAppServer:
                     **({"model": self.model} if self.model else {}),
                 },
             )
-            thread_id = self._read_response(process, request_id).get("thread", {}).get("id")
+            thread_id = self._read_response(
+                process, request_id, on_server_request
+            ).get("thread", {}).get("id")
             if not isinstance(thread_id, str) or not thread_id:
                 raise CodexProtocolError("thread/start did not return a thread id")
             request_id = 3
@@ -100,7 +105,9 @@ class CodexAppServer:
                     "outputSchema": output_schema,
                 },
             )
-            turn_id = self._read_response(process, request_id).get("turn", {}).get("id")
+            turn_id = self._read_response(
+                process, request_id, on_server_request
+            ).get("turn", {}).get("id")
             if not isinstance(turn_id, str) or not turn_id:
                 raise CodexProtocolError("turn/start did not return a turn id")
             parts: list[str] = []
@@ -108,6 +115,25 @@ class CodexAppServer:
             try:
                 while time.monotonic() < deadline:
                     message = self._read_message(process, deadline - time.monotonic())
+                    if "method" in message and "id" in message:
+                        if on_server_request is None:
+                            raise CodexProtocolError(
+                                f"unhandled Codex server request: {message['method']}"
+                            )
+                        params = message.get("params")
+                        if not isinstance(params, dict):
+                            raise CodexProtocolError(
+                                "Codex server request params must be an object"
+                            )
+                        response = on_server_request(
+                            str(message["id"]),
+                            str(message["method"]),
+                            params,
+                        )
+                        self._send_server_response(process, message["id"], response)
+                        if on_server_response is not None:
+                            on_server_response(str(message["id"]), response)
+                        continue
                     if message.get("method") == "item/agentMessage/delta":
                         delta = message.get("params", {}).get("delta")
                         if isinstance(delta, str):
@@ -260,9 +286,42 @@ class CodexAppServer:
         process.stdin.write((json.dumps(message) + "\n").encode())
         process.stdin.flush()
 
-    def _read_response(self, process: subprocess.Popen[bytes], request_id: int) -> dict[str, Any]:
+    @staticmethod
+    def _send_server_response(
+        process: subprocess.Popen[bytes], request_id: Any, result: dict[str, Any]
+    ) -> None:
+        assert process.stdin
+        message = {"jsonrpc": "2.0", "id": request_id, "result": result}
+        process.stdin.write((json.dumps(message) + "\n").encode())
+        process.stdin.flush()
+
+    def _read_response(
+        self,
+        process: subprocess.Popen[bytes],
+        request_id: int,
+        on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]]
+        | None = None,
+        on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         while True:
             message = self._read_message(process, self.timeout_seconds)
+            if "method" in message and "id" in message:
+                if on_server_request is None:
+                    raise CodexProtocolError(
+                        f"unhandled Codex server request: {message['method']}"
+                    )
+                params = message.get("params")
+                if not isinstance(params, dict):
+                    raise CodexProtocolError(
+                        "Codex server request params must be an object"
+                    )
+                response = on_server_request(
+                    str(message["id"]), str(message["method"]), params
+                )
+                self._send_server_response(process, message["id"], response)
+                if on_server_response is not None:
+                    on_server_response(str(message["id"]), response)
+                continue
             if message.get("id") != request_id:
                 continue
             if "error" in message:

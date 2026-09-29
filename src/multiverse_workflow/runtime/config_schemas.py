@@ -32,6 +32,12 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "cwd": text,
             "workspaceRoot": text,
             "homeDir": text,
+            "interactionAuthorizedSubjects": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": True,
+                "items": text,
+            },
             "model": text,
             "systemPrompt": text,
             "command": {"type": "array", "minItems": 1, "items": text},
@@ -39,7 +45,13 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "artifactName": text,
             "artifactMediaType": text,
         }
-        required = ["cwd", "workspaceRoot", "homeDir", "model"]
+        required = [
+            "cwd",
+            "workspaceRoot",
+            "homeDir",
+            "model",
+            "interactionAuthorizedSubjects",
+        ]
     elif executor_ref == "builtin.ollama-deliverable.v1":
         properties = {
             "model": text,

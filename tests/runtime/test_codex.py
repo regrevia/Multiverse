@@ -147,3 +147,51 @@ def test_codex_timeout_requests_and_confirms_turn_interrupt(tmp_path: Path) -> N
             home_dir=tmp_path,
             output_schema={"type": "object"},
         )
+
+
+def test_codex_server_request_is_returned_over_the_same_rpc_connection(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_codex_request.py"
+    fake.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    request_id = request.get('id')\n"
+        "    if request_id == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request_id == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-1'}}}), flush=True)\n"
+        "    elif request_id == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': {'turn': {'id': 'turn-1'}}}), flush=True)\n"
+        "        print(json.dumps({'id': 'native-7', 'method': 'item/tool/requestUserInput', "
+        "'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'questions': []}}), flush=True)\n"
+        "    elif request_id == 'native-7':\n"
+        "        print(json.dumps({'method': 'item/agentMessage/delta', "
+        "'params': {'delta': '{\\\"text\\\":\\\"continued\\\","
+        "\\\"artifact_refs\\\":[]}'}}), flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', "
+        "'params': {'turn': {'status': 'completed'}}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    result = CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=2,
+    ).run(
+        prompt="continue",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+        on_server_request=lambda request_id, method, params: (
+            seen.append((method, params)) or {"answers": {"choice": {"answers": ["yes"]}}}
+        ),
+    )
+
+    assert seen == [
+        (
+            "item/tool/requestUserInput",
+            {"threadId": "thread-1", "turnId": "turn-1", "questions": []},
+        )
+    ]
+    assert result.output == {"text": "continued", "artifact_refs": []}

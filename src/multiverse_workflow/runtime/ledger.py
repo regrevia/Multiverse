@@ -2054,11 +2054,15 @@ class Ledger:
                     )
         return self.get_attempt(attempt_id)  # type: ignore[return-value]
 
-    def ensure_attempt_reconciliation_wait(self, attempt_id: str) -> dict[str, Any]:
+    def ensure_attempt_reconciliation_wait(
+        self, attempt_id: str, *, allow_unknown: bool = False
+    ) -> dict[str, Any]:
         """Ensure a persisted reconciliation fact has a recoverable wake."""
         with self._transaction() as connection:
             attempt = self._require_attempt(connection, attempt_id)
-            if attempt["reconciliation_json"] is None or attempt["status"] == "unknown":
+            if attempt["reconciliation_json"] is None and not (
+                allow_unknown and attempt["status"] == "unknown"
+            ):
                 raise LedgerConflict("attempt reconciliation is not committed")
             run = self._require_run(connection, attempt["run_id"])
             now = _now()
@@ -2195,6 +2199,381 @@ class Ledger:
                 ),
             )
         return self.get_human_request(request_id)  # type: ignore[return-value]
+
+    def create_codex_interaction(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        invocation_id: str,
+        attempt_id: str,
+        native_request_id: str,
+        thread_id: str,
+        turn_id: str,
+        kind: str,
+        payload: Any,
+        authorized_subjects: list[str],
+        expires_at: str,
+    ) -> dict[str, Any]:
+        if not authorized_subjects:
+            raise LedgerConflict("codex interaction requires an authorized subject")
+        interaction_id = _new_id("interaction")
+        now = _now()
+        with self._transaction() as connection:
+            self._require_scope(connection, run_id, scope_id)
+            invocation_row = connection.execute(
+                """
+                SELECT * FROM invocations
+                WHERE id = ? AND run_id = ? AND scope_id = ?
+                """,
+                (invocation_id, run_id, scope_id),
+            ).fetchone()
+            if invocation_row is None:
+                raise LedgerConflict("codex interaction invocation does not match scope")
+            attempt_row = connection.execute(
+                """
+                SELECT * FROM attempts
+                WHERE id = ? AND invocation_id = ?
+                """,
+                (attempt_id, invocation_id),
+            ).fetchone()
+            if attempt_row is None:
+                raise LedgerConflict("codex interaction attempt does not match invocation")
+            connection.execute(
+                """
+                INSERT INTO codex_interactions (
+                    id, run_id, scope_id, invocation_id, attempt_id,
+                    native_request_id, thread_id, turn_id, kind, payload_json,
+                authorized_subjects_json, expires_at, version, status,
+                    response_json, response_digest, actor, idempotency_key,
+                    delivery_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending',
+                          NULL, NULL, NULL, NULL, 'not_sent', ?, ?)
+                ON CONFLICT(attempt_id, native_request_id) DO NOTHING
+                """,
+                (
+                    interaction_id,
+                    run_id,
+                    scope_id,
+                    invocation_id,
+                    attempt_id,
+                    native_request_id,
+                    thread_id,
+                    turn_id,
+                    kind,
+                    _json(payload),
+                    _json(authorized_subjects),
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            existing = connection.execute(
+                """
+                SELECT * FROM codex_interactions
+                WHERE attempt_id = ? AND native_request_id = ?
+                """,
+                (attempt_id, native_request_id),
+            ).fetchone()
+            if existing is None:
+                raise LedgerConflict("codex interaction was not persisted")
+            if (
+                existing["thread_id"] != thread_id
+                or existing["turn_id"] != turn_id
+                or existing["kind"] != kind
+                or existing["payload_json"] != _json(payload)
+            ):
+                raise LedgerConflict("native request ID conflicts with persisted interaction")
+            if existing["id"] != interaction_id:
+                return dict(existing)
+            self._event(
+                connection,
+                run_id,
+                "codex.interaction.created",
+                {"interactionId": interaction_id, "kind": kind, "status": "pending"},
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+            )
+        return self.get_codex_interaction(interaction_id)  # type: ignore[return-value]
+
+    def invalidate_codex_interactions_for_attempt(
+        self, attempt_id: str, *, reason: str
+    ) -> list[str]:
+        invalidated: list[str] = []
+        now = _now()
+        with self._transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM codex_interactions
+                WHERE attempt_id = ?
+                  AND (
+                    status = 'pending'
+                    OR (status = 'replied' AND delivery_status IN ('pending', 'sent'))
+                  )
+                """,
+                (attempt_id,),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """
+                    UPDATE codex_interactions
+                    SET status = 'invalid', version = version + 1,
+                        invalid_reason = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (reason, now, row["id"]),
+                )
+                self._event(
+                    connection,
+                    row["run_id"],
+                    "codex.interaction.invalid",
+                    {
+                        "interactionId": row["id"],
+                        "status": "invalid",
+                        "reason": reason,
+                    },
+                    scope_id=row["scope_id"],
+                    invocation_id=row["invocation_id"],
+                    attempt_id=attempt_id,
+                )
+                invalidated.append(str(row["id"]))
+        return invalidated
+
+    def list_codex_interactions(
+        self,
+        *,
+        run_id: str | None = None,
+        status: str | None = None,
+        namespace: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        values: list[str] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            values.append(run_id)
+        if status is not None:
+            clauses.append("status = ?")
+            values.append(status)
+        if namespace is not None:
+            clauses.append(
+                "run_id IN (SELECT id FROM runs WHERE namespace = ?)"
+            )
+            values.append(namespace)
+        query = "SELECT * FROM codex_interactions"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at, id"
+        return [
+            dict(row)
+            for row in self._connection.execute(query, values).fetchall()
+        ]
+
+    def confirm_codex_interaction_delivery(
+        self, interaction_id: str
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"codex interaction not found: {interaction_id}")
+            if row["status"] != "replied":
+                raise LedgerConflict("only replied interaction can be sent")
+            if row["delivery_status"] in {"sent", "confirmed"}:
+                return dict(row)
+            connection.execute(
+                """
+                UPDATE codex_interactions
+                SET delivery_status = 'sent', version = version + 1, updated_at = ?
+                WHERE id = ?
+                """,
+                (_now(), interaction_id),
+            )
+            self._event(
+                connection,
+                row["run_id"],
+                "codex.interaction.delivery_sent",
+                {"interactionId": interaction_id, "deliveryStatus": "sent"},
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+            result = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            return dict(result)
+
+    def expire_codex_interactions(self, *, now: str | None = None) -> list[str]:
+        now = now or _now()
+        expired: list[str] = []
+        with self._transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM codex_interactions
+                WHERE status = 'pending' AND expires_at <= ?
+                ORDER BY expires_at, id
+                """,
+                (now,),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """
+                    UPDATE codex_interactions
+                    SET status = 'expired', version = version + 1, updated_at = ?
+                    WHERE id = ? AND status = 'pending'
+                    """,
+                    (now, row["id"]),
+                )
+                self._event(
+                    connection,
+                    row["run_id"],
+                    "codex.interaction.expired",
+                    {"interactionId": row["id"], "status": "expired"},
+                    scope_id=row["scope_id"],
+                    invocation_id=row["invocation_id"],
+                    attempt_id=row["attempt_id"],
+                )
+                expired.append(str(row["id"]))
+        return expired
+
+    def invalidate_codex_interaction(
+        self, interaction_id: str, *, reason: str
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"codex interaction not found: {interaction_id}")
+            if row["status"] != "pending":
+                return dict(row)
+            now = _now()
+            connection.execute(
+                """
+                UPDATE codex_interactions
+                SET status = 'invalid', version = version + 1,
+                    invalid_reason = ?, updated_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (reason, now, interaction_id),
+            )
+            self._event(
+                connection,
+                row["run_id"],
+                "codex.interaction.invalid",
+                {"interactionId": interaction_id, "status": "invalid", "reason": reason},
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+            result = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            return dict(result)
+
+    def get_codex_interaction(self, interaction_id: str) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT * FROM codex_interactions WHERE id = ?", (interaction_id,)
+        ).fetchone()
+        return _row(row)
+
+    def respond_codex_interaction(
+        self,
+        interaction_id: str,
+        *,
+        expected_version: int,
+        actor: str,
+        response: Any,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"codex interaction not found: {interaction_id}")
+            run_row = connection.execute(
+                "SELECT namespace FROM runs WHERE id = ?", (row["run_id"],)
+            ).fetchone()
+            if run_row is None:
+                raise LedgerConflict("codex interaction run is missing")
+            scoped_key = f"{run_row['namespace']}:{actor}:{idempotency_key}"
+            response_json = _json(response)
+            response_digest = _digest(response_json)
+            if row["idempotency_key"] == scoped_key and row["status"] == "replied":
+                if row["response_digest"] != response_digest or row["actor"] != actor:
+                    raise LedgerConflict("idempotency key was reused with different content")
+                return dict(row)
+            existing = connection.execute(
+                "SELECT * FROM codex_interactions WHERE idempotency_key = ?",
+                (scoped_key,),
+            ).fetchone()
+            if existing is not None and existing["id"] != interaction_id:
+                raise LedgerConflict("idempotency key belongs to another interaction")
+            if int(row["version"]) != expected_version:
+                raise LedgerConflict("codex interaction version conflict")
+            if row["status"] != "pending":
+                raise LedgerConflict(f"codex interaction is {row['status']}")
+            if actor not in json.loads(row["authorized_subjects_json"]):
+                raise LedgerConflict("actor is not authorized for codex interaction")
+            if row["expires_at"] <= _now():
+                connection.execute(
+                    """
+                    UPDATE codex_interactions
+                    SET status = 'expired', version = version + 1, updated_at = ?
+                    WHERE id = ? AND status = 'pending'
+                    """,
+                    (_now(), interaction_id),
+                )
+                self._event(
+                    connection,
+                    row["run_id"],
+                    "codex.interaction.expired",
+                    {"interactionId": interaction_id, "status": "expired"},
+                    scope_id=row["scope_id"],
+                    invocation_id=row["invocation_id"],
+                    attempt_id=row["attempt_id"],
+                )
+                raise LedgerConflict("codex interaction has expired")
+            updated_at = _now()
+            connection.execute(
+                """
+                UPDATE codex_interactions
+                SET status = 'replied', version = version + 1,
+                    response_json = ?, response_digest = ?, actor = ?,
+                    idempotency_key = ?, delivery_status = 'pending',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    response_json,
+                    response_digest,
+                    actor,
+                    scoped_key,
+                    updated_at,
+                    interaction_id,
+                ),
+            )
+            self._event(
+                connection,
+                row["run_id"],
+                "codex.interaction.replied",
+                {"interactionId": interaction_id, "status": "replied", "actor": actor},
+                scope_id=row["scope_id"],
+                invocation_id=row["invocation_id"],
+                attempt_id=row["attempt_id"],
+            )
+            result = connection.execute(
+                "SELECT * FROM codex_interactions WHERE id = ?",
+                (interaction_id,),
+            ).fetchone()
+            return dict(result)
 
     def get_human_request(self, request_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
@@ -3073,6 +3452,31 @@ class Ledger:
                 decision_id TEXT,
                 updated_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS codex_interactions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                scope_id TEXT NOT NULL REFERENCES scopes(id),
+                invocation_id TEXT NOT NULL REFERENCES invocations(id),
+                attempt_id TEXT NOT NULL REFERENCES attempts(id),
+                native_request_id TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                turn_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                authorized_subjects_json TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                response_json TEXT,
+                response_digest TEXT,
+                invalid_reason TEXT,
+                actor TEXT,
+                idempotency_key TEXT UNIQUE,
+                delivery_status TEXT NOT NULL DEFAULT 'not_sent',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(attempt_id, native_request_id)
+            );
             CREATE TABLE IF NOT EXISTS human_decisions (
                 id TEXT PRIMARY KEY,
                 request_id TEXT NOT NULL UNIQUE REFERENCES human_requests(id),
@@ -3181,6 +3585,45 @@ class Ledger:
             row["name"]
             for row in self._connection.execute("PRAGMA table_info(attempts)").fetchall()
         }
+        codex_interaction_columns = {
+            row["name"]
+            for row in self._connection.execute(
+                "PRAGMA table_info(codex_interactions)"
+            ).fetchall()
+        }
+        for column, definition in (
+            ("response_digest", "TEXT"),
+            ("invalid_reason", "TEXT"),
+            ("delivery_status", "TEXT NOT NULL DEFAULT 'not_sent'"),
+        ):
+            if column not in codex_interaction_columns:
+                self._connection.execute(
+                    f"ALTER TABLE codex_interactions ADD COLUMN {column} {definition}"
+                )
+        rows = self._connection.execute(
+            """
+            SELECT id, response_json FROM codex_interactions
+            WHERE response_digest IS NULL AND response_json IS NOT NULL
+            """
+        ).fetchall()
+        for row in rows:
+            self._connection.execute(
+                "UPDATE codex_interactions SET response_digest = ? WHERE id = ?",
+                (_digest(str(row["response_json"])), row["id"]),
+            )
+        self._connection.execute(
+            """
+            UPDATE codex_interactions
+            SET idempotency_key = (
+                SELECT runs.namespace || ':' || COALESCE(codex_interactions.actor, '')
+                       || ':' || codex_interactions.idempotency_key
+                FROM runs
+                WHERE runs.id = codex_interactions.run_id
+            )
+            WHERE idempotency_key IS NOT NULL
+              AND idempotency_key NOT LIKE '%:%:%'
+            """
+        )
         for column, definition in (
             ("observation_revision", "INTEGER"),
             ("observation_json", "TEXT"),

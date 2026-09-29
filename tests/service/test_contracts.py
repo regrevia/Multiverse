@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from multiverse_workflow.service.contracts import (
     AttemptReconcileRequest,
+    CodexInteractionResponseRequest,
     CommandReceipt,
     RunCreateRequest,
 )
@@ -51,3 +52,17 @@ def test_attempt_reconcile_request_requires_evidence_and_supported_conclusion() 
             reason="The provider confirmed failure.",
             output={"unexpected": True},
         )
+
+
+def test_codex_interaction_response_requires_a_version_and_object_payload() -> None:
+    request = CodexInteractionResponseRequest(
+        expectedVersion=1,
+        response={"decision": "accept"},
+    )
+    assert request.expected_version == 1
+
+    with pytest.raises(ValidationError):
+        CodexInteractionResponseRequest(expectedVersion=0, response={})
+
+    with pytest.raises(ValidationError):
+        CodexInteractionResponseRequest(expectedVersion=1, response="accept")

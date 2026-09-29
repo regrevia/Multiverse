@@ -14,6 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 from multiverse_workflow.service.application import RuntimeApplication
 from multiverse_workflow.service.contracts import (
     AttemptReconcileRequest,
+    CodexInteractionResponseRequest,
     ErrorBody,
     ErrorResponse,
     HumanDecisionRequest,
@@ -385,6 +386,63 @@ def create_app(settings: ServiceSettings) -> FastAPI:
         )
         return receipt.model_dump(mode="json", by_alias=True)
 
+    @app.get("/api/v1/namespaces/{namespace}/runs/{run_id}/codex-interactions")
+    async def list_codex_interactions(
+        namespace: str,
+        run_id: str,
+        status: str | None = None,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        interactions = runtime.list_codex_interactions(
+            namespace, run_id=run_id, status=status
+        )
+        return {"interactions": [_present_codex_interaction(item) for item in interactions]}
+
+    @app.get("/api/v1/namespaces/{namespace}/codex-interactions/{interaction_id}")
+    async def get_codex_interaction(
+        namespace: str,
+        interaction_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        return _present_codex_interaction(
+            runtime.get_codex_interaction(namespace, interaction_id)
+        )
+
+    @app.post(
+        "/api/v1/namespaces/{namespace}/codex-interactions/{interaction_id}/responses",
+        status_code=202,
+    )
+    async def respond_codex_interaction(
+        namespace: str,
+        interaction_id: str,
+        payload: CodexInteractionResponseRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "codex:interact")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        if idempotency_key is None:
+            raise ServiceError(
+                "INVALID_ARGUMENT",
+                "Idempotency-Key header is required",
+                status_code=422,
+            )
+        interaction = runtime.respond_codex_interaction(
+            namespace,
+            interaction_id,
+            payload,
+            idempotency_key=idempotency_key,
+            actor=principal.subject,
+        )
+        return _present_codex_interaction(interaction)
+
     return app
 
 
@@ -452,6 +510,35 @@ def _present_human_request(request: dict[str, Any]) -> dict[str, Any]:
         "status": request["status"],
         "decisionId": request["decision_id"],
         "updatedAt": request["updated_at"],
+    }
+
+
+def _present_codex_interaction(interaction: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": interaction["id"],
+        "runId": interaction["run_id"],
+        "scopeId": interaction["scope_id"],
+        "invocationId": interaction["invocation_id"],
+        "attemptId": interaction["attempt_id"],
+        "nativeRequestId": interaction["native_request_id"],
+        "threadId": interaction["thread_id"],
+        "turnId": interaction["turn_id"],
+        "kind": interaction["kind"],
+        "payload": json.loads(interaction["payload_json"]),
+        "authorizedSubjects": json.loads(interaction["authorized_subjects_json"]),
+        "expiresAt": interaction["expires_at"],
+        "version": interaction["version"],
+        "status": interaction["status"],
+        "deliveryStatus": interaction["delivery_status"],
+        "invalidReason": interaction["invalid_reason"],
+        "response": (
+            json.loads(interaction["response_json"])
+            if interaction["response_json"] is not None
+            else None
+        ),
+        "actor": interaction["actor"],
+        "createdAt": interaction["created_at"],
+        "updatedAt": interaction["updated_at"],
     }
 
 

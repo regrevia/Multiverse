@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,7 +88,13 @@ def execute_local_process(input_value: Any, config: dict[str, Any]) -> Execution
     return ExecutionResult(output=output)
 
 
-def execute_codex(input_value: Any, config: dict[str, Any]) -> ExecutionResult:
+def execute_codex(
+    input_value: Any,
+    config: dict[str, Any],
+    *,
+    on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
+    on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+) -> ExecutionResult:
     if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
         raise ExecutorError("codex deliverable requires a goal string")
     cwd = config.get("cwd")
@@ -142,6 +149,8 @@ def execute_codex(input_value: Any, config: dict[str, Any]) -> ExecutionResult:
             cwd=cwd_path,
             home_dir=home_path,
             output_schema=schema,
+            on_server_request=on_server_request,
+            on_server_response=on_server_response,
         )
     except CodexInterruptedError as exc:
         raise ExecutorCancelledError(f"codex turn interrupted: {exc}") from exc
