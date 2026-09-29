@@ -35,6 +35,9 @@ packages = ["src/multiverse_workflow"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "integration: authorized integration or end-to-end checks that may use local executors",
+]
 
 [tool.ruff]
 line-length = 100
