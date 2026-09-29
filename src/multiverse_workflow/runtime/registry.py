@@ -12,7 +12,14 @@ from jsonschema import Draft202012Validator
 from multiverse_workflow.protocol.models import BindingSet
 from multiverse_workflow.runtime.config_schemas import executor_config_schema
 
-AdapterKind = Literal["builtin", "local_process", "http_job", "human"]
+AdapterKind = Literal["builtin", "local_process", "http_job", "human", "codex"]
+
+_KNOWN_STOP_EVENTS = {
+    "budget.exhausted",
+    "timeout.exceeded",
+    "external.cancelled",
+    "policy.denied",
+}
 
 
 @dataclass(frozen=True)
@@ -255,6 +262,80 @@ class ExecutorRegistry:
                             message=f"执行器 {slot.executor_ref} 不声明能力 {capability}。",
                         )
                     )
+            policy = definition.get("policy")
+            if isinstance(policy, dict):
+                budget = policy.get("budget", {})
+                if isinstance(budget, dict) and any(
+                    budget.get(key) is not None
+                    for key in ("maxInputTokens", "maxOutputTokens", "maxTotalTokens")
+                ) and "model.usage@1" not in descriptor.capabilities:
+                    issues.append(
+                        SupportIssue(
+                            code="LIMIT_NOT_ENFORCEABLE",
+                            node_id=node_id,
+                            message=(
+                                f"执行器 {slot.executor_ref} 未声明 model.usage@1；"
+                                "token 限制不能被可靠实施。"
+                            ),
+                        )
+                    )
+                if isinstance(budget, dict) and budget.get("maxCostUsd") is not None and (
+                    "model.cost@1" not in descriptor.capabilities
+                ):
+                    issues.append(
+                        SupportIssue(
+                            code="LIMIT_NOT_ENFORCEABLE",
+                            node_id=node_id,
+                            message=(
+                                f"执行器 {slot.executor_ref} 未声明 model.cost@1；"
+                                "费用上限只能作为声明，不能保证实施。"
+                            ),
+                        )
+                    )
+                stop = policy.get("stop", {})
+                if isinstance(stop, dict):
+                    for event in stop.get("on", []):
+                        if event not in _KNOWN_STOP_EVENTS:
+                            issues.append(
+                                SupportIssue(
+                                    code="STOP_TRIGGER_UNRESOLVED",
+                                    node_id=node_id,
+                                    message=f"未注册的停止触发器：{event}。",
+                                )
+                            )
+                if isinstance(stop, dict) and stop.get("on") and (
+                    "execution.cooperative-stop@1" not in descriptor.capabilities
+                ):
+                    issues.append(
+                        SupportIssue(
+                            code="LIMIT_NOT_ENFORCEABLE",
+                            node_id=node_id,
+                            message=(
+                                f"执行器 {slot.executor_ref} 未声明 execution.cooperative-stop@1；"
+                                "停止条件不能保证在当前调用中生效。"
+                            ),
+                        )
+                    )
+                limits = policy.get("limits", {})
+                if isinstance(limits, dict) and any(value is not None for value in limits.values()):
+                    issues.append(
+                        SupportIssue(
+                            code="LIMIT_NOT_ENFORCEABLE",
+                            node_id=node_id,
+                            message=(
+                                f"执行器 {slot.executor_ref} 当前未声明通用资源限制实施能力；"
+                                "limits 不能保证执行。"
+                            ),
+                        )
+                    )
+                for guard in policy.get("guards", []):
+                    issues.append(
+                        SupportIssue(
+                            code="GUARD_UNRESOLVED",
+                            node_id=node_id,
+                            message=f"Guard 尚未注册：{guard.get('ref', '<invalid>')}。",
+                        )
+                    )
             if not descriptor.installed:
                 issues.append(
                     SupportIssue(
@@ -357,6 +438,21 @@ _LOCAL_EXECUTOR_DESCRIPTORS = (
         installed=True,
         available=True,
         verified=True,
+    ),
+    ExecutorDescriptor(
+        executor_ref="builtin.codex-deliverable.v1",
+        adapter="codex",
+        capabilities=frozenset({"content.produce@1", "content.review@1"}),
+        contract_version="multiverse/v0.1",
+        executor_version="0.156.1",
+        supports_cancel=False,
+        supports_idempotency=False,
+        supports_recovery_query=False,
+        observability_level="structured",
+        permission_level="trusted_local",
+        installed=True,
+        available=True,
+        verified=False,
     ),
     ExecutorDescriptor(
         executor_ref="builtin.human-review.v1",

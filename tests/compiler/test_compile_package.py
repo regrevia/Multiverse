@@ -115,6 +115,54 @@ spec:
     assert result.plans["main"].nodes["work"]["defaults"]["retry"]["maxAttempts"] == 2
 
 
+def test_compiler_freezes_optional_node_policy_without_changing_fast_path(tmp_path: Path) -> None:
+    package = _write_minimal_package(
+        tmp_path,
+        workflow_text="""\
+apiVersion: multiverse/v0.1
+kind: Workflow
+metadata:
+  name: main
+  version: 0.1.0
+spec:
+  inputSchema: schemas/value.json
+  outputSchema: schemas/value.json
+  entry: work
+  nodes:
+    work:
+      type: call
+      slot: worker
+      inputSchema: schemas/value.json
+      outputSchema: schemas/value.json
+      input: {ref: input#}
+      requires:
+        capabilities: [data.process@1]
+      effects:
+        class: none
+        actions: []
+      policy:
+        budget:
+          maxTotalTokens: 8000
+          maxCostUsd: 2.0
+        stop:
+          on: [budget.exhausted]
+      next: complete
+    complete:
+      type: end
+      outcome: succeeded
+      output: {literal: {}}
+""",
+    )
+
+    result = compile_package(package)
+
+    assert result.ok
+    assert result.plans["main"].nodes["work"]["definition"]["policy"]["budget"] == {
+        "maxTotalTokens": 8000,
+        "maxCostUsd": 2.0,
+    }
+
+
 def test_compiler_allows_a_failed_call_to_feed_its_on_error_handler(tmp_path: Path) -> None:
     package_root = _write_minimal_package(
         tmp_path,

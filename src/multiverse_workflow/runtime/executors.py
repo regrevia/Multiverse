@@ -3,13 +3,27 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from multiverse_workflow.runtime.codex import (
+    CodexAppServer,
+    CodexInterruptedError,
+    CodexProtocolError,
+)
 from multiverse_workflow.runtime.ollama import OllamaError, generate_deliverable
 
 
 class ExecutorError(RuntimeError):
     """A local executor cannot produce a valid protocol result."""
+
+
+class ExecutorUnknownError(ExecutorError):
+    """The executor may have accepted work, but its result is not knowable."""
+
+
+class ExecutorCancelledError(ExecutorError):
+    """The executor confirmed that the active work was cooperatively stopped."""
 
 
 @dataclass(frozen=True)
@@ -71,6 +85,88 @@ def execute_local_process(input_value: Any, config: dict[str, Any]) -> Execution
     except json.JSONDecodeError as exc:
         raise ExecutorError("local_process stdout must contain one JSON value") from exc
     return ExecutionResult(output=output)
+
+
+def execute_codex(input_value: Any, config: dict[str, Any]) -> ExecutionResult:
+    if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
+        raise ExecutorError("codex deliverable requires a goal string")
+    cwd = config.get("cwd")
+    workspace_root = config.get("workspaceRoot")
+    home_dir = config.get("homeDir")
+    model = config.get("model")
+    prompt = config.get("systemPrompt", "Return a concise JSON deliverable.")
+    if not isinstance(cwd, str) or not cwd.strip():
+        raise ExecutorError("codex cwd must be a non-empty string")
+    if not isinstance(workspace_root, str) or not workspace_root.strip():
+        raise ExecutorError("codex workspaceRoot must be a non-empty string")
+    if not isinstance(home_dir, str) or not home_dir.strip():
+        raise ExecutorError("codex homeDir must be a non-empty string")
+    if not isinstance(model, str) or not model.strip():
+        raise ExecutorError("codex model must be a non-empty string")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ExecutorError("codex systemPrompt must be a non-empty string")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["text", "artifact_refs"],
+        "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "artifact_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 0},
+        },
+    }
+    request = (
+        f"{prompt}\n"
+        f"Structured task input: {json.dumps(input_value, ensure_ascii=False, sort_keys=True)}\n"
+        "Return only JSON matching the supplied output schema."
+    )
+    command_value = config.get("command")
+    command = (
+        tuple(command_value)
+        if isinstance(command_value, list) and all(isinstance(part, str) for part in command_value)
+        else ("codex", "app-server", "--stdio")
+    )
+    cwd_path = Path(cwd).resolve()
+    workspace_path = Path(workspace_root).resolve()
+    home_path = Path(home_dir).resolve()
+    if not cwd_path.is_relative_to(workspace_path):
+        raise ExecutorError("codex cwd must be inside workspaceRoot")
+    if not home_path.is_dir():
+        raise ExecutorError("codex homeDir must be an existing directory")
+    try:
+        result = CodexAppServer(
+            command=command,
+            model=model,
+            timeout_seconds=float(config.get("timeoutSeconds", 180)),
+        ).run(
+            prompt=request,
+            cwd=cwd_path,
+            home_dir=home_path,
+            output_schema=schema,
+        )
+    except CodexInterruptedError as exc:
+        raise ExecutorCancelledError(f"codex turn interrupted: {exc}") from exc
+    except CodexProtocolError as exc:
+        raise ExecutorUnknownError(f"codex result is unknown: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise ExecutorError(f"codex execution failed: {exc}") from exc
+    output = result.output
+    text = output.get("text")
+    artifact_refs = output.get("artifact_refs")
+    if not isinstance(text, str) or not text.strip() or artifact_refs != []:
+        raise ExecutorError("codex output must contain non-empty text and no artifact references")
+    artifact_name = config.get("artifactName", "codex-deliverable.md")
+    media_type = config.get("artifactMediaType", "text/markdown")
+    if not isinstance(artifact_name, str) or not isinstance(media_type, str):
+        raise ExecutorError("codex artifact metadata must be strings")
+    return ExecutionResult(
+        output=output,
+        observations=[result.observation],
+        generated_artifact=GeneratedArtifact(
+            name=artifact_name,
+            media_type=media_type,
+            content=text.encode("utf-8"),
+        ),
+    )
 
 
 def execute_builtin(

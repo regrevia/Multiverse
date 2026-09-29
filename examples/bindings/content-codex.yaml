@@ -1,0 +1,55 @@
+apiVersion: multiverse/v0.1
+kind: BindingSet
+metadata:
+  name: content-codex
+  version: 0.1.0
+spec:
+  slots:
+    producer:
+      adapter: codex
+      executorRef: builtin.codex-deliverable.v1
+      config:
+        cwd: /absolute/path/to/approved/workspace
+        workspaceRoot: /absolute/path/to/approved/workspace
+        homeDir: /absolute/path/to/approved/codex-home
+        model: gpt-5.5
+        systemPrompt: Return only concise JSON with a non-empty text field and an empty artifact_refs array. Do not invent Artifact IDs.
+        artifactName: codex-deliverable.md
+        artifactMediaType: text/markdown
+        timeoutSeconds: 180
+      secretRefs: {}
+      grants:
+        - action: content.produce
+          resource: namespace:demo
+    critic:
+      adapter: codex
+      executorRef: builtin.codex-deliverable.v1
+      config:
+        cwd: /absolute/path/to/approved/workspace
+        workspaceRoot: /absolute/path/to/approved/workspace
+        homeDir: /absolute/path/to/approved/codex-home
+        model: gpt-5.5
+        systemPrompt: Review the candidate deliverable. Return only concise JSON with a non-empty text field and an empty artifact_refs array. Do not approve the workflow.
+        artifactName: codex-review.md
+        artifactMediaType: text/markdown
+        timeoutSeconds: 180
+      secretRefs: {}
+      grants:
+        - action: content.review
+          resource: namespace:demo
+    verifier:
+      adapter: builtin
+      executorRef: builtin.nonempty-deliverable.v1
+      config: {}
+      secretRefs: {}
+      grants: []
+    reviewer:
+      adapter: human
+      executorRef: builtin.human-review.v1
+      config:
+        requestType: review
+        choices: [approve, reject]
+        authorizedSubjects: [example-reviewer]
+        requireCommentFor: [reject]
+      secretRefs: {}
+      grants: []

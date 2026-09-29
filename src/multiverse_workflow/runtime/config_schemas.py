@@ -27,6 +27,19 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0},
         }
         required = ["baseUrl"]
+    elif adapter == "codex":
+        properties = {
+            "cwd": text,
+            "workspaceRoot": text,
+            "homeDir": text,
+            "model": text,
+            "systemPrompt": text,
+            "command": {"type": "array", "minItems": 1, "items": text},
+            "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
+            "artifactName": text,
+            "artifactMediaType": text,
+        }
+        required = ["cwd", "workspaceRoot", "homeDir", "model"]
     elif executor_ref == "builtin.ollama-deliverable.v1":
         properties = {
             "model": text,

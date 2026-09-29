@@ -29,6 +29,7 @@ The checked-in preview currently supports:
 - local file registration as immutable, digest-checked ArtifactRefs
 - machine-readable `validate`, `run`, `inspect`, and `decide` commands
 - durable command receipts for service commands and idempotent retries
+- optional node policies for budgets, resource limits, stop triggers, and versioned guards
 - version-checked Attempt reconciliation for persisted `unknown` results,
   including evidence, authenticated actor, and frozen output-schema validation
 - machine-readable `artifact register` command
@@ -78,6 +79,36 @@ Only completion of every call configuration check adds `executor-config` to
 slots/executors leave it in `notChecked`. Config diagnostics identify the
 field with a JSON pointer and provide `expected` constraints and redacted `actual`
 types, so authors can repair a Binding without disclosing its values.
+
+### Optional Node Policies
+
+Nodes may declare a policy without changing the normal execution path:
+
+```yaml
+policy:
+  budget:
+    maxTotalTokens: 8000
+    maxCostUsd: 2.0
+  limits:
+    maxToolCalls: 20
+    maxArtifactBytes: 10485760
+  stop:
+    on: [budget.exhausted, timeout.exceeded]
+  guards:
+    - ref: quality.guard@1
+      config:
+        minimumScore: 0.85
+```
+
+`policy` is frozen into the compiled plan and stays separate from the
+input/output contract, Binding configuration, and executor extensions. An
+omitted policy keeps the existing fast path. A policy is a request, not proof
+of enforcement: `preflight` returns `LIMIT_NOT_ENFORCEABLE` when the selected
+executor does not declare the required usage or cooperative-stop capability.
+Unknown policy fields are rejected rather than silently ignored. The current
+Codex adapter reports structured thread/turn observations and artifact
+boundaries, but does not claim live token metering or cooperative stop
+enforcement yet.
 
 ## Minimal Commands
 

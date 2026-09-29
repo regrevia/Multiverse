@@ -14,8 +14,11 @@ from multiverse_workflow.compiler.references import schema_validator, validate_s
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
 from multiverse_workflow.runtime.executors import (
+    ExecutorCancelledError,
     ExecutorError,
+    ExecutorUnknownError,
     execute_builtin,
+    execute_codex,
     execute_local_process,
 )
 from multiverse_workflow.runtime.http_job import (
@@ -1329,6 +1332,8 @@ class Runner:
                 raise KeyError(f"run not found: {run_id}")
             if current_run["control_mode"] != "run":
                 return current_run
+            if current_run["deadline_at"] <= _timestamp(datetime.now(UTC)):
+                return self._deadline_exceeded(run_id, scope_id, node_id)
             current_invocation = self.ledger.get_invocation_for_node(scope_id, node_id)
             if (
                 current_run["current_scope_id"] != scope_id
@@ -1921,6 +1926,26 @@ class Runner:
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
         binding = self._binding.spec.slots[definition["slot"]]
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise RunError("run disappeared before dispatch")
+        now = datetime.now(UTC)
+        run_remaining = (
+            datetime.fromisoformat(run["deadline_at"].replace("Z", "+00:00")) - now
+        ).total_seconds()
+        attempt_deadline = datetime.fromisoformat(
+            attempt["created_at"].replace("Z", "+00:00")
+        ) + timedelta(seconds=plan.nodes[node_id]["defaults"]["deadlineSeconds"])
+        if run_remaining <= 0 or attempt_deadline <= now:
+            error = {
+                "code": "DEADLINE_EXCEEDED",
+                "message": "Run or node deadline elapsed before dispatch.",
+            }
+            self.ledger.finish_attempt(attempt["id"], status="cancelled", error=error)
+            self.ledger.finish_invocation(invocation["id"], status="cancelled", error=error)
+            self._fail_scope(run_id, scope_id, node_id, error)
+            return None
+        remaining = min(run_remaining, (attempt_deadline - now).total_seconds())
         if binding.adapter == "http_job":
             if attempt["external_ref"]:
                 self.ledger.ensure_external_observation_wait(
@@ -1957,6 +1982,45 @@ class Runner:
                     invocation,
                     attempt,
                     error,
+                ):
+                    return None
+                self._fail_scope(run_id, scope_id, node_id, error)
+                return None
+        elif binding.adapter == "codex":
+            try:
+                codex_config = dict(binding.config)
+                codex_config["timeoutSeconds"] = min(
+                    float(codex_config.get("timeoutSeconds", 180)),
+                    remaining,
+                )
+                result = execute_codex(input_value, codex_config)
+            except ExecutorUnknownError as exc:
+                error = {"code": "EXECUTOR_RESULT_UNKNOWN", "message": str(exc)}
+                self.ledger.finish_attempt(
+                    attempt["id"], status="unknown", error=error
+                )
+                return None
+            except ExecutorCancelledError as exc:
+                error = {
+                    "code": "DEADLINE_EXCEEDED",
+                    "message": str(exc),
+                }
+                self.ledger.finish_attempt(attempt["id"], status="cancelled", error=error)
+                invocation = self.ledger.get_invocation(attempt["invocation_id"])
+                if invocation is not None and invocation["status"] not in {
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                }:
+                    self.ledger.finish_invocation(
+                        invocation["id"], status="cancelled", error=error
+                    )
+                return self._fail_scope(run_id, scope_id, node_id, error)
+            except ExecutorError as exc:
+                error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
+                self._record_call_failure(attempt, invocation, error)
+                if self._schedule_retry(
+                    run_id, scope_id, node_id, definition, invocation, attempt, error
                 ):
                     return None
                 self._fail_scope(run_id, scope_id, node_id, error)
@@ -2434,6 +2498,44 @@ class Runner:
             parent_invocation["node_id"],
             error,
         )
+
+    def _deadline_exceeded(self, run_id: str, scope_id: str, node_id: str) -> dict[str, Any]:
+        error = {
+            "code": "DEADLINE_EXCEEDED",
+            "message": "Run deadline elapsed before the next dispatch.",
+        }
+        run = self.ledger.get_run(run_id)
+        if run is None:
+            raise RunError("run disappeared while applying deadline")
+        invocation = (
+            self.ledger.get_invocation(run["current_invocation_id"])
+            if run["current_invocation_id"] is not None
+            else self.ledger.get_invocation_for_node(scope_id, node_id)
+        )
+        if invocation is not None:
+            attempt = self.ledger.latest_attempt(invocation["id"])
+            if attempt is not None and attempt["status"] == "created":
+                not_started = {
+                    "code": "DEADLINE_EXCEEDED",
+                    "message": "Deadline elapsed before the execution was dispatched.",
+                    "conclusion": "confirmed_not_started",
+                }
+                self.ledger.finish_attempt(
+                    attempt["id"], status="cancelled", error=not_started
+                )
+                if invocation["status"] not in {"succeeded", "failed", "cancelled"}:
+                    self.ledger.finish_invocation(
+                        invocation["id"], status="cancelled", error=not_started
+                    )
+                return self._fail_scope(run_id, scope_id, node_id, error)
+            if attempt is not None and attempt["status"] not in {
+                "succeeded",
+                "failed",
+                "cancelled",
+            }:
+                self.ledger.finish_attempt(attempt["id"], status="unknown", error=error)
+                return self.ledger.get_run(run_id)  # type: ignore[return-value]
+        return self._fail_scope(run_id, scope_id, node_id, error)
 
     def _validate_artifact_refs(self, run_id: str, value: Any) -> None:
         self.ledger.validate_artifact_refs(run_id, self._artifact_refs(value))

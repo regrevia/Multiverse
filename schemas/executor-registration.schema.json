@@ -42,7 +42,8 @@
               "builtin",
               "local_process",
               "http_job",
-              "human"
+              "human",
+              "codex"
             ]
           },
           "contractVersion": {

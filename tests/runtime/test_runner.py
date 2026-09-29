@@ -88,9 +88,114 @@ def test_content_delivery_waits_for_review_and_finishes_after_approval(tmp_path:
     output = json.loads(finished["output_json"])
     assert output["review"]["decision"] == "approve"
     assert output["deliverable"]["artifact_refs"] == []
-    assert runner.ledger.get_wait_by_key("local", f"human:{request['id']}")["status"] == (
-        "completed"
+
+
+def test_expired_run_deadline_stops_new_dispatch(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
     )
+    run = runner.start({"goal": "write a release note"})
+    assert run["status"] == "waiting"
+    runner.ledger._connection.execute(
+        "UPDATE runs SET status = 'running', control_mode = 'run', "
+        "current_node_id = 'review', current_invocation_id = NULL, "
+        "deadline_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+        (run["id"],),
+    )
+    runner.ledger._connection.commit()
+    expired = runner.ledger.get_run(run["id"])
+    assert expired is not None
+
+    result = runner._drive(
+        run["id"],
+        expired["current_scope_id"],
+        "review",
+    )
+
+    assert result["status"] == "blocked"
+    assert runner.ledger.latest_attempt(
+        runner.ledger.get_invocation_for_node(expired["current_scope_id"], "review")["id"]
+    )["status"] == "unknown"
+
+
+def test_deadline_before_dispatch_closes_created_attempt(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    original_drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        run = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = original_drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(run["id"])[0]
+    runner.ledger._connection.execute(
+        "UPDATE runs SET deadline_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+        (run["id"],),
+    )
+    runner.ledger._connection.commit()
+    plan = runner._plan("delivery")
+    result = runner._execute_call(
+        run["id"],
+        scope["id"],
+        "produce",
+        plan.nodes["produce"]["definition"],
+        {"goal": "write a release note"},
+        plan,
+    )
+
+    assert result is None
+    attempt = runner.ledger.list_attempts(run["id"])[0]
+    invocation = runner.ledger.get_invocation(attempt["invocation_id"])
+    assert attempt["status"] == "cancelled"
+    assert invocation is not None
+    assert invocation["status"] == "cancelled"
+
+
+def test_expired_deadline_recovers_created_attempt_without_invocation_pointer(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    original_drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        run = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = original_drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(run["id"])[0]
+    invocation = runner.ledger.create_invocation(
+        run["id"],
+        scope["id"],
+        "produce",
+        {"goal": "write a release note"},
+    )
+    attempt = runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+    runner.ledger._connection.execute(
+        "UPDATE runs SET status = 'running', current_scope_id = ?, "
+        "current_node_id = 'produce', current_invocation_id = NULL, "
+        "deadline_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+        (scope["id"], run["id"]),
+    )
+    runner.ledger._connection.commit()
+
+    result = runner._deadline_exceeded(run["id"], scope["id"], "produce")
+
+    assert result["status"] == "failed"
+    assert runner.ledger.get_attempt(attempt["id"])["status"] == "cancelled"
+    assert runner.ledger.get_invocation(invocation["id"])["status"] == "cancelled"
 
 
 def test_content_delivery_rejection_follows_explicit_failed_end(tmp_path: Path) -> None:

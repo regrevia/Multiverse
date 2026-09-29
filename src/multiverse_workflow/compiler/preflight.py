@@ -20,6 +20,9 @@ _SUGGESTIONS = {
     "EXECUTOR_NOT_INSTALLED": "安装已审核的执行器，或选择已经安装的兼容 Binding。",
     "EXECUTOR_UNAVAILABLE": "检查执行端可用性并更新注册记录，然后重新预检。",
     "EXECUTOR_UNVERIFIED": "完成执行器契约验证；不要通过删除验证要求绕过检查。",
+    "LIMIT_NOT_ENFORCEABLE": "更换声明相应 usage/stop 能力的执行器，或将该限制改为仅观察性约束。",
+    "STOP_TRIGGER_UNRESOLVED": "使用已注册的停止事件，或先注册对应 Guard/策略扩展。",
+    "GUARD_UNRESOLVED": "先在操作者执行器目录注册并验证该 Guard，再运行预检。",
 }
 
 

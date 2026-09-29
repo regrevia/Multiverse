@@ -168,6 +168,47 @@ def test_workflow_and_binding_resources_validate() -> None:
     assert binding.spec.slots["producer"].adapter == "builtin"
 
 
+def test_node_policy_is_composable_and_keeps_resource_limits_explicit() -> None:
+    node_adapter = TypeAdapter(Node)
+    node = node_adapter.validate_python(
+        {
+            "type": "call",
+            "slot": "worker",
+            "inputSchema": "schemas/request.json",
+            "outputSchema": "schemas/output.json",
+            "input": {"ref": "input#"},
+            "requires": {"capabilities": ["content.produce@1"]},
+            "effects": {"class": "write", "actions": ["content.produce"]},
+            "policy": {
+                "budget": {"maxTotalTokens": 8000, "maxCostUsd": 2.0},
+                "limits": {"maxToolCalls": 12, "maxArtifactBytes": 1000000},
+                "stop": {"on": ["budget.exhausted", "timeout.exceeded"]},
+                "guards": [{"ref": "quality.guard@1", "config": {"minimumScore": 0.85}}],
+            },
+            "next": "complete",
+        }
+    )
+
+    assert node.policy is not None
+    assert node.policy.budget.max_total_tokens == 8000
+    assert node.policy.guards[0].ref == "quality.guard@1"
+
+    with pytest.raises(ValidationError):
+        node_adapter.validate_python(
+            {
+                "type": "call",
+                "slot": "worker",
+                "inputSchema": "schemas/request.json",
+                "outputSchema": "schemas/output.json",
+                "input": {"ref": "input#"},
+                "requires": {"capabilities": ["content.produce@1"]},
+                "effects": {"class": "write", "actions": []},
+                "policy": {"budget": {"unknownLimit": 1}},
+                "next": "complete",
+            }
+        )
+
+
 def test_end_cannot_define_an_error_handler() -> None:
     node_adapter = TypeAdapter(Node)
 

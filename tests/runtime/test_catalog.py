@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from ruamel.yaml import YAML
 
 from multiverse_workflow.compiler.preflight import preflight_package
 from multiverse_workflow.runtime.catalog import CatalogError, load_executor_registry
@@ -178,6 +179,32 @@ def test_empty_catalog_replaces_defaults(directory: Path) -> None:
     value["executors"] = []
     save(directory, value)
     assert load_executor_registry(directory).descriptors() == ()
+
+
+def test_policy_budget_and_stop_require_enforcement_capabilities() -> None:
+    registry = local_executor_registry()
+    binding = YAML(typ="safe").load(ROOT / "examples/bindings/content-local.yaml")
+    binding["spec"]["slots"]["producer"]["config"] = {}
+    plan_nodes = {
+        "produce": {
+            "type": "call",
+            "definition": {
+                "slot": "producer",
+                "requires": {"capabilities": ["content.produce@1"]},
+                "policy": {
+                    "budget": {"maxTotalTokens": 1000, "maxCostUsd": 1.0},
+                    "stop": {"on": ["budget.exhausted"]},
+                },
+            },
+        }
+    }
+    from multiverse_workflow.protocol.models import BindingSet
+
+    model = BindingSet.model_validate(binding)
+    issues = registry.preflight_result(nodes=plan_nodes, binding=model).issues
+
+    assert {issue.code for issue in issues} == {"LIMIT_NOT_ENFORCEABLE"}
+    assert len(issues) == 3
     assert ExecutorRegistry([]).capability_catalog() == []
 
 

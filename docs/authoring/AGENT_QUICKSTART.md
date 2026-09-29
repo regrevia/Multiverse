@@ -43,6 +43,8 @@ uv run mverse preflight presets/content-delivery \
 
 `preflight` 的报告 Schema 为 [preflight-report.schema.json](../../schemas/preflight-report.schema.json)。`checked` 是已经运行的阶段；全部调用配置校验完成后包含 `executor-config`；静态校验失败、目录撤销或 slot/执行器未解析导致配置校验跳过时，它仍在 `notChecked`。`ok=true` 仅表示该检查子集通过：只验证已注册后端支持的配置形状，没有探测连接、凭据、真实权限、沙箱、人工送达或业务质量，也没有执行节点。退出码 0 通过、2 存在问题。
 
+工作流可以为单个节点增加可选 `policy`，组合预算、资源限制、停止条件和版本化 Guard。先用 `capabilities --executor <ref> --json` 读取执行器支持的 usage/stop 能力，再运行 `preflight`。如果返回 `LIMIT_NOT_ENFORCEABLE`，不能把声明当成已实施；应换兼容 Binding、移除该限制，或明确把它当作观察性约束。未配置 `policy` 的节点不增加额外运行开销。
+
 发现未绑定或不支持能力，报告缺口或选真实兼容执行器；不要编造 executorRef，不要把注册字段改成 true 作为“验证”，不要删掉验收、权限或人工节点来消除错误。包、Binding 或注册信息变化后重新检查。
 
 ## 授权试运行与证据

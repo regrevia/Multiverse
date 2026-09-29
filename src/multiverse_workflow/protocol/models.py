@@ -100,12 +100,43 @@ class RetryPolicy(ProtocolModel):
     retryable_codes: list[str] = Field(default_factory=list, alias="retryableCodes")
 
 
+class BudgetPolicy(ProtocolModel):
+    max_input_tokens: int | None = Field(default=None, alias="maxInputTokens", ge=1)
+    max_output_tokens: int | None = Field(default=None, alias="maxOutputTokens", ge=1)
+    max_total_tokens: int | None = Field(default=None, alias="maxTotalTokens", ge=1)
+    max_cost_usd: float | None = Field(default=None, alias="maxCostUsd", gt=0)
+
+
+class ResourceLimits(ProtocolModel):
+    max_tool_calls: int | None = Field(default=None, alias="maxToolCalls", ge=1)
+    max_child_invocations: int | None = Field(default=None, alias="maxChildInvocations", ge=1)
+    max_artifact_bytes: int | None = Field(default=None, alias="maxArtifactBytes", ge=1)
+    max_network_requests: int | None = Field(default=None, alias="maxNetworkRequests", ge=1)
+
+
+class StopPolicy(ProtocolModel):
+    on: list[str] = Field(default_factory=list, min_length=1)
+
+
+class GuardDefinition(ProtocolModel):
+    ref: str = Field(min_length=1)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class NodePolicy(ProtocolModel):
+    budget: BudgetPolicy = Field(default_factory=BudgetPolicy)
+    limits: ResourceLimits = Field(default_factory=ResourceLimits)
+    stop: StopPolicy = Field(default_factory=StopPolicy)
+    guards: list[GuardDefinition] = Field(default_factory=list, max_length=32)
+
+
 class NodeCommon(ProtocolModel):
     title: str | None = None
     description: str | None = None
     extensions: dict[str, Any] = Field(default_factory=dict)
     deadline_seconds: int | None = Field(default=None, alias="deadlineSeconds", ge=1)
     on_error: str | None = Field(default=None, alias="onError", min_length=1)
+    policy: NodePolicy | None = None
 
 
 class CallNode(NodeCommon):
@@ -257,7 +288,7 @@ class Grant(ProtocolModel):
 
 
 class SlotBinding(ProtocolModel):
-    adapter: Literal["builtin", "local_process", "http_job", "human"]
+    adapter: Literal["builtin", "local_process", "http_job", "human", "codex"]
     executor_ref: str = Field(alias="executorRef", min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
     secret_refs: dict[str, str] = Field(default_factory=dict, alias="secretRefs")
