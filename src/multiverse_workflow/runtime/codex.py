@@ -152,8 +152,23 @@ class CodexAppServer:
                             parts.append(delta)
                     if message.get("method") == "turn/completed":
                         turn = message.get("params", {}).get("turn", {})
-                        if turn.get("status") != "completed":
-                            raise CodexProtocolError("Codex turn did not complete")
+                        turn_status = turn.get("status")
+                        if turn_status != "completed":
+                            error = turn.get("error")
+                            error_code = (
+                                error.get("codexErrorInfo")
+                                if isinstance(error, dict)
+                                else None
+                            )
+                            raise CodexProtocolError(
+                                "Codex turn ended with "
+                                f"status={turn_status or 'unknown'}"
+                                + (
+                                    f", errorCode={error_code}"
+                                    if isinstance(error_code, str)
+                                    else ""
+                                )
+                            )
                         if not parts:
                             for item in turn.get("items", []):
                                 if item.get("type") == "agentMessage" and isinstance(

@@ -344,10 +344,11 @@ async def test_real_codex_native_approval_is_persisted_replied_and_resumed(
                     "workflowId": "delivery",
                     "input": {
                         "goal": (
-                            "Use the shell to create approval-probe.txt in the current "
-                            "workspace with exactly the text authorized write completed. "
-                            "Do not use another tool. After the write succeeds, return "
-                            "the required JSON deliverable."
+                            "This task requires an actual shell command execution. You must "
+                            "invoke the shell to create approval-probe.txt in the current "
+                            "workspace containing the text authorized write completed. Do "
+                            "not claim the file was written unless the shell command succeeds. "
+                            "After that command succeeds, return the required JSON deliverable."
                         )
                     },
                 },
@@ -413,9 +414,15 @@ async def test_real_codex_native_approval_is_persisted_replied_and_resumed(
                 await asyncio.sleep(0.05)
             assert observed["deliveryStatus"] == "sent"
 
-            assert (tmp_path / "approval-probe.txt").read_text().strip() == (
-                "authorized write completed"
+            write_deadline = time.monotonic() + 45
+            probe_file = tmp_path / "approval-probe.txt"
+            while time.monotonic() < write_deadline and not probe_file.exists():
+                await asyncio.sleep(0.05)
+            assert probe_file.exists(), (
+                "Codex approval response was sent but command had no file effect"
             )
+            written = probe_file.read_text().strip()
+            assert written.rstrip(".!") == "authorized write completed"
             request_deadline = time.monotonic() + 120
             human_request: dict[str, object] | None = None
             while time.monotonic() < request_deadline:

@@ -99,8 +99,10 @@ or W04 acceptance is complete. Remaining gates include:
 - complete W03 interaction and execution-host acceptance matrix;
 - repeatable clean-environment installation evidence.
 
-The native Codex approval round-trip is recorded separately in
-`docs/development/reports/W03/CODEX_INTERACTION_CHECKPOINT.md`.
+The native Codex command-approval round-trip is recorded separately in
+`docs/development/reports/W03/CODEX_INTERACTION_CHECKPOINT.md`; it verifies
+that a real command is blocked in the sandbox until an authorized Runtime
+response is delivered over the App Server connection.
 
 `docs/development/STATE.json` remains authoritative and keeps W03/W04
 pending until their complete package gates are satisfied.
