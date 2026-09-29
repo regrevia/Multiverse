@@ -10,7 +10,10 @@ from typing import Any
 from multiverse_workflow.runtime.codex import (
     CodexAppServer,
     CodexInterruptedError,
+    CodexOutputLimitError,
     CodexProtocolError,
+    CodexRunCancelled,
+    CodexTurnFailed,
 )
 from multiverse_workflow.runtime.ollama import OllamaError, generate_deliverable
 
@@ -25,6 +28,10 @@ class ExecutorUnknownError(ExecutorError):
 
 class ExecutorCancelledError(ExecutorError):
     """The executor confirmed that the active work was cooperatively stopped."""
+
+    def __init__(self, message: str, *, code: str = "EXECUTOR_CANCELLED") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -94,6 +101,7 @@ def execute_codex(
     *,
     on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
     on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExecutionResult:
     if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
         raise ExecutorError("codex deliverable requires a goal string")
@@ -104,6 +112,7 @@ def execute_codex(
     prompt = config.get("systemPrompt", "Return a concise JSON deliverable.")
     approval_policy = config.get("approvalPolicy", "never")
     sandbox_mode = config.get("sandboxMode", "workspace-write")
+    max_output_bytes = config.get("maxOutputBytes", 262144)
     if not isinstance(cwd, str) or not cwd.strip():
         raise ExecutorError("codex cwd must be a non-empty string")
     if not isinstance(workspace_root, str) or not workspace_root.strip():
@@ -148,6 +157,7 @@ def execute_codex(
             timeout_seconds=float(config.get("timeoutSeconds", 180)),
             approval_policy=approval_policy,
             sandbox_mode=sandbox_mode,
+            max_output_bytes=max_output_bytes,
         ).run(
             prompt=request,
             cwd=cwd_path,
@@ -155,9 +165,25 @@ def execute_codex(
             output_schema=schema,
             on_server_request=on_server_request,
             on_server_response=on_server_response,
+            should_stop=should_stop,
         )
     except CodexInterruptedError as exc:
-        raise ExecutorCancelledError(f"codex turn interrupted: {exc}") from exc
+        raise ExecutorCancelledError(
+            f"codex turn interrupted: {exc}",
+            code=(
+                "RUN_CANCELLED"
+                if exc.cancelled
+                else "DEADLINE_EXCEEDED"
+                if exc.deadline
+                else "EXECUTOR_CANCELLED"
+            ),
+        ) from exc
+    except CodexRunCancelled as exc:
+        raise ExecutorCancelledError(str(exc), code="RUN_CANCELLED") from exc
+    except CodexTurnFailed as exc:
+        raise ExecutorError(f"codex turn failed: {exc}") from exc
+    except CodexOutputLimitError as exc:
+        raise ExecutorError(f"codex output limit exceeded: {exc}") from exc
     except CodexProtocolError as exc:
         raise ExecutorUnknownError(f"codex result is unknown: {exc}") from exc
     except (OSError, ValueError) as exc:

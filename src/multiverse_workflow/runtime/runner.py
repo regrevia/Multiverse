@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,11 @@ from multiverse_workflow.compiler import ExecutionPlan, compile_package
 from multiverse_workflow.compiler.references import schema_validator, validate_schema_file
 from multiverse_workflow.protocol.loader import load_document
 from multiverse_workflow.protocol.models import BindingSet, Workflow, WorkflowPackage
-from multiverse_workflow.runtime.codex import CodexProtocolError
+from multiverse_workflow.runtime.codex import (
+    CodexInteractionExpired,
+    CodexProtocolError,
+    CodexRunCancelled,
+)
 from multiverse_workflow.runtime.executors import (
     ExecutorCancelledError,
     ExecutorError,
@@ -1931,6 +1936,8 @@ class Runner:
         run = self.ledger.get_run(run_id)
         if run is None:
             raise RunError("run disappeared before dispatch")
+        if invocation is None:
+            raise RunError("invocation disappeared before dispatch")
         now = datetime.now(UTC)
         run_remaining = (
             datetime.fromisoformat(run["deadline_at"].replace("Z", "+00:00")) - now
@@ -1990,6 +1997,9 @@ class Runner:
                 return None
         elif binding.adapter == "codex":
             try:
+                codex_invocation = invocation
+                if codex_invocation is None:
+                    raise RunError("Codex invocation disappeared before dispatch")
                 codex_config = dict(binding.config)
                 codex_config["timeoutSeconds"] = min(
                     float(codex_config.get("timeoutSeconds", 180)),
@@ -2004,12 +2014,13 @@ class Runner:
                     return self._wait_for_codex_interaction(
                         run_id=run_id,
                         scope_id=scope_id,
-                        invocation=invocation,
+                        invocation=codex_invocation,
                         attempt=attempt,
                         binding_config=binding.config,
                         request_id=native_request_id,
                         kind=request_kind,
                         payload=request_payload,
+                        should_stop=codex_stop_requested,
                         expires_at=_timestamp(
                             min(
                                 datetime.fromisoformat(
@@ -2019,6 +2030,10 @@ class Runner:
                             )
                         ),
                     )
+
+                def codex_stop_requested() -> bool:
+                    current = self.ledger.get_run(run_id)
+                    return current is None or current["control_mode"] == "cancel"
 
                 def confirm_codex_response(
                     native_request_id: str, response: dict[str, Any]
@@ -2036,6 +2051,7 @@ class Runner:
                     codex_config,
                     on_server_request=handle_codex_request,
                     on_server_response=confirm_codex_response,
+                    should_stop=codex_stop_requested,
                 )
             except ExecutorUnknownError as exc:
                 error = {"code": "EXECUTOR_RESULT_UNKNOWN", "message": str(exc)}
@@ -2051,9 +2067,12 @@ class Runner:
                 return None
             except ExecutorCancelledError as exc:
                 error = {
-                    "code": "DEADLINE_EXCEEDED",
+                    "code": exc.code,
                     "message": str(exc),
                 }
+                self.ledger.invalidate_codex_interactions_for_attempt(
+                    attempt["id"], reason=str(exc)
+                )
                 self.ledger.finish_attempt(attempt["id"], status="cancelled", error=error)
                 invocation = self.ledger.get_invocation(attempt["invocation_id"])
                 if invocation is not None and invocation["status"] not in {
@@ -2064,6 +2083,9 @@ class Runner:
                     self.ledger.finish_invocation(
                         invocation["id"], status="cancelled", error=error
                     )
+                if exc.code == "RUN_CANCELLED":
+                    self._cancel_scope(run_id, scope_id, node_id, error)
+                    return None
                 return self._fail_scope(run_id, scope_id, node_id, error)
             except ExecutorError as exc:
                 error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
@@ -2194,6 +2216,18 @@ class Runner:
             return None
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+        current_run = self.ledger.get_run(run_id)
+        if current_run is not None and current_run["control_mode"] == "cancel":
+            self._cancel_scope(
+                run_id,
+                scope_id,
+                node_id,
+                {
+                    "code": "RUN_CANCELLED",
+                    "message": "Run cancellation was requested before downstream dispatch.",
+                },
+            )
+            return None
         return output
 
     def _build_http_execution_request(
@@ -2598,6 +2632,7 @@ class Runner:
         kind: str,
         payload: dict[str, Any],
         expires_at: str,
+        should_stop: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         supported = {
             "item/commandExecution/requestApproval",
@@ -2634,12 +2669,21 @@ class Runner:
             )
             raise CodexProtocolError(f"unsupported Codex interaction kind: {kind}")
         while True:
+            if should_stop is not None and should_stop():
+                raise CodexRunCancelled()
             self.ledger.expire_codex_interactions()
             current = self.ledger.get_codex_interaction(interaction["id"])
             if current is None:
                 raise CodexProtocolError("Codex interaction disappeared")
             if current["status"] == "replied":
-                return json.loads(current["response_json"])
+                if should_stop is not None and should_stop():
+                    raise CodexRunCancelled()
+                response = json.loads(current["response_json"])
+                if not isinstance(response, dict):
+                    raise CodexProtocolError("Codex interaction reply is invalid")
+                return response
+            if current["status"] == "expired":
+                raise CodexInteractionExpired("Codex interaction deadline elapsed")
             if current["status"] != "pending":
                 raise CodexProtocolError(
                     f"Codex interaction is {current['status']}"

@@ -46,6 +46,7 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             },
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
+            "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
             "artifactName": text,
             "artifactMediaType": text,
         }

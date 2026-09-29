@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from ruamel.yaml import YAML
 
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
+from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 from multiverse_workflow.runtime.runner import Runner
 
 ROOT = Path(__file__).parents[2]
@@ -67,6 +71,35 @@ def test_codex_interaction_is_versioned_authorized_and_idempotent(tmp_path) -> N
     )
     assert repeated["id"] == interaction["id"]
 
+    ledger.invalidate_codex_interactions_for_attempt(
+        attempt["id"], reason="native response outcome is unknown after restart"
+    )
+    invalidated_replay = ledger.respond_codex_interaction(
+        interaction["id"],
+        expected_version=1,
+        actor="operator",
+        response={"answers": {"choice": "yes"}},
+        idempotency_key="reply-1",
+    )
+    assert invalidated_replay["status"] == "invalid"
+    with pytest.raises(LedgerConflict, match="idempotency key was reused"):
+        ledger.respond_codex_interaction(
+            interaction["id"],
+            expected_version=1,
+            actor="operator",
+            response={"answers": {"choice": "no"}},
+            idempotency_key="reply-1",
+        )
+
+    with pytest.raises(LedgerConflict, match="invalid"):
+        ledger.respond_codex_interaction(
+            interaction["id"],
+            expected_version=3,
+            actor="operator",
+            response={"answers": {"choice": "yes"}},
+            idempotency_key="reply-stale-version",
+        )
+
     with pytest.raises(LedgerConflict, match="authorized"):
         ledger.create_codex_interaction(
             run_id=run["id"],
@@ -81,6 +114,51 @@ def test_codex_interaction_is_versioned_authorized_and_idempotent(tmp_path) -> N
             authorized_subjects=[],
             expires_at="2099-01-01T00:01:00Z",
         )
+
+    unauthorized = ledger.create_codex_interaction(
+        run_id=run["id"],
+        scope_id=scope["id"],
+        invocation_id=invocation["id"],
+        attempt_id=attempt["id"],
+        native_request_id="req-unauthorized",
+        thread_id="thread-1",
+        turn_id="turn-1",
+        kind="item/commandExecution/requestApproval",
+        payload={"command": "write"},
+        authorized_subjects=["operator"],
+        expires_at="2099-01-01T00:01:00Z",
+    )
+    with pytest.raises(LedgerConflict, match="authorized"):
+        ledger.respond_codex_interaction(
+            unauthorized["id"],
+            expected_version=unauthorized["version"],
+            actor="another-user",
+            response={"decision": "accept"},
+            idempotency_key="reply-unauthorized",
+        )
+
+    expired = ledger.create_codex_interaction(
+        run_id=run["id"],
+        scope_id=scope["id"],
+        invocation_id=invocation["id"],
+        attempt_id=attempt["id"],
+        native_request_id="req-expired",
+        thread_id="thread-1",
+        turn_id="turn-1",
+        kind="item/commandExecution/requestApproval",
+        payload={"command": "write"},
+        authorized_subjects=["operator"],
+        expires_at="2000-01-01T00:00:00Z",
+    )
+    with pytest.raises(LedgerConflict, match="expired"):
+        ledger.respond_codex_interaction(
+            expired["id"],
+            expected_version=expired["version"],
+            actor="operator",
+            response={"decision": "accept"},
+            idempotency_key="reply-expired",
+        )
+    assert ledger.get_codex_interaction(expired["id"])["status"] == "expired"
 
 
 def test_native_request_waits_for_persisted_human_reply(tmp_path: Path) -> None:
@@ -167,6 +245,136 @@ def test_native_request_waits_for_persisted_human_reply(tmp_path: Path) -> None:
     assert not worker.is_alive()
     assert not failure
     assert returned == [{"decision": "accept"}]
+
+
+@pytest.mark.parametrize("confirm_stop", [True, False])
+def test_runner_cancel_interrupts_and_confirms_codex_turn(
+    tmp_path: Path, confirm_stop: bool
+) -> None:
+    app_server = tmp_path / "fake_codex_cancel.py"
+    turn_started = tmp_path / "turn-started"
+    interrupt_received = tmp_path / "interrupt-received"
+    app_server.write_text(
+        "import json, pathlib, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    request_id = request.get('id')\n"
+        "    if request_id == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request_id == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-1'}}}), flush=True)\n"
+        "    elif request_id == 3:\n"
+        f"        pathlib.Path({str(turn_started)!r}).touch()\n"
+        "        print(json.dumps({'id': 3, 'result': {'turn': {'id': 'turn-1'}}}), flush=True)\n"
+        "    elif request_id == 4:\n"
+        "        assert request['method'] == 'turn/interrupt'\n"
+        f"        pathlib.Path({str(interrupt_received)!r}).touch()\n"
+        "        print(json.dumps({'id': 4, 'result': {}}), flush=True)\n"
+        + (
+            "        print(json.dumps({'method': 'turn/completed', "
+            "'params': {'turn': {'status': 'interrupted'}}}), flush=True)\n"
+            if confirm_stop
+            else ""
+        ),
+        encoding="utf-8",
+    )
+    binding_data = YAML(typ="safe").load(
+        (ROOT / "examples/bindings/content-local.yaml").read_text(encoding="utf-8")
+    )
+    producer = binding_data["spec"]["slots"]["producer"]
+    producer["adapter"] = "codex"
+    producer["executorRef"] = "builtin.codex-deliverable.v1"
+    producer["config"] = {
+        "cwd": str(tmp_path),
+        "workspaceRoot": str(tmp_path),
+        "homeDir": str(tmp_path),
+        "model": "test-model",
+        "command": [sys.executable, "-u", str(app_server)],
+        "timeoutSeconds": 10,
+        "interactionAuthorizedSubjects": ["operator"],
+    }
+    binding_path = tmp_path / "binding.yaml"
+    with binding_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(binding_data, handle)
+    registry = ExecutorRegistry(
+        [
+            replace(descriptor, verified=True, supports_cancel=True)
+            if descriptor.executor_ref == "builtin.codex-deliverable.v1"
+            else descriptor
+            for descriptor in local_executor_registry().descriptors()
+        ]
+    )
+    database_path = tmp_path / "runtime.db"
+    controller = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=database_path,
+        executor_registry=registry,
+    )
+    created_run: list[dict] = []
+    start_result: list[dict] = []
+    start_error: list[BaseException] = []
+
+    def start_run() -> None:
+        worker_runner = Runner(
+            ROOT / "presets/content-delivery",
+            binding_path=binding_path,
+            database_path=database_path,
+            executor_registry=registry,
+        )
+        create_run = worker_runner.ledger.create_run
+
+        def capture_run(*args, **kwargs):
+            result = create_run(*args, **kwargs)
+            created_run.append(result)
+            return result
+
+        worker_runner.ledger.create_run = capture_run  # type: ignore[method-assign]
+        try:
+            start_result.append(
+                worker_runner.start({"goal": "wait for a cancellation signal"})
+            )
+        except BaseException as exc:
+            start_error.append(exc)
+        finally:
+            worker_runner.close()
+
+    worker = threading.Thread(target=start_run)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not turn_started.exists():
+            time.sleep(0.01)
+        assert not start_error, repr(start_error)
+        assert turn_started.exists()
+        assert created_run
+        run = controller.ledger.get_run(created_run[0]["id"])
+        assert run is not None
+
+        requested = controller.cancel(
+            run["id"],
+            expected_version=run["version"],
+            reason="operator requested stop",
+        )
+        assert requested["status"] == "stopping"
+        worker.join(timeout=8)
+
+        assert not worker.is_alive()
+        assert not start_error
+        assert interrupt_received.exists()
+        assert start_result[0]["status"] == (
+            "cancelled" if confirm_stop else "blocked"
+        )
+        attempts = controller.ledger.list_attempts(run["id"])
+        assert len(attempts) == 1
+        assert attempts[0]["status"] == (
+            "cancelled" if confirm_stop else "unknown"
+        )
+    finally:
+        if worker.is_alive():
+            worker.join(timeout=6)
+        controller.close()
 
 
 def test_permission_escalation_interaction_is_fail_closed(tmp_path: Path) -> None:

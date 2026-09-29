@@ -2503,6 +2503,8 @@ class Ledger:
         response: Any,
         idempotency_key: str,
     ) -> dict[str, Any]:
+        expired = False
+        result: dict[str, Any] | None = None
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM codex_interactions WHERE id = ?",
@@ -2518,7 +2520,7 @@ class Ledger:
             scoped_key = f"{run_row['namespace']}:{actor}:{idempotency_key}"
             response_json = _json(response)
             response_digest = _digest(response_json)
-            if row["idempotency_key"] == scoped_key and row["status"] == "replied":
+            if row["idempotency_key"] == scoped_key:
                 if row["response_digest"] != response_digest or row["actor"] != actor:
                     raise LedgerConflict("idempotency key was reused with different content")
                 return dict(row)
@@ -2535,57 +2537,68 @@ class Ledger:
             if actor not in json.loads(row["authorized_subjects_json"]):
                 raise LedgerConflict("actor is not authorized for codex interaction")
             if row["expires_at"] <= _now():
+                expired = True
+                now = _now()
                 connection.execute(
                     """
                     UPDATE codex_interactions
                     SET status = 'expired', version = version + 1, updated_at = ?
                     WHERE id = ? AND status = 'pending'
                     """,
-                    (_now(), interaction_id),
+                    (now, interaction_id),
                 )
                 self._event(
                     connection,
                     row["run_id"],
                     "codex.interaction.expired",
-                    {"interactionId": interaction_id, "status": "expired"},
+                    {
+                        "interactionId": interaction_id,
+                        "status": "expired",
+                        "actor": actor,
+                    },
                     scope_id=row["scope_id"],
                     invocation_id=row["invocation_id"],
                     attempt_id=row["attempt_id"],
                 )
-                raise LedgerConflict("codex interaction has expired")
-            updated_at = _now()
-            connection.execute(
-                """
-                UPDATE codex_interactions
-                SET status = 'replied', version = version + 1,
-                    response_json = ?, response_digest = ?, actor = ?,
-                    idempotency_key = ?, delivery_status = 'pending',
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    response_json,
-                    response_digest,
-                    actor,
-                    scoped_key,
-                    updated_at,
-                    interaction_id,
-                ),
-            )
-            self._event(
-                connection,
-                row["run_id"],
-                "codex.interaction.replied",
-                {"interactionId": interaction_id, "status": "replied", "actor": actor},
-                scope_id=row["scope_id"],
-                invocation_id=row["invocation_id"],
-                attempt_id=row["attempt_id"],
-            )
-            result = connection.execute(
-                "SELECT * FROM codex_interactions WHERE id = ?",
-                (interaction_id,),
-            ).fetchone()
-            return dict(result)
+            else:
+                updated_at = _now()
+                connection.execute(
+                    """
+                    UPDATE codex_interactions
+                    SET status = 'replied', version = version + 1,
+                        response_json = ?, response_digest = ?, actor = ?,
+                        idempotency_key = ?, delivery_status = 'pending',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        response_json,
+                        response_digest,
+                        actor,
+                        scoped_key,
+                        updated_at,
+                        interaction_id,
+                    ),
+                )
+                self._event(
+                    connection,
+                    row["run_id"],
+                    "codex.interaction.replied",
+                    {"interactionId": interaction_id, "status": "replied", "actor": actor},
+                    scope_id=row["scope_id"],
+                    invocation_id=row["invocation_id"],
+                    attempt_id=row["attempt_id"],
+                )
+                stored = connection.execute(
+                    "SELECT * FROM codex_interactions WHERE id = ?",
+                    (interaction_id,),
+                ).fetchone()
+                result = dict(stored)
+        if expired:
+            raise LedgerConflict("codex interaction has expired")
+        if result is None:
+            raise LedgerConflict("codex interaction reply was not persisted")
+        return result
 
     def get_human_request(self, request_id: str) -> dict[str, Any] | None:
         row = self._connection.execute(
