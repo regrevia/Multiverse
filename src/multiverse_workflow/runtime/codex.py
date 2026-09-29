@@ -32,12 +32,24 @@ class CodexAppServer:
         command: tuple[str, ...] = ("codex", "app-server", "--stdio"),
         model: str | None = None,
         timeout_seconds: float = 180.0,
+        approval_policy: str = "never",
+        sandbox_mode: str = "workspace-write",
     ) -> None:
         if not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("codex command must be a non-empty argument array")
         if timeout_seconds <= 0:
             raise ValueError("codex timeoutSeconds must be positive")
+        if approval_policy not in {"never", "on-request", "untrusted"}:
+            raise ValueError("unsupported Codex approvalPolicy")
+        if sandbox_mode not in {
+            "read-only",
+            "workspace-write",
+            "danger-full-access",
+        }:
+            raise ValueError("unsupported Codex sandboxMode")
         self.command, self.model, self.timeout_seconds = command, model, timeout_seconds
+        self.approval_policy = approval_policy
+        self.sandbox_mode = sandbox_mode
         self._read_buffer = bytearray()
 
     def run(
@@ -83,8 +95,8 @@ class CodexAppServer:
                 "thread/start",
                 {
                     "cwd": str(cwd),
-                    "approvalPolicy": "never",
-                    "sandbox": "workspace-write",
+                    "approvalPolicy": self.approval_policy,
+                    "sandbox": self.sandbox_mode,
                     **({"model": self.model} if self.model else {}),
                 },
             )
@@ -101,7 +113,7 @@ class CodexAppServer:
                 {
                     "threadId": thread_id,
                     "input": [{"type": "text", "text": prompt}],
-                    "approvalPolicy": "never",
+                    "approvalPolicy": self.approval_policy,
                     "outputSchema": output_schema,
                 },
             )

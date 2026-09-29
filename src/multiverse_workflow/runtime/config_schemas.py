@@ -40,6 +40,10 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             },
             "model": text,
             "systemPrompt": text,
+            "approvalPolicy": {"enum": ["never", "on-request", "untrusted"]},
+            "sandboxMode": {
+                "enum": ["read-only", "workspace-write", "danger-full-access"]
+            },
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
             "artifactName": text,

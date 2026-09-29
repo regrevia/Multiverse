@@ -102,6 +102,8 @@ def execute_codex(
     home_dir = config.get("homeDir")
     model = config.get("model")
     prompt = config.get("systemPrompt", "Return a concise JSON deliverable.")
+    approval_policy = config.get("approvalPolicy", "never")
+    sandbox_mode = config.get("sandboxMode", "workspace-write")
     if not isinstance(cwd, str) or not cwd.strip():
         raise ExecutorError("codex cwd must be a non-empty string")
     if not isinstance(workspace_root, str) or not workspace_root.strip():
@@ -144,6 +146,8 @@ def execute_codex(
             command=command,
             model=model,
             timeout_seconds=float(config.get("timeoutSeconds", 180)),
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
         ).run(
             prompt=request,
             cwd=cwd_path,

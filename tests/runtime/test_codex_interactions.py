@@ -167,3 +167,43 @@ def test_native_request_waits_for_persisted_human_reply(tmp_path: Path) -> None:
     assert not worker.is_alive()
     assert not failure
     assert returned == [{"decision": "accept"}]
+
+
+def test_permission_escalation_interaction_is_fail_closed(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runner.db",
+    )
+    original_drive = runner._drive
+    runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]
+    try:
+        run = runner.start({"goal": "write a release note"})
+    finally:
+        runner._drive = original_drive  # type: ignore[method-assign]
+    scope = runner.ledger.list_scopes(run["id"])[0]
+    invocation = runner.ledger.create_invocation(
+        run["id"], scope["id"], "produce", {"goal": "write a release note"}
+    )
+    attempt = runner.ledger.create_attempt(
+        invocation["id"],
+        input_value={"goal": "write a release note"},
+        dispatch_key=f"{invocation['id']}:1",
+        effect_key=invocation["id"],
+    )
+
+    with pytest.raises(Exception, match="unsupported Codex interaction"):
+        runner._wait_for_codex_interaction(
+            run_id=run["id"],
+            scope_id=scope["id"],
+            invocation=invocation,
+            attempt=attempt,
+            binding_config={"interactionAuthorizedSubjects": ["operator"]},
+            request_id="native-permission-1",
+            kind="item/permissions/requestApproval",
+            payload={"threadId": "thread-1", "turnId": "turn-1"},
+            expires_at="2099-01-01T00:00:00Z",
+        )
+
+    interaction = runner.ledger.list_codex_interactions(run_id=run["id"])[0]
+    assert interaction["status"] == "invalid"

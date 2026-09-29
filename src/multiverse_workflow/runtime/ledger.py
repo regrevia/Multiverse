@@ -2482,6 +2482,18 @@ class Ledger:
         ).fetchone()
         return _row(row)
 
+    def get_codex_interaction_for_native_request(
+        self, attempt_id: str, native_request_id: str
+    ) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM codex_interactions
+            WHERE attempt_id = ? AND native_request_id = ?
+            """,
+            (attempt_id, native_request_id),
+        ).fetchone()
+        return _row(row)
+
     def respond_codex_interaction(
         self,
         interaction_id: str,

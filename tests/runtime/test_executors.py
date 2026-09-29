@@ -37,6 +37,8 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
     class FakeCodex:
         def __init__(self, **kwargs):
             assert kwargs["model"] == "gpt-5.5"
+            assert kwargs["approval_policy"] == "on-request"
+            assert kwargs["sandbox_mode"] == "read-only"
 
         def run(self, **kwargs):
             assert kwargs["cwd"] == tmp_path
@@ -53,6 +55,8 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
             "workspaceRoot": str(tmp_path),
             "homeDir": str(tmp_path),
             "model": "gpt-5.5",
+            "approvalPolicy": "on-request",
+            "sandboxMode": "read-only",
             "systemPrompt": "Return the deliverable.",
             "artifactName": "deliverable.md",
             "artifactMediaType": "text/markdown",
@@ -107,3 +111,30 @@ def test_codex_confirmed_interrupt_is_cancelled(monkeypatch, tmp_path) -> None:
                 "model": "gpt-5.5",
             },
         )
+
+
+def test_codex_binding_controls_approval_policy_and_sandbox(monkeypatch, tmp_path) -> None:
+    class PolicyCodex:
+        def __init__(self, **kwargs):
+            assert kwargs["approval_policy"] == "on-request"
+            assert kwargs["sandbox_mode"] == "read-only"
+
+        def run(self, **kwargs):
+            return CodexResult(
+                output={"text": "approved workflow", "artifact_refs": []},
+                observation={"threadId": "thread-1", "turnId": "turn-1"},
+            )
+
+    monkeypatch.setattr(executors, "CodexAppServer", PolicyCodex)
+    result = execute_codex(
+        {"goal": "write a file after approval"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "model": "gpt-5.5",
+            "approvalPolicy": "on-request",
+            "sandboxMode": "read-only",
+        },
+    )
+    assert result.output["text"] == "approved workflow"

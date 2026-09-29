@@ -174,6 +174,7 @@ def test_codex_server_request_is_returned_over_the_same_rpc_connection(tmp_path:
         encoding="utf-8",
     )
     seen: list[tuple[str, dict[str, object]]] = []
+    sent: list[str] = []
 
     result = CodexAppServer(
         command=(sys.executable, "-u", str(fake)),
@@ -186,6 +187,7 @@ def test_codex_server_request_is_returned_over_the_same_rpc_connection(tmp_path:
         on_server_request=lambda request_id, method, params: (
             seen.append((method, params)) or {"answers": {"choice": {"answers": ["yes"]}}}
         ),
+        on_server_response=lambda request_id, response: sent.append(request_id),
     )
 
     assert seen == [
@@ -195,3 +197,4 @@ def test_codex_server_request_is_returned_over_the_same_rpc_connection(tmp_path:
         )
     ]
     assert result.output == {"text": "continued", "artifact_refs": []}
+    assert sent == ["native-7"]

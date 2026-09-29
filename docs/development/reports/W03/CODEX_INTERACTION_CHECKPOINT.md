@@ -27,6 +27,16 @@ Status: `checkpoint_only`
   interaction/API subset at `25 passed`.
 - Ruff: passed.
 - Independent reviewer: approved this interaction persistence checkpoint.
+- Real native approval round-trip:
+  `MULTIVERSE_RUN_CODEX_INTERACTION_LIVE=1`
+  `tests/e2e/test_coding_delivery.py::test_real_codex_native_approval_is_persisted_replied_and_resumed`
+  passed in 9.50s with Run
+  `run_e5747022db2c4bedb4a036fc42896a84` and Interaction
+  `interaction_916fd025303b4034af88701f63609bef`.
+- The live round-trip used Codex `approvalPolicy=untrusted` and
+  `sandboxMode=workspace-write`, persisted a real command approval request,
+  accepted the authorized Runtime response, observed `deliveryStatus=sent`,
+  verified the file write, and completed the separate business HumanRequest.
 
 ## Limitations
 
@@ -34,8 +44,8 @@ This checkpoint does not complete W03 or W04. Remaining work includes:
 
 - Full Codex native interaction compatibility for handshake-time requests
   that do not yet carry thread/turn identity.
-- Real `tests/integration/test_codex_live.py`.
-- Real `tests/e2e/test_coding_delivery.py`.
+- Complete handshake-time interaction compatibility when native request
+  payloads do not yet carry thread/turn identity.
 - Codex → verifier → authorized human decision → terminal Run evidence.
 - Worker stop/restart and Inspector reopen evidence for exactly-once
   progression.
