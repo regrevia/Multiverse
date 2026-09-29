@@ -75,6 +75,20 @@ Verified restart Run ID:
 run_fdfc1cb3437e450ab1e97ab62d220fd0
 ```
 
+The live e2e suite also verified a Worker restart before approval:
+
+```bash
+MULTIVERSE_RUN_CODEX_LIVE=1 \
+  uv run --python 3.12 --locked pytest \
+  tests/e2e/test_coding_delivery.py::test_real_coding_delivery_survives_worker_restart_before_approval \
+  -q -s
+```
+
+Result: `1 passed in 12.31s`. The test printed
+`worker_restart_e2e_run_id=run_c012735a807d485389c30b316ecd1db5`,
+recovers the same HumanRequest after `LocalWorker.run_once()` and verifies
+that approval does not create another Attempt or Artifact.
+
 ## Boundary
 
 This is a real local coding-delivery evidence record, not a claim that all W03

@@ -12,6 +12,7 @@ from ruamel.yaml import YAML
 from multiverse_workflow.runtime.executors import execute_codex
 from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 from multiverse_workflow.runtime.runner import Runner
+from multiverse_workflow.runtime.worker import LocalWorker
 
 pytestmark = pytest.mark.integration
 
@@ -193,5 +194,71 @@ def test_real_coding_delivery_survives_runtime_restart_before_approval(
         )
         assert replay["status"] == "succeeded"
         assert len(restarted.ledger.list_attempts(run_id)) == before_attempts
+    finally:
+        restarted.close()
+
+
+def test_real_coding_delivery_survives_worker_restart_before_approval(
+    tmp_path: Path,
+) -> None:
+    if os.environ.get("MULTIVERSE_RUN_CODEX_LIVE") != "1":
+        pytest.skip("set MULTIVERSE_RUN_CODEX_LIVE=1 to run the authorized worker restart loop")
+    if shutil.which("codex") is None:
+        pytest.fail("codex executable is required for the worker restart loop")
+
+    package = Path(__file__).parents[2] / "presets/content-delivery"
+    binding_path = _write_live_binding(tmp_path)
+    registry = _live_registry()
+    database = tmp_path / "runtime.db"
+    runner = Runner(
+        package,
+        binding_path=binding_path,
+        database_path=database,
+        executor_registry=registry,
+    )
+    waiting = runner.start({"goal": "Write a concise release note for Multiverse."})
+    run_id = waiting["id"]
+    print(f"worker_restart_e2e_run_id={run_id}")
+    original_request = runner.pending_human_requests(run_id)[0]
+    before_attempts = len(runner.ledger.list_attempts(run_id))
+    before_artifacts = len(runner.ledger.list_artifacts(run_id=run_id))
+    runner.close()
+
+    worker = LocalWorker.from_paths(
+        package_dir=package,
+        binding_path=binding_path,
+        database_path=database,
+        namespace="local",
+        worker_id="live-worker-restart",
+        poll_interval=0,
+        executor_registry=registry,
+    )
+    try:
+        worker.run_once()
+    finally:
+        worker.close()
+
+    restarted = Runner(
+        package,
+        binding_path=binding_path,
+        database_path=database,
+        executor_registry=registry,
+    )
+    try:
+        recovered = restarted.pending_human_requests(run_id)
+        assert len(recovered) == 1
+        assert recovered[0]["id"] == original_request["id"]
+        finished = restarted.decide(
+            recovered[0]["id"],
+            choice="approve",
+            comment="Approved after worker restart.",
+            actor="example-reviewer",
+            subject_digest=recovered[0]["subject_digest"],
+            expected_version=recovered[0]["version"],
+            idempotency_key="real-coding-delivery-worker-restart",
+        )
+        assert finished["status"] == "succeeded"
+        assert len(restarted.ledger.list_attempts(run_id)) == before_attempts
+        assert len(restarted.ledger.list_artifacts(run_id=run_id)) == before_artifacts
     finally:
         restarted.close()
