@@ -131,6 +131,8 @@ type RuntimeConnectionDraft = {
   token: string;
 };
 
+const RUNTIME_SESSION_KEY = "multiverse.runtime.connection";
+
 type DecisionState = {
   kind: "idle" | "submitting" | "success" | "error";
   message: string;
@@ -148,6 +150,56 @@ type ArtifactPreviewState = {
   text?: string;
   message?: string;
 };
+
+function defaultRuntimeConnection(): RuntimeConnectionDraft {
+  return {
+    baseUrl: import.meta.env.VITE_RUNTIME_BASE_URL ?? "",
+    namespace: import.meta.env.VITE_RUNTIME_NAMESPACE ?? "local",
+    runId: import.meta.env.VITE_RUNTIME_RUN_ID ?? "",
+    token: "",
+  };
+}
+
+function loadRuntimeConnection(): RuntimeConnectionDraft {
+  const fallback = defaultRuntimeConnection();
+  try {
+    const stored = window.sessionStorage.getItem(RUNTIME_SESSION_KEY);
+    if (!stored) return fallback;
+    const parsed = JSON.parse(stored) as Partial<RuntimeConnectionDraft>;
+    if (
+      typeof parsed.baseUrl !== "string" ||
+      typeof parsed.namespace !== "string" ||
+      typeof parsed.runId !== "string" ||
+      typeof parsed.token !== "string"
+    ) {
+      return fallback;
+    }
+    return {
+      baseUrl: parsed.baseUrl,
+      namespace: parsed.namespace,
+      runId: parsed.runId,
+      token: parsed.token,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function persistRuntimeConnection(connection: RuntimeConnectionDraft) {
+  try {
+    window.sessionStorage.setItem(RUNTIME_SESSION_KEY, JSON.stringify(connection));
+  } catch {
+    // Session storage may be disabled by the host; Runtime remains manually connectable.
+  }
+}
+
+function clearRuntimeConnection() {
+  try {
+    window.sessionStorage.removeItem(RUNTIME_SESSION_KEY);
+  } catch {
+    // Ignore storage restrictions when switching to a local snapshot.
+  }
+}
 
 function App() {
   const [graph, setGraph] = useState<AuditGraph>(demoGraph);
@@ -184,12 +236,7 @@ function App() {
   const [importState, setImportState] = useState<
     { kind: "demo" | "reading" | "success" | "error"; message: string }
   >({ kind: "demo", message: "演示数据" });
-  const [connection, setConnection] = useState<RuntimeConnectionDraft>(() => ({
-    baseUrl: import.meta.env.VITE_RUNTIME_BASE_URL ?? "",
-    namespace: import.meta.env.VITE_RUNTIME_NAMESPACE ?? "local",
-    runId: import.meta.env.VITE_RUNTIME_RUN_ID ?? "",
-    token: "",
-  }));
+  const [connection, setConnection] = useState<RuntimeConnectionDraft>(loadRuntimeConnection);
   const [connectionDraft, setConnectionDraft] = useState(connection);
   const [showConnection, setShowConnection] = useState(false);
   const [connectionEnabled, setConnectionEnabled] = useState(true);
@@ -351,6 +398,7 @@ function App() {
     event.preventDefault();
     setConnectionEnabled(true);
     setConnection(connectionDraft);
+    persistRuntimeConnection(connectionDraft);
     setShowConnection(false);
   }
 
@@ -650,6 +698,7 @@ function App() {
       runtimeControllerRef.current = null;
       setConnectionEnabled(false);
       setConnectionState({ kind: "demo", message: "本地快照" });
+      clearRuntimeConnection();
       fitCanvasRequestedRef.current = true;
       setGraph(nextGraph);
       setRuntimeEvents(projection.events);
@@ -1051,7 +1100,7 @@ function App() {
             <div className="panel-heading">
               <div>
                 <h2>连接 Runtime</h2>
-                <p>令牌只保留在当前页面内，不写入 URL 或本地存储。</p>
+              <p>令牌只保留在当前浏览器会话内，不写入 URL 或持久本地存储。</p>
               </div>
               <button type="button" className="icon-button small" title="关闭" onClick={() => setShowConnection(false)}>×</button>
             </div>
