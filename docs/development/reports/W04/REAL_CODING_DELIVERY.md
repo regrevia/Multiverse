@@ -45,6 +45,36 @@ Final status: `succeeded`.
   `human.created`, `human.decided`, and final `run.updated` with
   `status=succeeded`.
 
+## Restart Evidence
+
+The live e2e suite also closes and reopens the same SQLite Runtime before the
+HumanRequest decision. After reopening:
+
+- the pending HumanRequest is recovered;
+- the authorized approval resumes the same Run;
+- Attempt count does not increase;
+- Artifact count does not increase;
+- replaying the same decision idempotency key does not advance the Run again.
+
+Reproduction command:
+
+```bash
+MULTIVERSE_RUN_CODEX_LIVE=1 \
+  uv run --python 3.12 --locked pytest \
+  tests/e2e/test_coding_delivery.py::test_real_coding_delivery_survives_runtime_restart_before_approval \
+  -q -s
+```
+
+The verified run printed `restart_e2e_run_id` and completed with `1 passed`.
+The test asserts the original HumanRequest ID is recovered exactly, rather
+than selecting a newly created pending request.
+
+Verified restart Run ID:
+
+```text
+run_fdfc1cb3437e450ab1e97ab62d220fd0
+```
+
 ## Boundary
 
 This is a real local coding-delivery evidence record, not a claim that all W03
