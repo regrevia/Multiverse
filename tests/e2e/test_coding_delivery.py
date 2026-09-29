@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from ruamel.yaml import YAML
 
 from multiverse_workflow.runtime.executors import execute_codex
+from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
+from multiverse_workflow.runtime.runner import Runner
 
 pytestmark = pytest.mark.integration
 
@@ -42,3 +47,75 @@ def test_real_coding_delivery_probe_reaches_runtime_shaped_output(tmp_path: Path
     assert result.generated_artifact is not None
     assert result.output["artifact_refs"] == []
     assert result.observations
+
+
+def test_real_coding_delivery_completes_runtime_human_loop(tmp_path: Path) -> None:
+    if os.environ.get("MULTIVERSE_RUN_CODEX_LIVE") != "1":
+        pytest.skip("set MULTIVERSE_RUN_CODEX_LIVE=1 to run the authorized local Codex loop")
+    if shutil.which("codex") is None:
+        pytest.fail("codex executable is required for the coding delivery loop")
+
+    binding = YAML(typ="safe").load(
+        (Path(__file__).parents[2] / "examples/bindings/content-local.yaml").read_text()
+    )
+    producer = binding["spec"]["slots"]["producer"]
+    producer["adapter"] = "codex"
+    producer["executorRef"] = "builtin.codex-deliverable.v1"
+    producer["config"] = {
+        "cwd": str(tmp_path),
+        "workspaceRoot": str(tmp_path),
+        "homeDir": str(Path(os.environ.get("HOME", str(tmp_path))).resolve()),
+        "interactionAuthorizedSubjects": ["example-reviewer"],
+        "model": os.environ.get("MULTIVERSE_CODEX_MODEL", "gpt-5.5"),
+        "systemPrompt": (
+            "Return only concise JSON with a non-empty text field and an empty "
+            "artifact_refs array. Do not use tools or invent Artifact IDs."
+        ),
+        "artifactName": "codex-runtime-deliverable.md",
+        "artifactMediaType": "text/markdown",
+        "timeoutSeconds": 180,
+    }
+    binding_path = tmp_path / "binding.yaml"
+    with binding_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(binding, handle)
+    registry = ExecutorRegistry(
+        [
+            replace(descriptor, verified=True)
+            if descriptor.executor_ref == "builtin.codex-deliverable.v1"
+            else descriptor
+            for descriptor in local_executor_registry().descriptors()
+        ]
+    )
+    runner = Runner(
+        Path(__file__).parents[2] / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=tmp_path / "runtime.db",
+        executor_registry=registry,
+    )
+
+    try:
+        waiting = runner.start(
+            {"goal": "Write a concise release note for the Multiverse runtime."}
+        )
+        assert waiting["status"] == "waiting"
+        request = runner.pending_human_requests(waiting["id"])[0]
+        assert request["authorized_subjects_json"] == '["example-reviewer"]'
+        artifacts = runner.ledger.list_artifacts(run_id=waiting["id"])
+        assert artifacts and artifacts[0]["status"] == "ready"
+
+        finished = runner.decide(
+            request["id"],
+            choice="approve",
+            comment="Approved by the authorized reviewer.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+            idempotency_key="real-coding-delivery-e2e",
+        )
+
+        assert finished["status"] == "succeeded"
+        output = json.loads(finished["output_json"])
+        assert output["review"]["decision"] == "approve"
+        assert output["deliverable"]["artifact_refs"]
+    finally:
+        runner.close()
