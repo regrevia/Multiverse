@@ -173,10 +173,14 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
     const members = nodesByScope.get(scope.id) ?? [];
     const width = Math.max(420, Math.min(760, members.length * 208 + 46));
     const height = 132;
+    const pathLabel = scope.path.slice(1).join(" / ");
     scopeGroups.set(scope.id, {
       id: scope.id,
-      title: scope.path.length === 1 ? "根作用域" : `第 ${scope.path.at(-1)} 轮`,
-      subtitle: `${scope.workflowId} · ${scope.status}`,
+      parentId: scope.parentScopeId ?? undefined,
+      title: scope.workflowId,
+      subtitle: scope.path.length === 1
+        ? `流程 ID · 主流程 · ${scope.status}`
+        : `流程 ID · 子流程 · ${pathLabel} · ${scope.status}`,
       memberIds: members.map((member) => member.id),
       x: 40,
       y: 132 + scopeIndex * 178,
@@ -211,6 +215,11 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
     packageVersion: projection.run.packageDigest.slice(0, 16),
     runId: projection.run.id,
     runVersion: projection.run.version,
+    currentScopeId: projection.run.currentScopeId,
+    currentNodeId:
+      projection.run.currentScopeId && projection.run.currentNodeId
+        ? `${projection.run.currentScopeId}:${projection.run.currentNodeId}`
+        : null,
     controlMode: projection.run.controlMode,
     updatedAt: projection.run.updatedAt,
     runStatus: projection.run.status,

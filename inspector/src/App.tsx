@@ -8,6 +8,7 @@ import {
   CircleDashed,
   Clock3,
   Code2,
+  Copy,
   Eye,
   FileText,
   GitBranch,
@@ -15,7 +16,6 @@ import {
   Layers3,
   Maximize2,
   Minus,
-  PanelRight,
   PauseCircle,
   Play,
   Plus,
@@ -30,7 +30,6 @@ import {
   Upload,
   UserRound,
   Workflow,
-  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,7 +42,9 @@ import {
   visibleGraph,
 } from "./graph/model";
 import {
+  fitGraphToViewport,
   preserveGraphPositions,
+  resolveGraphPosition,
   translatePositions,
   type GraphPosition,
 } from "./graph/layout";
@@ -191,6 +192,9 @@ function App() {
   }));
   const [connectionDraft, setConnectionDraft] = useState(connection);
   const [showConnection, setShowConnection] = useState(false);
+  const [connectionEnabled, setConnectionEnabled] = useState(true);
+  const [showAuthoringGuide, setShowAuthoringGuide] = useState(false);
+  const [authoringNotice, setAuthoringNotice] = useState("");
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     connection.baseUrl && connection.runId && connection.token
       ? { kind: "loading", message: "正在连接 Runtime" }
@@ -216,6 +220,8 @@ function App() {
   const [lastEventSeq, setLastEventSeq] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const snapshotInputRef = useRef<HTMLInputElement>(null);
+  const runtimeControllerRef = useRef<AbortController | null>(null);
+  const fitCanvasRequestedRef = useRef(true);
   const nodePositionsRef = useRef(nodePositions);
   nodePositionsRef.current = nodePositions;
   const visible = useMemo(
@@ -248,17 +254,26 @@ function App() {
   }, [selectedHumanRequest?.id]);
 
   useEffect(() => {
-    if (!connection.baseUrl || !connection.namespace || !connection.runId || !connection.token) {
+    if (
+      !connectionEnabled ||
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
       return;
     }
     const client = new RuntimeClient(connection as RuntimeClientConfig);
     const controller = new AbortController();
+    runtimeControllerRef.current = controller;
     setConnectionState({ kind: "loading", message: "正在读取 Runtime 快照" });
     client
       .getGraph(controller.signal)
       .then((projection) => {
+        if (controller.signal.aborted) return;
         const nextGraph = mapRuntimeProjection(projection);
         const projectionCursor = projection.events.at(-1)?.seq ?? 0;
+        fitCanvasRequestedRef.current = true;
         setGraph(nextGraph);
         setRuntimeEvents(projection.events);
         setHumanRequests(projection.humanRequests);
@@ -276,10 +291,13 @@ function App() {
           .catch(() => projectionCursor);
       })
       .then((projectionCursor) =>
-        client.watchRun({
+        projectionCursor === undefined || controller.signal.aborted
+          ? undefined
+          : client.watchRun({
           after: projectionCursor,
           signal: controller.signal,
           onSnapshot: (projection) => {
+            if (controller.signal.aborted) return;
             const nextGraph = mapRuntimeProjection(projection);
             setGraph((current) => ({
               ...nextGraph,
@@ -292,10 +310,13 @@ function App() {
             setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
           },
           onEvent: (event) => {
+            if (controller.signal.aborted) return;
             setRuntimeEvents((current) => mergeEvents(current, event));
             setLastEventSeq((current) => Math.max(current, event.seq));
           },
-          onStatus: (status) => setConnectionState(connectionStateFor(status)),
+          onStatus: (status) => {
+            if (!controller.signal.aborted) setConnectionState(connectionStateFor(status));
+          },
         }),
       )
       .catch((error: unknown) => {
@@ -305,8 +326,17 @@ function App() {
           message: error instanceof Error ? error.message : "Runtime 连接失败",
         });
       });
-    return () => controller.abort();
-  }, [connection.baseUrl, connection.namespace, connection.runId, connection.token]);
+    return () => {
+      controller.abort();
+      if (runtimeControllerRef.current === controller) runtimeControllerRef.current = null;
+    };
+  }, [
+    connectionEnabled,
+    connection.baseUrl,
+    connection.namespace,
+    connection.runId,
+    connection.token,
+  ]);
 
   function toggleGroup(groupId: string) {
     setCollapsedGroups((current) => {
@@ -319,8 +349,76 @@ function App() {
 
   function connectRuntime(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setConnectionEnabled(true);
     setConnection(connectionDraft);
     setShowConnection(false);
+  }
+
+  function openWorkflow(scopeId?: string) {
+    const target = scopeId
+      ? renderedNodes.find((node) => node.id === scopeId)
+      : renderedNodes.find((node) => node.id === graph.groups[0]?.id);
+    if (!target) return;
+    setPanelMode("audit");
+    setSelectedId(target.id);
+    if (target.type === "group") setCollapsedGroups((current) => {
+      const next = new Set(current);
+      next.delete(target.id);
+      return next;
+    });
+  }
+
+  function openCurrentRun() {
+    const activeNode = graph.nodes.find((node) => node.id === graph.currentNodeId) ??
+      graph.nodes.find(
+      (node) => node.status === "running" || node.status === "waiting",
+    );
+    if (!activeNode) {
+      openWorkflow();
+      return;
+    }
+    setPanelMode("audit");
+    expandGroupPath(activeNode.groupId);
+    focusNode(activeNode);
+  }
+
+  function openHumanInbox() {
+    const request = humanRequests.find((item) => item.status === "pending");
+    const node = request
+      ? graph.nodes.find((item) => item.invocationId === request.invocationId)
+      : graph.nodes.find((item) => item.type === "human");
+    if (!node) return;
+    setPanelMode("audit");
+    expandGroupPath(node.groupId);
+    focusNode(node);
+  }
+
+  function expandGroupPath(groupId?: string) {
+    if (!groupId) return;
+    const ancestorIds = new Set<string>();
+    let current = graph.groups.find((group) => group.id === groupId);
+    while (current) {
+      ancestorIds.add(current.id);
+      current = current.parentId
+        ? graph.groups.find((group) => group.id === current?.parentId)
+        : undefined;
+    }
+    setCollapsedGroups((currentGroups) =>
+      new Set([...currentGroups].filter((id) => !ancestorIds.has(id))),
+    );
+  }
+
+  async function copyStarterCommand() {
+    const command = [
+      "cp -R presets/content-delivery ./my-workflow",
+      "uv run mverse validate ./my-workflow --binding examples/bindings/content-local.yaml --json",
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(command);
+      setAuthoringNotice("起步命令已复制");
+    } catch {
+      setAuthoringNotice("请从下方命令块手动复制");
+    }
   }
 
   async function submitHumanDecision(choice?: string) {
@@ -479,10 +577,31 @@ function App() {
 
   function focusNode(node: GraphNode) {
     setSelectedId(node.id);
-    const centerX = 540 - (node.x + node.width / 2) * zoom;
-    const centerY = 320 - (node.y + node.height / 2) * zoom;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const position = resolveGraphPosition(node, nodePositionsRef.current);
+    const centerX = viewport.clientWidth / 2 - (position.x + node.width / 2) * zoom;
+    const centerY = viewport.clientHeight / 2 - (position.y + node.height / 2) * zoom;
     setPan({ x: centerX, y: centerY });
   }
+
+  function fitCanvas() {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const fit = fitGraphToViewport(renderedNodes, {
+      width: viewport.clientWidth,
+      height: viewport.clientHeight,
+    });
+    if (!fit) return;
+    setZoom(fit.zoom);
+    setPan(fit.pan);
+  }
+
+  useEffect(() => {
+    if (!fitCanvasRequestedRef.current) return;
+    fitCanvasRequestedRef.current = false;
+    fitCanvas();
+  }, [renderedNodes]);
 
   function applyPatchText(nextText = patchText) {
     try {
@@ -527,9 +646,16 @@ function App() {
     try {
       const projection = parseRuntimeProjection(JSON.parse(await file.text()));
       const nextGraph = mapRuntimeProjection(projection);
+      runtimeControllerRef.current?.abort();
+      runtimeControllerRef.current = null;
+      setConnectionEnabled(false);
+      setConnectionState({ kind: "demo", message: "本地快照" });
+      fitCanvasRequestedRef.current = true;
       setGraph(nextGraph);
+      setRuntimeEvents(projection.events);
       setHumanRequests(projection.humanRequests);
       setArtifacts(projection.artifacts);
+      setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
       setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
       setSelectedId(nextGraph.groups[0]?.id ?? nextGraph.nodes[0]?.id ?? "");
       setPanelMode("audit");
@@ -604,7 +730,7 @@ function App() {
   }
 
   function onWheel(event: React.WheelEvent<HTMLDivElement>) {
-    setZoom((value) => Math.min(1.24, Math.max(0.58, value - event.deltaY * 0.0008)));
+    setZoom((value) => Math.min(1.24, Math.max(0.05, value - event.deltaY * 0.0008)));
   }
 
   const nodeMap = new Map(renderedNodes.map((node) => [node.id, node]));
@@ -638,16 +764,6 @@ function App() {
           </div>
           <button
             className="icon-button"
-            title="导入运行快照"
-            aria-label="导入运行快照"
-            onClick={() => snapshotInputRef.current?.click()}
-          >
-            <Upload size={17} />
-          </button>
-          <button className="icon-button" title="搜索证据"><Search size={17} /></button>
-          <button className="icon-button" title="打开面板"><PanelRight size={17} /></button>
-          <button
-            className="icon-button"
             title="连接 Runtime"
             aria-label="连接 Runtime"
             onClick={() => {
@@ -657,30 +773,88 @@ function App() {
           >
             <SquareDashedMousePointer size={17} />
           </button>
-          <div className="avatar">R</div>
         </div>
       </header>
 
       <div className="workspace">
         <aside className="left-rail">
-          <div className="rail-section">
-            <p className="rail-title">工作区</p>
-            <button className="rail-item active"><Activity size={16} /> 当前运行</button>
-            <button className="rail-item"><Layers3 size={16} /> 工作流</button>
-            <button className="rail-item"><UserRound size={16} /> 人工处理箱 <span className="rail-count">{pendingHumanRequestCount}</span></button>
+          <div className="rail-actions">
+            <button
+              className="rail-action primary"
+              onClick={() => {
+                setAuthoringNotice("");
+                setShowAuthoringGuide(true);
+              }}
+            >
+              <Plus size={16} /> 新建工作流
+            </button>
+            <button
+              className="rail-action"
+              onClick={() => snapshotInputRef.current?.click()}
+            >
+              <Upload size={15} /> 打开 / 导入快照
+            </button>
           </div>
-          <div className="rail-section rail-bottom">
+          <div className="rail-section">
+            <p className="rail-title">工作流 ID</p>
+            {graph.groups.map((group, index) => (
+              <button
+                key={group.id}
+                className={`rail-item ${selectedId === group.id ? "active" : ""}`}
+                title={`${group.subtitle} · ${group.title}`}
+                onClick={() => openWorkflow(group.id)}
+              >
+                <Workflow size={15} />
+                <span className="rail-item-copy">
+                  <strong>{group.title}</strong>
+                  <small>{index === 0 ? "主流程" : group.subtitle}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="rail-section rail-runs">
             <p className="rail-title">运行</p>
-            <div className="run-id">{graph.runId}</div>
-            <div className="run-meta"><StatusIcon status={statusForRun(graph.runStatus)} /> {statusLabels[statusForRun(graph.runStatus)]}</div>
-            <div className="run-meta"><ShieldCheck size={14} /> 事件序号 {lastEventSeq || graph.lastEventSeq}</div>
+            <button
+              className="rail-item"
+              title={graph.runId}
+              onClick={openCurrentRun}
+            >
+              <Activity size={15} />
+              <span className="rail-item-copy">
+                <strong>{graph.runId}</strong>
+                <small>{statusLabels[statusForRun(graph.runStatus)]} · {graph.packageVersion}</small>
+              </span>
+            </button>
+            <button
+              className="rail-item"
+              onClick={openHumanInbox}
+              disabled={!graph.nodes.some((node) => node.type === "human")}
+            >
+              <UserRound size={15} />
+              <span className="rail-item-copy"><strong>人工处理</strong></span>
+              {pendingHumanRequestCount > 0 && (
+                <span className="rail-count">{pendingHumanRequestCount}</span>
+              )}
+            </button>
+          </div>
+          <div className="rail-bottom">
+            <span className={`live-dot ${connectionState.kind}`} />
+            <span>{connectionState.message}</span>
           </div>
         </aside>
 
         <section className="main-stage">
           <div className="stage-header">
             <div>
-              <h1>内容交付</h1>
+              <h1>{graph.packageName}</h1>
+              <div className="run-summary">
+                <span><StatusIcon status={statusForRun(graph.runStatus)} />{statusLabels[statusForRun(graph.runStatus)]}</span>
+                <code>{graph.runId}</code>
+                <span>事件 {lastEventSeq || graph.lastEventSeq}</span>
+                {pendingHumanRequestCount > 0 && (
+                  <span className="pending-count"><UserRound size={13} />待处理 {pendingHumanRequestCount}</span>
+                )}
+              </div>
             </div>
             <div className="stage-actions">
               {connectionState.kind !== "demo" && graph.controlMode === "pause" && (
@@ -721,20 +895,16 @@ function App() {
                   </button>
                 )}
               <button
-                aria-label="展开全部作用域"
+                aria-label={collapsedGroups.size ? "展开全部作用域" : "折叠全部作用域"}
                 className="icon-button action-button"
-                title="展开全部作用域"
-                onClick={() => setCollapsedGroups(new Set())}
+                title={collapsedGroups.size ? "展开全部作用域" : "折叠全部作用域"}
+                onClick={() =>
+                  setCollapsedGroups(
+                    collapsedGroups.size ? new Set() : new Set(graph.groups.map((group) => group.id)),
+                  )
+                }
               >
                 <Layers3 size={16} />
-              </button>
-              <button
-                aria-label="模拟智能体更新"
-                className="icon-button action-button primary-action"
-                title="模拟智能体更新"
-                onClick={simulateAgentUpdate}
-              >
-                <Zap size={16} />
               </button>
             </div>
           </div>
@@ -751,16 +921,16 @@ function App() {
 
           <div className="canvas-toolbar">
             <div className="canvas-controls">
-              <button className="icon-button small" title="缩小" onClick={() => setZoom((value) => Math.max(0.58, value - 0.1))}><Minus size={15} /></button>
+              <button className="icon-button small" title="缩小" onClick={() => setZoom((value) => Math.max(0.05, value - 0.1))}><Minus size={15} /></button>
               <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
               <button className="icon-button small" title="放大" onClick={() => setZoom((value) => Math.min(1.24, value + 0.1))}><Plus size={15} /></button>
-              <button className="icon-button small" title="适配画布" onClick={() => { setZoom(0.84); setPan({ x: 24, y: 28 }); }}><Maximize2 size={15} /></button>
+              <button className="icon-button small" title="适配画布" aria-label="适配画布" onClick={fitCanvas}><Maximize2 size={15} /></button>
               <button className="icon-button small" title="恢复自动布局" onClick={() => setNodePositions({})}><RotateCcw size={14} /></button>
             </div>
           </div>
 
           <div
-            className={`graph-viewport ${dragStart ? "dragging" : ""}`}
+            className={`graph-viewport ${dragStart ? "dragging" : ""} ${nodeDrag ? "node-moving" : ""}`}
             ref={viewportRef}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -904,6 +1074,43 @@ function App() {
               <button type="submit" className="apply-button">连接并查看</button>
             </div>
           </form>
+        </div>
+      )}
+      {showAuthoringGuide && (
+        <div
+          className="connection-backdrop"
+          role="presentation"
+          onMouseDown={() => setShowAuthoringGuide(false)}
+        >
+          <section
+            className="connection-dialog authoring-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="authoring-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="panel-heading">
+              <div>
+                <h2 id="authoring-title">新建工作流</h2>
+                <p>从仓库模板复制后，由 Agent 编辑文件并通过 CLI 校验。</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button small"
+                aria-label="关闭"
+                title="关闭"
+                onClick={() => setShowAuthoringGuide(false)}
+              >
+                <Square size={14} />
+              </button>
+            </div>
+            <pre><code>{"cp -R presets/content-delivery ./my-workflow\nuv run mverse validate ./my-workflow --binding examples/bindings/content-local.yaml --json"}</code></pre>
+            <p className="authoring-note">请在 Multiverse 仓库根目录运行，且确保 `my-workflow` 目录尚不存在。此查看器不会直接写入本地项目文件。</p>
+            <button className="apply-button" onClick={copyStarterCommand}>
+              <Copy size={15} /> 复制起步命令
+            </button>
+            {authoringNotice && <p className="authoring-notice" role="status">{authoringNotice}</p>}
+          </section>
         </div>
       )}
     </main>
@@ -1307,11 +1514,11 @@ function AgentPanel({
       <button className="apply-button" onClick={onApply}><Send size={15} /> 应用预览</button>
       <button
         aria-label="模拟下一条智能体事件"
-        className="icon-button simulate-button"
-        title="模拟下一条智能体事件"
+        className="apply-button simulate-button"
+        title="演示下一条智能体事件"
         onClick={onSimulate}
       >
-        <Play size={15} />
+        <Play size={15} /> 演示下一条事件
       </button>
       <div className="agent-events"><div className="detail-label">最近智能体活动</div>{events.map((event) => <div className="agent-event" key={event}><span />{event}</div>)}</div>
       <div className="panel-callout warning"><AlertCircle size={16} /><span>预览不会发布。</span></div>

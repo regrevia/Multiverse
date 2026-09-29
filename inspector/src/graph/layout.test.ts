@@ -1,7 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { preserveGraphPositions, translatePositions } from "./layout";
+import {
+  fitGraphToViewport,
+  preserveGraphPositions,
+  resolveGraphPosition,
+  translatePositions,
+} from "./layout";
 
 describe("local graph layout", () => {
+  it("centers the complete graph inside the viewport at a readable scale", () => {
+    expect(
+      fitGraphToViewport(
+        [
+          { x: 20, y: 50, width: 100, height: 60 },
+          { x: 220, y: 150, width: 200, height: 100 },
+        ],
+        { width: 800, height: 500 },
+      ),
+    ).toEqual({
+      zoom: 1.2,
+      pan: { x: 136, y: 70 },
+    });
+  });
+
+  it("scales larger graphs to fit while keeping their outer padding", () => {
+    expect(
+      fitGraphToViewport(
+        [{ x: 0, y: 0, width: 1000, height: 700 }],
+        { width: 500, height: 400 },
+      ),
+    ).toEqual({
+      zoom: 0.42,
+      pan: { x: 40, y: 53 },
+    });
+  });
+
+  it("keeps fitting very wide layouts after nodes have been dragged far apart", () => {
+    expect(
+      fitGraphToViewport(
+        [{ x: -2400, y: 0, width: 4000, height: 2400 }],
+        { width: 500, height: 400 },
+      ),
+    ).toEqual({
+      zoom: 0.105,
+      pan: { x: 292, y: 74 },
+    });
+  });
+
+  it("uses the locally dragged position when focusing a graph item", () => {
+    expect(
+      resolveGraphPosition(
+        { id: "node-a", x: 20, y: 30, width: 100, height: 80 },
+        { "node-a": { x: 420, y: 260 } },
+      ),
+    ).toEqual({ x: 420, y: 260 });
+  });
+
+  it("does not calculate a fit for an empty or unusable viewport", () => {
+    expect(fitGraphToViewport([], { width: 800, height: 500 })).toBeNull();
+    expect(
+      fitGraphToViewport([{ x: 0, y: 0, width: 100, height: 100 }], { width: 0, height: 0 }),
+    ).toBeNull();
+  });
+
   it("moves a scope and all of its members by the same local delta", () => {
     const positions = translatePositions(
       {

@@ -11,7 +11,7 @@ const snapshot = {
     bindingDigest: "sha256:binding",
     status: "waiting",
     controlMode: "run",
-    currentScopeId: "scope-root",
+    currentScopeId: "scope_root",
     currentNodeId: "review",
     currentInvocationId: null,
     version: 7,
@@ -150,9 +150,13 @@ describe("runtime projection mapper", () => {
 
     expect(graph.runId).toBe("run_123");
     expect(graph.packageName).toBe("delivery");
+    expect(graph.groups[0]?.title).toBe("delivery");
+    expect(graph.groups[0]?.subtitle).toBe("流程 ID · 主流程 · active");
     expect(graph.updatedAt).toBe("2026-09-20T00:01:00Z");
     expect(graph.runVersion).toBe(7);
     expect(graph.controlMode).toBe("run");
+    expect(graph.currentNodeId).toBe("scope_root:review");
+    expect(graph.currentScopeId).toBe("scope_root");
     expect(graph.nodes.find((node) => node.id === "scope_root:review")?.status).toBe(
       "waiting",
     );
@@ -160,6 +164,27 @@ describe("runtime projection mapper", () => {
     expect(graph.nodes.find((node) => node.id === "scope_root:produce")?.evidence).toContain(
       "产物 deliverable.md 已登记",
     );
+  });
+
+  it("labels each nested workflow scope with its own stable workflow ID", () => {
+    const nested = structuredClone(snapshot) as Parameters<typeof mapRuntimeProjection>[0];
+    nested.scopes.push({
+      id: "scope_child",
+      workflowId: "quality-check",
+      parentScopeId: "scope_root",
+      parentInvocationId: "inv_produce",
+      path: ["root", "quality-check"],
+      inputDigest: "sha256:child",
+      status: "active",
+    });
+
+    const graph = mapRuntimeProjection(nested);
+
+    expect(graph.groups.find((group) => group.id === "scope_child")).toMatchObject({
+      title: "quality-check",
+      subtitle: "流程 ID · 子流程 · quality-check · active",
+      parentId: "scope_root",
+    });
   });
 
   it("rejects JSON that is not a runtime projection", () => {

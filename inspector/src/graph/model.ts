@@ -41,6 +41,7 @@ export type GraphEdge = {
 
 export type GraphGroup = {
   id: string;
+  parentId?: string;
   title: string;
   subtitle: string;
   memberIds: string[];
@@ -55,6 +56,8 @@ export type AuditGraph = {
   packageVersion: string;
   runId: string;
   runVersion: number;
+  currentScopeId?: string | null;
+  currentNodeId?: string | null;
   controlMode: string;
   updatedAt: string;
   runStatus: string;
