@@ -1,0 +1,15 @@
+
+> multiverse-inspector@0.1.0 build
+> tsc -b && vite build
+
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 1571 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.50 kB │ gzip:  0.33 kB
+dist/assets/index-Bd_JW4Md.css   20.42 kB │ gzip:  4.96 kB
+dist/assets/index-CPHzdEy2.js   279.28 kB │ gzip: 87.05 kB
+
+✓ built in 255ms
+exit_code=0

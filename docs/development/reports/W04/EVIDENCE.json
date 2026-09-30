@@ -1,0 +1,21 @@
+{
+  "package_id": "W04",
+  "snapshot": {"files": {}, "digest": "PENDING_FINAL_SNAPSHOT"},
+  "required_tests": [
+    "python-full",
+    "service-e2e",
+    "inspector-tests",
+    "inspector-build",
+    "runtime-restart-live",
+    "worker-restart-live",
+    "inspector-reopen-live"
+  ],
+  "tests": [],
+  "acceptance": [
+    {"id": "runtime-human-loop", "status": "passed", "evidence_ref": "docs/development/reports/W04/REPORT.md#当前验证"},
+    {"id": "restart-recovery", "status": "passed", "evidence_ref": "docs/development/reports/W04/REPORT.md#当前验证"},
+    {"id": "inspector-reopen", "status": "passed", "evidence_ref": "docs/development/reports/W04/REPORT.md#inspector-reopen-实证"},
+    {"id": "frontend-gates", "status": "passed", "evidence_ref": "docs/development/reports/W04/REPORT.md#当前验证"}
+  ],
+  "reviews": []
+}

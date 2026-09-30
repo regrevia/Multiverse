@@ -1,0 +1,9 @@
+.restart_e2e_run_id=run_cd50b0a48fd545ae9dca5fb1162732e7
+worker_stop_restart_run_id=run_cd50b0a48fd545ae9dca5fb1162732e7 request_id=human_ee04f327fb9b470d8ee84eeb7880a550 attempt_count=4 artifact_count=1 decision_id=decision_71b926d4a50b47038149291e675b5fdc
+.
+2 passed in 79.63s (0:01:19)
+command=MULTIVERSE_RUN_CODEX_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/e2e/test_coding_delivery.py::test_real_coding_delivery_completes_runtime_human_loop tests/e2e/test_coding_delivery.py::test_real_coding_delivery_survives_runtime_restart_before_approval
+cwd=/Users/apple/Desktop/work/Multiverse
+python=3.12.13
+codex=0.156.1
+exit_code=0

@@ -140,6 +140,87 @@ def test_real_coding_delivery_completes_runtime_human_loop(tmp_path: Path) -> No
         output = json.loads(finished["output_json"])
         assert output["review"]["decision"] == "approve"
         assert output["deliverable"]["artifact_refs"]
+        decision = runner.ledger.get_human_decision(request["id"])
+        assert decision is not None
+        artifact = runner.ledger.get_artifact(output["deliverable"]["artifact_refs"][0])
+        assert artifact is not None
+        attempts = runner.ledger.list_attempts(waiting["id"])
+        print(
+            f"coding_delivery_live_run_id={waiting['id']} request_id={request['id']} "
+            f"decision_id={decision['id']} actor={decision['actor']} "
+            f"subject_digest={decision['subject_digest']} "
+            f"expected_version={request['version']} decision_version={decision['request_version']} "
+            f"attempt_ids={[item['id'] for item in attempts]} "
+            f"artifact_id={artifact['id']} artifact_digest={artifact['digest']} "
+            f"terminal_status={finished['status']}"
+        )
+    finally:
+        runner.close()
+
+
+def test_real_coding_delivery_rejects_with_authorized_human(tmp_path: Path) -> None:
+    if os.environ.get("MULTIVERSE_RUN_CODEX_LIVE") != "1":
+        pytest.skip("set MULTIVERSE_RUN_CODEX_LIVE=1 to run the authorized reject loop")
+    if shutil.which("codex") is None:
+        pytest.fail("codex executable is required for the coding delivery reject loop")
+
+    binding_path = _write_live_binding(tmp_path)
+    registry = _live_registry()
+    runner = Runner(
+        Path(__file__).parents[2] / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=tmp_path / "runtime.db",
+        executor_registry=registry,
+    )
+    try:
+        waiting = runner.start({"goal": "Write a concise release note for rejection testing."})
+        assert waiting["status"] == "waiting"
+        request = runner.pending_human_requests(waiting["id"])[0]
+        attempts_before = len(runner.ledger.list_attempts(waiting["id"]))
+        artifacts_before = len(runner.ledger.list_artifacts(run_id=waiting["id"]))
+        finished = runner.decide(
+            request["id"],
+            choice="reject",
+            comment="Rejected by the authorized reviewer for live rejection evidence.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+            idempotency_key="real-coding-delivery-reject",
+        )
+        assert finished["status"] == "failed"
+        assert json.loads(finished["error_json"])["code"] == "DELIVERABLE_REJECTED"
+        decision = runner.ledger.get_human_decision(request["id"])
+        assert decision is not None
+        assert decision["choice"] == "reject"
+        assert decision["actor"] == "example-reviewer"
+        assert decision["request_version"] == request["version"] + 1
+        print(
+            f"reject_live_run_id={waiting['id']} request_id={request['id']} "
+            f"decision_id={decision['id']} actor={decision['actor']} "
+            f"subject_digest={decision['subject_digest']} "
+            f"expected_version={request['version']} decision_version={decision['request_version']} "
+            f"artifact_count={artifacts_before}"
+        )
+        assert len(runner.ledger.list_attempts(waiting["id"])) == attempts_before
+        assert len(runner.ledger.list_artifacts(run_id=waiting["id"])) == artifacts_before
+        replay = runner.decide(
+            request["id"],
+            choice="reject",
+            comment="Rejected by the authorized reviewer for live rejection evidence.",
+            actor="example-reviewer",
+            subject_digest=request["subject_digest"],
+            expected_version=request["version"],
+            idempotency_key="real-coding-delivery-reject",
+        )
+        assert replay["status"] == "failed"
+        print(
+            f"reject_live_run_id={waiting['id']} request_id={request['id']} "
+            f"decision_id={decision['id']} actor={decision['actor']} "
+            f"subject_digest={decision['subject_digest']} "
+            f"expected_version={request['version']} "
+            f"decision_version={decision['request_version']} "
+            f"terminal_error={json.loads(finished['error_json'])['code']}"
+        )
     finally:
         runner.close()
 
@@ -206,6 +287,14 @@ def test_real_coding_delivery_survives_runtime_restart_before_approval(
             idempotency_key="real-coding-delivery-restart-approve",
         )
         assert replay["status"] == "succeeded"
+        decision = restarted.ledger.get_human_decision(request["id"])
+        assert decision is not None
+        print(
+            f"runtime_restart_run_id={run_id} request_id={request['id']} "
+            f"decision_id={decision['id']} decision_actor={decision['actor']} "
+            f"attempt_count={len(restarted.ledger.list_attempts(run_id))} "
+            f"artifact_count={len(restarted.ledger.list_artifacts(run_id=run_id))}"
+        )
         assert len(restarted.ledger.list_attempts(run_id)) == before_attempts
     finally:
         restarted.close()
@@ -275,6 +364,160 @@ def test_real_coding_delivery_survives_worker_restart_before_approval(
         assert len(restarted.ledger.list_artifacts(run_id=run_id)) == before_artifacts
     finally:
         restarted.close()
+
+
+def test_real_coding_delivery_survives_worker_stop_and_restart_exactly_once(
+    tmp_path: Path,
+) -> None:
+    if os.environ.get("MULTIVERSE_RUN_CODEX_LIVE") != "1":
+        pytest.skip("set MULTIVERSE_RUN_CODEX_LIVE=1 to run worker stop/restart evidence")
+    if shutil.which("codex") is None:
+        pytest.fail("codex executable is required for worker stop/restart evidence")
+
+    package = Path(__file__).parents[2] / "presets/content-delivery"
+    binding_path = _write_live_binding(tmp_path)
+    registry = _live_registry()
+    database = tmp_path / "runtime.db"
+    runner = Runner(
+        package,
+        binding_path=binding_path,
+        database_path=database,
+        executor_registry=registry,
+    )
+    waiting = runner.start({"goal": "Write a concise release note for worker stop testing."})
+    assert waiting["status"] == "waiting"
+    run_id = waiting["id"]
+    request = runner.pending_human_requests(run_id)[0]
+    before_attempts = len(runner.ledger.list_attempts(run_id))
+    before_artifacts = len(runner.ledger.list_artifacts(run_id=run_id))
+    runner.close()
+
+    stop_event = threading.Event()
+    worker_ready = threading.Event()
+    worker_stopped = threading.Event()
+    worker_error: list[BaseException] = []
+
+    def run_worker() -> None:
+        worker = LocalWorker.from_paths(
+            package_dir=package,
+            binding_path=binding_path,
+            database_path=database,
+            namespace="local",
+            worker_id="live-stop-restart-worker-1",
+            poll_interval=0.05,
+            executor_registry=registry,
+        )
+        try:
+            worker_ready.set()
+            worker.run_forever(stop_event=stop_event)
+        except BaseException as exc:
+            worker_error.append(exc)
+        finally:
+            worker.close()
+            worker_stopped.set()
+
+    thread = threading.Thread(target=run_worker, daemon=True)
+    thread.start()
+    assert worker_ready.wait(timeout=5)
+    time.sleep(0.2)
+    stop_event.set()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert worker_stopped.is_set()
+    assert not worker_error
+
+    controller = Runner(
+        package,
+        binding_path=binding_path,
+        database_path=database,
+        executor_registry=registry,
+    )
+    try:
+        recovered = controller.pending_human_requests(run_id)
+        assert len(recovered) == 1
+        assert recovered[0]["id"] == request["id"]
+        decided = controller.decide(
+            recovered[0]["id"],
+            choice="approve",
+            comment="Approve after worker restart; let the restarted worker resume.",
+            actor="example-reviewer",
+            subject_digest=recovered[0]["subject_digest"],
+            expected_version=recovered[0]["version"],
+            idempotency_key="real-coding-delivery-worker-stop-restart",
+            resume=False,
+        )
+        assert decided["status"] == "waiting"
+
+        resumed_stop = threading.Event()
+        resumed_ready = threading.Event()
+        resumed_stopped = threading.Event()
+        resumed_error: list[BaseException] = []
+
+        def run_restarted_worker() -> None:
+            resumed_worker = LocalWorker.from_paths(
+                package_dir=package,
+                binding_path=binding_path,
+                database_path=database,
+                namespace="local",
+                worker_id="live-stop-restart-worker-2",
+                poll_interval=0.05,
+                executor_registry=registry,
+            )
+            try:
+                resumed_ready.set()
+                resumed_worker.run_forever(stop_event=resumed_stop)
+            except BaseException as exc:
+                resumed_error.append(exc)
+            finally:
+                resumed_worker.close()
+                resumed_stopped.set()
+
+        resumed_thread = threading.Thread(target=run_restarted_worker, daemon=True)
+        resumed_thread.start()
+        assert resumed_ready.wait(timeout=5)
+        terminal_deadline = time.monotonic() + 30
+        final = controller.ledger.get_run(run_id)
+        while time.monotonic() < terminal_deadline and final["status"] not in {
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+        }:
+            time.sleep(0.05)
+            final = controller.ledger.get_run(run_id)
+        assert final["status"] == "succeeded"
+        resumed_stop.set()
+        resumed_thread.join(timeout=5)
+        assert not resumed_thread.is_alive()
+        assert resumed_stopped.is_set()
+        assert not resumed_error
+        assert len(controller.ledger.list_attempts(run_id)) == before_attempts
+        assert len(controller.ledger.list_artifacts(run_id=run_id)) == before_artifacts
+        replay = controller.decide(
+            recovered[0]["id"],
+            choice="approve",
+            comment="Approve after worker restart; let the restarted worker resume.",
+            actor="example-reviewer",
+            subject_digest=recovered[0]["subject_digest"],
+            expected_version=recovered[0]["version"],
+            idempotency_key="real-coding-delivery-worker-stop-restart",
+            resume=False,
+        )
+        assert replay["status"] == "succeeded"
+        decision = controller.ledger.get_human_decision(request["id"])
+        assert decision is not None
+        assert decision["actor"] == "example-reviewer"
+        assert decision["subject_digest"] == request["subject_digest"]
+        print(
+            f"worker_stop_restart_run_id={run_id} request_id={request['id']} "
+            f"decision_id={decision['id']} actor={decision['actor']} "
+            f"subject_digest={decision['subject_digest']} "
+            f"expected_version={request['version']} "
+            f"attempt_count={len(controller.ledger.list_attempts(run_id))} "
+            f"artifact_count={len(controller.ledger.list_artifacts(run_id=run_id))}"
+        )
+    finally:
+        controller.close()
 
 
 @pytest.mark.anyio
