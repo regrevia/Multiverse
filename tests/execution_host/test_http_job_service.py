@@ -154,6 +154,55 @@ finally:
         bystander.wait()
 
 
+def test_unconfirmed_stop_remains_unknown_and_nonfinal(host_factory, monkeypatch):
+    host, client = host_factory("import time; time.sleep(0.2)")
+    monkeypatch.setattr(host.backend, "_signal", lambda *_: False)
+    ref = client.submit(execution_request())["executionRef"]
+    time.sleep(0.03)
+    client.cancel(ref, "cancel-unconfirmed")
+    deadline = time.monotonic() + 5
+    observation = client.observe(ref)
+    while time.monotonic() < deadline and observation["status"] not in {
+        "unknown",
+        "cancelled",
+        "failed",
+    }:
+        time.sleep(0.02)
+        observation = client.observe(ref)
+    assert observation["status"] == "unknown"
+    assert observation["executionFinal"] is False
+    assert observation["effectState"] == "possible"
+    assert observation["error"]["code"] == "PROCESS_STOP_UNCONFIRMED"
+
+
+def test_leader_exit_with_live_child_is_unknown(host_factory, tmp_path):
+    child_pid = tmp_path / "child.pid"
+    script = f"""import subprocess,sys,time
+from pathlib import Path
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+Path({str(child_pid)!r}).write_text(str(child.pid))
+sys.exit(0)
+"""
+    _, client = host_factory(script)
+    try:
+        ref = client.submit(execution_request())["executionRef"]
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not child_pid.exists():
+            time.sleep(0.01)
+        deadline = time.monotonic() + 8
+        observation = client.observe(ref)
+        while time.monotonic() < deadline and observation["status"] != "unknown":
+            time.sleep(0.02)
+            observation = client.observe(ref)
+        assert observation["status"] == "unknown"
+        assert observation["executionFinal"] is False
+        assert observation["effectState"] == "possible"
+        assert observation["error"]["code"] == "PROCESS_GROUP_STOP_UNCONFIRMED"
+    finally:
+        if child_pid.exists():
+            subprocess.run(["kill", "-9", child_pid.read_text().strip()], check=False)
+
+
 def test_environment_does_not_inherit_secrets(host_factory, monkeypatch):
     monkeypatch.setenv("W02_SENTINEL_SECRET", "must-not-be-inherited")
     _, client = host_factory(

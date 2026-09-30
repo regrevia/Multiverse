@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from multiverse_workflow.execution_host.backend import ProcessBackend, ProcessUncertain
 from multiverse_workflow.runtime.http_job import HttpJobClient
 
 from .conftest import execution_request, wait_final
@@ -43,6 +44,17 @@ def await_file(path: Path) -> str:
     raise AssertionError(f"missing process evidence: {path.name}")
 
 
+def test_linux_identity_permission_failure_is_uncertain(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    def denied_read(_path):
+        raise PermissionError("identity denied")
+
+    monkeypatch.setattr(Path, "read_text", denied_read)
+    with pytest.raises(ProcessUncertain, match="identity evidence"):
+        ProcessBackend._process_identity(123)
+
+
 def start_host(root: Path, stage: str = "") -> tuple[subprocess.Popen, HttpJobClient]:
     (root / "port").unlink(missing_ok=True)
     process = subprocess.Popen(
@@ -62,6 +74,7 @@ def stop_host(process: subprocess.Popen) -> None:
 
 
 @pytest.mark.parametrize("stage", ["after_intent", "before_launch", "after_launch"])
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux prctl child subreaper")
 def test_actual_sigkill_launch_windows_are_unknown_and_never_relaunched(tmp_path, stage):
     # Adopt the crashed host's test children so this fault test leaves no zombies.
     libc = ctypes.CDLL(None, use_errno=True)

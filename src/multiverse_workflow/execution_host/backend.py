@@ -6,6 +6,7 @@ import selectors
 import signal
 import stat
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -43,6 +44,14 @@ class ProcessConfig:
             raise ValueError("log limit must be between 1 and 1048576")
         if not 0 < self.timeout_seconds <= 3600:
             raise ValueError("timeout must be between 0 and 3600 seconds")
+
+
+class ProcessUncertain(RuntimeError):
+    """The host cannot prove that an owned process has stopped."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class ProcessBackend:
@@ -91,12 +100,16 @@ class ProcessBackend:
                 self._signal(process, signal.SIGTERM)
 
     @staticmethod
-    def _signal(process: subprocess.Popen[bytes], sig: int) -> None:
+    def _signal(process: subprocess.Popen[bytes], sig: int) -> bool:
         # poll()/wait() must not reap the leader before group signalling is finished.
         try:
             os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            pass
+        except (ProcessLookupError, PermissionError):
+            # The leader can exit between the persisted cancel intent and a
+            # repeat request. The store remains the cancellation authority;
+            # there is no live group we can safely signal in this window.
+            return False
+        return True
 
     def close(self) -> None:
         self._closing.set()
@@ -105,7 +118,7 @@ class ProcessBackend:
                 self._signal(process, signal.SIGKILL)
             threads = list(self._threads)
         for thread in threads:
-            thread.join(timeout=5)
+            thread.join()
 
     def _run(self, ref: str) -> None:
         process: subprocess.Popen[bytes] | None = None
@@ -113,6 +126,7 @@ class ProcessBackend:
         error: dict[str, Any] | None = None
         output: Any = None
         artifacts: list[dict[str, Any]] = []
+        execution_final = True
         work = self.root / ref / "work"
         work.mkdir(parents=True)
         try:
@@ -144,16 +158,21 @@ class ProcessBackend:
                 )
                 self._processes[ref] = process
             self.checkpoint("after_launch", ref)
+            identity = self._process_identity(process.pid)
+            if sys.platform == "linux" and not all(
+                isinstance(identity.get(field), str) and identity[field]
+                for field in ("bootIdentity", "startTime")
+            ):
+                raise ProcessUncertain(
+                    "PROCESS_IDENTITY_UNAVAILABLE",
+                    "Linux process identity evidence is unavailable",
+                )
             self.store.associate(
                 ref,
                 {
                     "pid": process.pid,
                     "processGroup": process.pid,
-                    "bootIdentity": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
-                    "startTime": Path(f"/proc/{process.pid}/stat")
-                    .read_text()
-                    .rsplit(")", 1)[1]
-                    .split()[19],
+                    **identity,
                     "workspaceRef": ref,
                     "logRef": ref + "/stderr.log",
                 },
@@ -181,6 +200,10 @@ class ProcessBackend:
                     raise ValueError("result output must be an object without artifact references")
                 artifacts = self._artifacts(ref, document.get("artifacts", []), work)
                 final_status = "succeeded"
+        except ProcessUncertain as exc:
+            final_status = "unknown"
+            error = {"code": exc.code, "message": str(exc)}
+            execution_final = False
         except (ValueError, KeyError, UnicodeError, OSError, RecursionError) as exc:
             error = {"code": "PROCESS_OUTPUT_INVALID", "message": type(exc).__name__}
         except OutputLimit as exc:
@@ -190,14 +213,33 @@ class ProcessBackend:
                 with self._mutex:
                     # Kill remaining owned group before reaping/releasing its leader identity.
                     if process.returncode is None:
-                        self._signal(process, signal.SIGKILL)
-                        process.wait(timeout=5)
+                        if not self._signal(process, signal.SIGKILL):
+                            final_status = "unknown"
+                            error = {
+                                "code": "PROCESS_STOP_UNCONFIRMED",
+                                "message": "Owned process group stop was not confirmed",
+                            }
+                            execution_final = False
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            final_status = "unknown"
+                            error = {
+                                "code": "PROCESS_STOP_UNCONFIRMED",
+                                "message": "Owned process did not exit after stop request",
+                            }
+                            execution_final = False
                     self._processes.pop(ref, None)
                 for stream in (process.stdin, process.stdout, process.stderr):
                     if stream:
                         stream.close()
             self.store.update(
-                ref, final_status, final=True, output=output, error=error, artifacts=artifacts
+                ref,
+                final_status,
+                final=execution_final,
+                output=output,
+                error=error,
+                artifacts=artifacts,
             )
             with self._mutex:
                 self._threads.remove(threading.current_thread())
@@ -224,13 +266,34 @@ class ProcessBackend:
                 while selector.get_map():
                     if self._closing.is_set():
                         raise OutputLimit("PROCESS_HOST_STOPPED")
+                    with self._mutex:
+                        if process.poll() is not None:
+                            # Reaping and removing the live-process handle are
+                            # one boundary. cancel()/close() cannot signal this
+                            # raw PID after the leader has been reaped.
+                            self._processes.pop(ref, None)
+                            leader_exited = True
+                        else:
+                            leader_exited = False
+                    if leader_exited:
+                        # The leader can exit while a child keeps stdout/stderr
+                        # open. Stop reading and inspect the process group.
+                        break
                     now = time.monotonic()
                     if self.store.get(ref)["cancel_requested"]:
                         if cancel_deadline is None:
-                            self._signal(process, signal.SIGTERM)
+                            if not self._signal(process, signal.SIGTERM):
+                                raise ProcessUncertain(
+                                    "PROCESS_STOP_UNCONFIRMED",
+                                    "Owned process group stop was not confirmed",
+                                )
                             cancel_deadline = now + 0.25
                         if now >= cancel_deadline:
-                            self._signal(process, signal.SIGKILL)
+                            if not self._signal(process, signal.SIGKILL):
+                                raise ProcessUncertain(
+                                    "PROCESS_STOP_UNCONFIRMED",
+                                    "Owned process group kill was not confirmed",
+                                )
                     if now > deadline:
                         raise OutputLimit("PROCESS_TIMEOUT")
                     for key, _ in selector.select(0.05):
@@ -259,20 +322,61 @@ class ProcessBackend:
                             if log_bytes > self.config.max_log_bytes:
                                 raise OutputLimit("PROCESS_LOG_LIMIT")
             # EOF is not proof of exit: programs can close pipes and continue running.
-            # WNOWAIT retains the leader identity until group signalling is complete.
-            while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            # poll() is portable; the process group is still owned and signalled below.
+            while process.poll() is None:
                 if self.store.get(ref)["cancel_requested"]:
-                    self._signal(process, signal.SIGKILL)
+                    if not self._signal(process, signal.SIGKILL):
+                        raise ProcessUncertain(
+                            "PROCESS_STOP_UNCONFIRMED",
+                            "Owned process group stop was not confirmed",
+                        )
                 if time.monotonic() > deadline:
                     raise OutputLimit("PROCESS_TIMEOUT")
                 time.sleep(0.01)
+            if self._group_exists(process.pid):
+                raise ProcessUncertain(
+                    "PROCESS_GROUP_STOP_UNCONFIRMED",
+                    "Process leader exited while its owned process group remained active",
+                )
             with self._mutex:
-                self._signal(process, signal.SIGKILL)
-                process.wait(timeout=max(0.1, deadline - time.monotonic()))
+                # poll() has reaped the leader. Do not reuse its raw PID for a
+                # later killpg call: the process-group ID may already be reused.
                 self._processes.pop(ref, None)
             return bytes(output)
         finally:
             selector.close()
+
+    @staticmethod
+    def _group_exists(process_group: int) -> bool:
+        """Check group liveness without signalling or reusing a reaped PID."""
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    @staticmethod
+    def _process_identity(pid: int) -> dict[str, str | None]:
+        """Return Linux identity evidence where available without breaking macOS."""
+        if sys.platform != "linux":
+            return {"bootIdentity": None, "startTime": None}
+        try:
+            return {
+                "bootIdentity": Path("/proc/sys/kernel/random/boot_id")
+                .read_text()
+                .strip(),
+                "startTime": Path(f"/proc/{pid}/stat")
+                .read_text()
+                .rsplit(")", 1)[1]
+                .split()[19],
+            }
+        except (OSError, UnicodeError, ValueError, IndexError) as exc:
+            raise ProcessUncertain(
+                "PROCESS_IDENTITY_UNAVAILABLE",
+                "Linux process identity evidence is unavailable",
+            ) from exc
 
     def _artifacts(self, ref: str, declarations: Any, work: Path) -> list[dict[str, Any]]:
         if not isinstance(declarations, list) or len(declarations) > MAX_ARTIFACTS:
