@@ -1,0 +1,4 @@
+Command: MULTIVERSE_RUN_CODEX_INTERACTION_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/e2e/test_coding_delivery.py::test_real_codex_native_approval_is_persisted_replied_and_resumed
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: native_interaction_live_run_id=run_41eff0a1f48742d0b2583b111b43db48 interaction_id=interaction_4505b060370843d4beaae47cc9063009; 1 passed in 9.25s
+Exit code: 0

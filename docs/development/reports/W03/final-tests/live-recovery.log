@@ -1,0 +1,6 @@
+Commands:
+MULTIVERSE_RUN_CODEX_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/e2e/test_coding_delivery.py::test_real_coding_delivery_survives_runtime_restart_before_approval
+MULTIVERSE_RUN_CODEX_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/e2e/test_coding_delivery.py::test_real_coding_delivery_survives_worker_restart_before_approval
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: runtime restart 1 passed, run_a442eebfe9e34d3bbfe30feee9841304; worker restart 1 passed, run_01f08cd0a6404890afff4755cd0c153b.
+Exit code: 0

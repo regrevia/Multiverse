@@ -1,0 +1,5 @@
+Command: uv run --python 3.12 --locked pytest -q
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: 523 passed, 10 skipped in 81.67s
+Exit code: 0
+The skipped cases are explicit platform or opt-in live conditions; no failure was suppressed.

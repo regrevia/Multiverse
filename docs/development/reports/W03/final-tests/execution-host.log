@@ -1,0 +1,5 @@
+Command: uv run --python 3.12 --locked pytest -q tests/execution_host
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: 44 passed, 3 skipped in 29.30s
+Exit code: 0
+The three skipped cases are Linux-only prctl child-subreaper tests.

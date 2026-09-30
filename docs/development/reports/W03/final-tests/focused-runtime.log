@@ -1,0 +1,4 @@
+Command: uv run --python 3.12 --locked pytest -q tests/runtime/test_codex.py tests/runtime/test_codex_interactions.py tests/runtime/test_executors.py tests/runtime/test_runner.py tests/runtime/test_ledger.py
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: 99 passed in 7.57s
+Exit code: 0

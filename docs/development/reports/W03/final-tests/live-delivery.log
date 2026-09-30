@@ -1,0 +1,4 @@
+Command: MULTIVERSE_RUN_CODEX_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/e2e/test_coding_delivery.py::test_real_coding_delivery_completes_runtime_human_loop
+CWD: /Users/apple/Desktop/work/Multiverse
+Result: 1 passed in 33.02s; real Codex producer, verifier, authorized human decision, and succeeded terminal Run.
+Exit code: 0
