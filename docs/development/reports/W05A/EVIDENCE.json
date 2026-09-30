@@ -1,0 +1,42 @@
+{
+  "package_id": "W05A",
+  "status": "checkpoint_only",
+  "implementation": [
+    "src/multiverse_workflow/runtime/claude.py",
+    "src/multiverse_workflow/runtime/executors.py",
+    "src/multiverse_workflow/runtime/config_schemas.py",
+    "src/multiverse_workflow/runtime/registry.py",
+    "src/multiverse_workflow/protocol/models.py",
+    "examples/bindings/content-claude.yaml",
+    "tests/runtime/test_claude.py",
+    "tests/runtime/test_claude_runner.py",
+    "tests/integration/test_claude_live.py"
+  ],
+  "fixture_tests": {
+    "command": "uv run --python 3.12 --locked pytest -q tests/runtime/test_claude.py tests/runtime/test_claude_runner.py tests/runtime/test_executors.py tests/runtime/test_catalog.py tests/compiler",
+    "passed": 118,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "live_probe": {
+    "command": "MULTIVERSE_RUN_CLAUDE_LIVE=1 uv run --python 3.12 --locked pytest -q tests/integration/test_claude_live.py",
+    "provider_version": "Claude Code 2.1.197",
+    "status": "blocked",
+    "reason": "Not logged in; Claude Code requested /login",
+    "no_fake_live_evidence": true
+  },
+  "review": {
+    "status": "approved",
+    "task_id": "01a0f198-0ab0-70c0-82e6-272a9e07c986",
+    "record": "docs/development/reports/W05A/REVIEW.md"
+  },
+  "full_suite": {
+    "command": "uv run --python 3.12 --locked pytest -q",
+    "passed": 543,
+    "failed": 0,
+    "skipped": 13,
+    "exit_code": 0,
+    "log_ref": "docs/development/reports/W05A/final-tests/python-full.log"
+  }
+}

@@ -24,8 +24,8 @@ from multiverse_workflow.runtime.executors import (
     ExecutorCancelledError,
     ExecutorError,
     ExecutorUnknownError,
+    execute_agent,
     execute_builtin,
-    execute_codex,
     execute_local_process,
 )
 from multiverse_workflow.runtime.http_job import (
@@ -1995,14 +1995,14 @@ class Runner:
                     return None
                 self._fail_scope(run_id, scope_id, node_id, error)
                 return None
-        elif binding.adapter == "codex":
+        elif binding.adapter in {"codex", "claude"}:
             try:
-                codex_invocation = invocation
-                if codex_invocation is None:
-                    raise RunError("Codex invocation disappeared before dispatch")
-                codex_config = dict(binding.config)
-                codex_config["timeoutSeconds"] = min(
-                    float(codex_config.get("timeoutSeconds", 180)),
+                agent_invocation = invocation
+                if agent_invocation is None:
+                    raise RunError("agent invocation disappeared before dispatch")
+                agent_config = dict(binding.config)
+                agent_config["timeoutSeconds"] = min(
+                    float(agent_config.get("timeoutSeconds", 180)),
                     remaining,
                 )
 
@@ -2014,7 +2014,7 @@ class Runner:
                     return self._wait_for_codex_interaction(
                         run_id=run_id,
                         scope_id=scope_id,
-                        invocation=codex_invocation,
+                        invocation=agent_invocation,
                         attempt=attempt,
                         binding_config=binding.config,
                         request_id=native_request_id,
@@ -2046,18 +2046,24 @@ class Runner:
                             interaction["id"]
                         )
 
-                result = execute_codex(
+                result = execute_agent(
+                    binding.adapter,
                     input_value,
-                    codex_config,
-                    on_server_request=handle_codex_request,
-                    on_server_response=confirm_codex_response,
+                    agent_config,
+                    on_server_request=(
+                        handle_codex_request if binding.adapter == "codex" else None
+                    ),
+                    on_server_response=(
+                        confirm_codex_response if binding.adapter == "codex" else None
+                    ),
                     should_stop=codex_stop_requested,
                 )
             except ExecutorUnknownError as exc:
                 error = {"code": "EXECUTOR_RESULT_UNKNOWN", "message": str(exc)}
-                self.ledger.invalidate_codex_interactions_for_attempt(
-                    attempt["id"], reason=str(exc)
-                )
+                if binding.adapter == "codex":
+                    self.ledger.invalidate_codex_interactions_for_attempt(
+                        attempt["id"], reason=str(exc)
+                    )
                 self.ledger.finish_attempt(
                     attempt["id"], status="unknown", error=error
                 )
@@ -2066,13 +2072,7 @@ class Runner:
                 )
                 return None
             except ExecutorCancelledError as exc:
-                error = {
-                    "code": exc.code,
-                    "message": str(exc),
-                }
-                self.ledger.invalidate_codex_interactions_for_attempt(
-                    attempt["id"], reason=str(exc)
-                )
+                error = {"code": exc.code, "message": str(exc)}
                 self.ledger.finish_attempt(attempt["id"], status="cancelled", error=error)
                 invocation = self.ledger.get_invocation(attempt["invocation_id"])
                 if invocation is not None and invocation["status"] not in {

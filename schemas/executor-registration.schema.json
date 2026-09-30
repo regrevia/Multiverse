@@ -43,7 +43,8 @@
               "local_process",
               "http_job",
               "human",
-              "codex"
+              "codex",
+              "claude"
             ]
           },
           "contractVersion": {

@@ -65,7 +65,9 @@ def registration_schema() -> dict[str, Any]:
     text = {"type": "string", "minLength": 1}
     props: dict[str, Any] = {
         "executorRef": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]*(?![\s\S])"},
-        "adapter": {"enum": ["builtin", "local_process", "http_job", "human", "codex"]},
+        "adapter": {
+            "enum": ["builtin", "local_process", "http_job", "human", "codex", "claude"]
+        },
         "contractVersion": {"const": "multiverse/v0.1"},
         "executorVersion": {
             "type": "string",

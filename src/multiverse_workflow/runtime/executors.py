@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from multiverse_workflow.runtime.claude import (
+    ClaudeCancelledError,
+    ClaudeCli,
+    ClaudeDeadlineError,
+    ClaudeOutputLimitError,
+    ClaudeProcessError,
+    ClaudeVersionMismatchError,
+)
+from multiverse_workflow.runtime.claude import ClaudeProtocolError as ClaudeBridgeProtocolError
 from multiverse_workflow.runtime.codex import (
     CodexAppServer,
     CodexInterruptedError,
@@ -206,6 +215,137 @@ def execute_codex(
             content=text.encode("utf-8"),
         ),
     )
+
+
+def execute_claude(
+    input_value: Any,
+    config: dict[str, Any],
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> ExecutionResult:
+    if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
+        raise ExecutorError("claude deliverable requires a goal string")
+    cwd = config.get("cwd")
+    workspace_root = config.get("workspaceRoot")
+    home_dir = config.get("homeDir")
+    expected_version = config.get("expectedVersion")
+    if not isinstance(cwd, str) or not cwd.strip():
+        raise ExecutorError("claude cwd must be a non-empty string")
+    if not isinstance(workspace_root, str) or not workspace_root.strip():
+        raise ExecutorError("claude workspaceRoot must be a non-empty string")
+    if not isinstance(home_dir, str) or not home_dir.strip():
+        raise ExecutorError("claude homeDir must be a non-empty string")
+    if not isinstance(expected_version, str) or not expected_version.strip():
+        raise ExecutorError("claude expectedVersion must be a non-empty string")
+    prompt = config.get("systemPrompt", "Return a concise JSON deliverable.")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ExecutorError("claude systemPrompt must be a non-empty string")
+    cwd_path = Path(cwd).resolve()
+    workspace_path = Path(workspace_root).resolve()
+    home_path = Path(home_dir).resolve()
+    if not cwd_path.is_relative_to(workspace_path):
+        raise ExecutorError("claude cwd must be inside workspaceRoot")
+    if not home_path.is_dir():
+        raise ExecutorError("claude homeDir must be an existing directory")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["text", "artifact_refs"],
+        "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "artifact_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 0},
+        },
+    }
+    request = (
+        f"{prompt}\n"
+        f"Structured task input: {json.dumps(input_value, ensure_ascii=False, sort_keys=True)}\n"
+        "Return only JSON matching the supplied output schema."
+    )
+    command_value = config.get("command")
+    command = (
+        tuple(command_value)
+        if isinstance(command_value, list)
+        and all(isinstance(part, str) for part in command_value)
+        else (
+            "claude",
+            "--print",
+            "--output-format",
+            "json",
+            "--no-session-persistence",
+            "--tools",
+            "",
+        )
+    )
+    try:
+        result = ClaudeCli(
+            command=command,
+            model=config.get("model") if isinstance(config.get("model"), str) else None,
+            timeout_seconds=float(config.get("timeoutSeconds", 180)),
+            max_output_bytes=int(config.get("maxOutputBytes", 262144)),
+            permission_mode=str(config.get("permissionMode", "dontAsk")),
+            expected_version=expected_version,
+            output_format=str(config.get("outputFormat", "json")),
+        ).run(
+            prompt=request,
+            cwd=cwd_path,
+            home_dir=home_path,
+            output_schema=schema,
+            should_stop=should_stop,
+        )
+    except ClaudeCancelledError as exc:
+        raise ExecutorCancelledError(str(exc), code="RUN_CANCELLED") from exc
+    except ClaudeDeadlineError as exc:
+        raise ExecutorCancelledError(str(exc), code="DEADLINE_EXCEEDED") from exc
+    except ClaudeVersionMismatchError as exc:
+        raise ExecutorError(str(exc)) from exc
+    except ClaudeProcessError as exc:
+        raise ExecutorError(str(exc)) from exc
+    except ClaudeOutputLimitError as exc:
+        raise ExecutorError(str(exc)) from exc
+    except ClaudeBridgeProtocolError as exc:
+        raise ExecutorUnknownError(f"claude result is unknown: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise ExecutorError(f"claude execution failed: {exc}") from exc
+    output = result.output
+    text = output.get("text")
+    artifact_refs = output.get("artifact_refs")
+    if not isinstance(text, str) or not text.strip() or artifact_refs != []:
+        raise ExecutorError("claude output must contain non-empty text and no artifact references")
+    artifact_name = config.get("artifactName", "claude-deliverable.md")
+    media_type = config.get("artifactMediaType", "text/markdown")
+    if not isinstance(artifact_name, str) or not isinstance(media_type, str):
+        raise ExecutorError("claude artifact metadata must be strings")
+    return ExecutionResult(
+        output=output,
+        observations=[result.observation],
+        generated_artifact=GeneratedArtifact(
+            name=artifact_name,
+            media_type=media_type,
+            content=text.encode("utf-8"),
+        ),
+    )
+
+
+def execute_agent(
+    adapter: str,
+    input_value: Any,
+    config: dict[str, Any],
+    *,
+    on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
+    on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> ExecutionResult:
+    if adapter == "codex":
+        return execute_codex(
+            input_value,
+            config,
+            on_server_request=on_server_request,
+            on_server_response=on_server_response,
+            should_stop=should_stop,
+        )
+    if adapter == "claude":
+        return execute_claude(input_value, config, should_stop=should_stop)
+    raise ExecutorError(f"unsupported agent adapter: {adapter}")
 
 
 def execute_builtin(

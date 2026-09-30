@@ -5,9 +5,11 @@ import sys
 import pytest
 
 from multiverse_workflow.runtime import executors
+from multiverse_workflow.runtime.claude import ClaudeResult
 from multiverse_workflow.runtime.codex import CodexResult
 from multiverse_workflow.runtime.executors import (
     ExecutorCancelledError,
+    ExecutorError,
     ExecutorUnknownError,
     execute_codex,
     execute_local_process,
@@ -67,6 +69,83 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
     assert result.generated_artifact is not None
     assert result.generated_artifact.content == b"real-shaped output"
     assert result.observations == [{"threadId": "thread-1", "turnId": "turn-1"}]
+
+
+def test_claude_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
+    class FakeClaude:
+        def __init__(self, **kwargs):
+            assert kwargs["permission_mode"] == "dontAsk"
+
+        def run(self, **kwargs):
+            return ClaudeResult(
+                output={"text": "claude-shaped output", "artifact_refs": []},
+                observation={
+                    "provider": "claude",
+                    "protocol": "print-json",
+                    "sessionId": "session-1",
+                    "status": "completed",
+                },
+            )
+
+    monkeypatch.setattr(executors, "ClaudeCli", FakeClaude)
+    result = executors.execute_claude(
+        {"goal": "write a release note"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "expectedVersion": "fixture",
+            "artifactName": "claude.md",
+            "artifactMediaType": "text/markdown",
+        },
+    )
+
+    assert result.output == {"text": "claude-shaped output", "artifact_refs": []}
+    assert result.generated_artifact is not None
+    assert result.generated_artifact.content == b"claude-shaped output"
+    assert result.observations[0]["provider"] == "claude"
+
+
+def test_claude_version_mismatch_is_a_known_executor_failure(monkeypatch, tmp_path) -> None:
+    class MismatchClaude:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, **kwargs):
+            raise executors.ClaudeVersionMismatchError("version mismatch")
+
+    monkeypatch.setattr(executors, "ClaudeCli", MismatchClaude)
+    with pytest.raises(ExecutorError, match="version mismatch"):
+        executors.execute_claude(
+            {"goal": "write"},
+            {
+                "cwd": str(tmp_path),
+                "workspaceRoot": str(tmp_path),
+                "homeDir": str(tmp_path),
+                "expectedVersion": "2.1.197",
+            },
+        )
+
+
+def test_claude_launch_os_error_is_a_known_executor_failure(monkeypatch, tmp_path) -> None:
+    class MissingClaude:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, **kwargs):
+            raise OSError("missing executable")
+
+    monkeypatch.setattr(executors, "ClaudeCli", MissingClaude)
+    with pytest.raises(ExecutorError, match="missing executable"):
+        executors.execute_claude(
+            {"goal": "write"},
+            {
+                "cwd": str(tmp_path),
+                "workspaceRoot": str(tmp_path),
+                "homeDir": str(tmp_path),
+                "expectedVersion": "2.1.197",
+            },
+        )
 
 
 def test_codex_transport_loss_is_unknown_not_retryable(monkeypatch, tmp_path) -> None:
