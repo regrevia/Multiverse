@@ -1,0 +1,64 @@
+{
+  "package_id": "W03",
+  "snapshot": {
+    "commit": "c32581efd71cb16778b52671a25dc3783f1585f1",
+    "digest": "3130dbbab64357564500a081927ffac00a93e5e276fbfc09036c35a8644bbd9e",
+    "implementation_commit": "541d181067aef11bd3582a9859f419b56d9199d3",
+    "report": "docs/development/reports/W03/REPORT.md",
+    "review": "docs/development/reports/W03/REVIEW.md"
+  },
+  "acceptance": [
+    {
+      "id": "codex-structured-bridge-and-observation",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#当前实现证据"
+    },
+    {
+      "id": "codex-deadline-output-and-cooperative-stop",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#当前实现证据"
+    },
+    {
+      "id": "native-interaction-lifecycle",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#当前快照真实-live-证据"
+    },
+    {
+      "id": "real-codex-to-human-terminal-run",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#当前快照真实-live-证据"
+    },
+    {
+      "id": "runtime-and-worker-restart-recovery",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#当前快照真实-live-证据"
+    },
+    {
+      "id": "test-and-static-gates",
+      "status": "passed",
+      "evidence_ref": "docs/development/reports/W03/REPORT.md#测试与门禁"
+    }
+  ],
+  "reviews": [
+    {
+      "task_id": "01a0ef40-8b0b-7c60-add0-ddd49ffeecce",
+      "tool": "multi_agent_v1",
+      "record_ref": "docs/development/reports/W03/REVIEW.md",
+      "reviewer_role": "independent",
+      "verdict": "approved",
+      "scope": [
+        "Codex Bridge and native interaction lifecycle",
+        "deadline, cancellation, output limits, and unknown semantics",
+        "Execution Host cross-platform process ownership and recovery"
+      ],
+      "limitations": [
+        "W04 Inspector package remains separate",
+        "live native approval emission is model-dependent"
+      ],
+      "blocking_findings": [],
+      "snapshot_digest": "c32581efd71cb16778b52671a25dc3783f1585f1",
+      "model": "gpt-6-sol",
+      "reasoning_effort": "medium"
+    }
+  ]
+}
