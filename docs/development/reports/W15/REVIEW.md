@@ -1,7 +1,7 @@
 # W15 Independent Review Record
 
 状态：`approved` for the composite manifest-bound checkpoint only; not W15 completion.
-Implementation commit：待 composite checkpoint 提交。
+Implementation commit：`d05718aad98c517c46b757716be49ab3b1705a35`，其受审源文件匹配 manifest。
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Final checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
