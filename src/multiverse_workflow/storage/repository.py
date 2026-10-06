@@ -344,6 +344,170 @@ class PostgresLedgerRepository:
             namespace, attempt_id
         )
 
+    def ensure_submit_outbox(
+        self,
+        *,
+        namespace: str,
+        attempt_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload_json = _json(payload)
+        payload_digest = _digest(payload_json)
+        action_key = f"submit:{attempt_id}"
+        with self._store.transaction() as connection:
+            attempt = connection.execute(
+                text(
+                    "SELECT attempts.*, runs.namespace FROM attempts "
+                    "JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE attempts.id = :attempt_id AND runs.namespace = :namespace"
+                ),
+                {"attempt_id": attempt_id, "namespace": namespace},
+            ).mappings().first()
+            if attempt is None:
+                raise KeyError(f"attempt not found: {attempt_id}")
+            connection.execute(
+                text("SELECT id FROM runs WHERE id = :run_id FOR UPDATE"),
+                {"run_id": attempt["run_id"]},
+            )
+            now = _now()
+            outbox_id = _new_id("outbox")
+            inserted = connection.execute(
+                text(
+                    """
+                    INSERT INTO outbox (
+                        id, action_key, namespace, run_id, scope_id, invocation_id,
+                        attempt_id, action, payload_json, payload_digest, status,
+                        attempt_count, created_at, updated_at
+                    ) VALUES (
+                        :outbox_id, :action_key, :namespace, :run_id, :scope_id,
+                        :invocation_id, :attempt_id, 'submit', :payload_json,
+                        :payload_digest, 'pending', 0, :now, :now
+                    )
+                    ON CONFLICT (action_key) DO NOTHING
+                    RETURNING *
+                    """
+                ),
+                {
+                    "outbox_id": outbox_id,
+                    "action_key": action_key,
+                    "namespace": namespace,
+                    "run_id": attempt["run_id"],
+                    "scope_id": attempt["scope_id"],
+                    "invocation_id": attempt["invocation_id"],
+                    "attempt_id": attempt_id,
+                    "payload_json": payload_json,
+                    "payload_digest": payload_digest,
+                    "now": now,
+                },
+            ).mappings().first()
+            if inserted is None:
+                existing = connection.execute(
+                    text("SELECT * FROM outbox WHERE action_key = :action_key"),
+                    {"action_key": action_key},
+                ).mappings().first()
+                if existing is None:
+                    raise RuntimeError("submit outbox conflict row disappeared")
+                if existing["payload_digest"] != payload_digest:
+                    raise IntegrityError(
+                        "submit outbox payload conflict",
+                        params=None,
+                        orig=ValueError("submit outbox payload conflict"),
+                    )
+                self._ensure_submit_wait(
+                    connection,
+                    namespace=namespace,
+                    action_key=action_key,
+                    attempt=attempt,
+                    outbox_id=str(existing["id"]),
+                    not_before=_now(),
+                )
+                return dict(existing)
+            self._insert_event(
+                connection,
+                run_id=attempt["run_id"],
+                sequence=self._next_event_sequence(connection, attempt["run_id"]),
+                event_type="execution.submit_intent.created",
+                payload={
+                    "attemptId": attempt_id,
+                    "dispatchKey": attempt["dispatch_key"],
+                    "payloadDigest": payload_digest,
+                },
+                scope_id=attempt["scope_id"],
+                invocation_id=attempt["invocation_id"],
+                attempt_id=attempt_id,
+            )
+            self._ensure_submit_wait(
+                connection,
+                namespace=namespace,
+                action_key=action_key,
+                attempt=attempt,
+                outbox_id=outbox_id,
+                not_before=now,
+            )
+            return dict(inserted)
+
+    @staticmethod
+    def _ensure_submit_wait(
+        connection: Connection,
+        *,
+        namespace: str,
+        action_key: str,
+        attempt: Any,
+        outbox_id: str,
+        not_before: str,
+    ) -> None:
+        existing = connection.execute(
+            text(
+                "SELECT id, status FROM waits "
+                "WHERE namespace = :namespace AND wait_key = :wait_key"
+            ),
+            {"namespace": namespace, "wait_key": action_key},
+        ).mappings().first()
+        if existing is None:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id,
+                        invocation_id, not_before, payload_json, status,
+                        created_at, updated_at
+                    ) VALUES (
+                        :wait_id, :namespace, :wait_key, 'external-submit',
+                        :run_id, :scope_id, :invocation_id, :now, :payload_json,
+                        'pending', :now, :now
+                    )
+                    """
+                ),
+                {
+                    "wait_id": _new_id("wait"),
+                    "namespace": namespace,
+                    "wait_key": action_key,
+                    "run_id": attempt["run_id"],
+                    "scope_id": attempt["scope_id"],
+                    "invocation_id": attempt["invocation_id"],
+                    "now": not_before,
+                    "payload_json": _json(
+                        {"outboxId": outbox_id, "attemptId": attempt["id"]}
+                    ),
+                },
+            )
+        elif existing["status"] == "cancelled":
+            connection.execute(
+                text(
+                    """
+                    UPDATE waits
+                    SET status = 'pending', not_before = :not_before,
+                        worker_id = NULL, claimed_at = NULL, updated_at = :updated_at
+                    WHERE id = :wait_id
+                    """
+                ),
+                {
+                    "not_before": not_before,
+                    "updated_at": _now(),
+                    "wait_id": existing["id"],
+                },
+            )
+
     def get_invocation(self, namespace: str, invocation_id: str) -> dict[str, Any]:
         with self._store.transaction() as connection:
             row = connection.execute(
