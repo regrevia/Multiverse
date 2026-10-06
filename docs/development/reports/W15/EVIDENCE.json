@@ -97,8 +97,8 @@
   ],
   "not_claimed": [
     "PostgreSQL-backed workflow Ledger",
-    "PostgreSQL application transaction support",
-    "SQLAlchemy/Alembic migrations",
+    "PostgreSQL Ledger application transaction semantics",
+    "complete Ledger-table SQLAlchemy Repository",
     "Runtime scheduler integration with the advisory lease",
     "lease fencing",
     "SQLite to PostgreSQL import",

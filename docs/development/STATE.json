@@ -472,7 +472,7 @@
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
-          "message": "PostgreSQL 17.11 is available and advisory lock integration passes, but PostgreSQL Ledger/Repository backend, migrations, Runtime scheduler wiring and fencing are not implemented."
+          "message": "PostgreSQL 17.11, transaction boundary, minimal Alembic migration and advisory lock pass; full PostgreSQL Ledger/Repository tables, application transaction semantics, Runtime scheduler wiring, fencing and SQLite import are not implemented."
         },
         {
           "code": "REMOTE_PUSH_AUTH",
