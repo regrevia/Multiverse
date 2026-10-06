@@ -2,7 +2,7 @@
 
 状态：`approved` for the manifest-bound 0004 schema checkpoint only; not W15 completion.
 Implementation commit：`69d4a791ebd4907145c16e1a4f3ca8cbbe864bb2`，其 Repository code/test 文件匹配受审快照。
-当前待审 manifest：`sha256:f138ecf9ae396ce2de83e5dcc294c16a0aecac94309528991a4aecbd851a43b6`
+当前已审 manifest：`sha256:c6e745341f6fcb0f6233fdc27449892158c1dcc14f0448f5cffc52f95373f8ef`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
