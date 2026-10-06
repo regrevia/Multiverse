@@ -464,11 +464,20 @@
         "W02"
       ],
       "spec_stage": "M1/M2/M6；规范既定持久层",
-      "status": "pending",
+      "status": "blocked",
       "package": "../../工作包规划.md#w15",
-      "report": null,
+      "report": "reports/W15/REPORT.md",
       "implementation_commit": null,
-      "blockers": []
+      "blockers": [
+        {
+          "code": "POSTGRES_RUNTIME_UNAVAILABLE",
+          "message": "No psql/pg_isready and Docker daemon unavailable; real PostgreSQL integration cannot be run."
+        },
+        {
+          "code": "REMOTE_PUSH_AUTH",
+          "message": "origin/dev push remains blocked by invalid GitHub credentials and unavailable github-regrevia SSH connection."
+        }
+      ]
     },
     {
       "id": "W16",

@@ -1,0 +1,46 @@
+{
+  "package_id": "W15",
+  "status": "blocked",
+  "checkpoint_scope": [
+    "src/multiverse_workflow/storage/__init__.py",
+    "src/multiverse_workflow/storage/database.py",
+    "tests/storage/test_database_target.py"
+  ],
+  "checkpoint_tests": {
+    "command": "uv run --python 3.12 --locked pytest -q tests/storage/test_database_target.py",
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "full_suite": {
+    "command": "uv run --python 3.12 --locked pytest -q",
+    "passed": 571,
+    "failed": 0,
+    "skipped": 15,
+    "exit_code": 0
+  },
+  "static_checks": {
+    "ruff": "passed",
+    "mypy": "passed",
+    "diff_check": "passed"
+  },
+  "review": {
+    "status": "approved",
+    "task_id": "01a11195-a484-7c90-96ee-599fc32047b2",
+    "record": "docs/development/reports/W15/REVIEW.md"
+  },
+  "blockers": [
+    {
+      "code": "POSTGRES_RUNTIME_UNAVAILABLE",
+      "message": "No psql/pg_isready and Docker daemon unavailable; real PostgreSQL integration cannot be run."
+    }
+  ],
+  "not_claimed": [
+    "PostgreSQL connection or transaction support",
+    "SQLAlchemy/Alembic migrations",
+    "PostgreSQL advisory lock/fencing",
+    "SQLite to PostgreSQL import",
+    "multi-worker crash recovery"
+  ]
+}
