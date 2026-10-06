@@ -1,7 +1,7 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound 0004 schema checkpoint only; not W15 completion.
-Implementation commit：待当前受审快照提交。
+Implementation commit：`c39947bb417c9d1488daddf647a95b7923fa6b49`，其 schema/test 文件已在该实现提交中。
 当前待审 manifest：`sha256:3a8d5696f1f0939cae92fc45a155f870b4b17cf56535e70667491d1d2f6e8715`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
