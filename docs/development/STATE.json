@@ -467,15 +467,16 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
-      "implementation_commit": "e8d5f2ca1603ea2988fb649b522246fb51db2415",
+      "implementation_commit": "dc6fca9400e2a455376702280b7926e37d744bb4",
+      "checkpoint_snapshot_digest": "sha256:271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff",
       "blockers": [
         {
-          "code": "POSTGRES_RUNTIME_UNAVAILABLE",
-          "message": "No psql/pg_isready and Docker daemon unavailable; real PostgreSQL integration cannot be run."
+          "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
+          "message": "PostgreSQL 17.11 is available and advisory lock integration passes, but PostgreSQL Ledger/Repository backend, migrations, Runtime scheduler wiring and fencing are not implemented."
         },
         {
           "code": "REMOTE_PUSH_AUTH",
-          "message": "origin/dev push remains blocked by invalid GitHub credentials and unavailable github-regrevia SSH connection."
+          "message": "origin/dev push is blocked: github-regrevia does not resolve, standard GitHub SSH rejects the available public key, and the GitHub CLI HTTPS token is invalid."
         }
       ]
     },

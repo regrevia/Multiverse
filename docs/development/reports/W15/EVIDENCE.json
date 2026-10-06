@@ -3,7 +3,7 @@
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
   "snapshot_manifest_digest": "sha256:271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff",
-  "implementation_commit": null,
+  "implementation_commit": "dc6fca9400e2a455376702280b7926e37d744bb4",
   "checkpoint_scope": [
     "src/multiverse_workflow/storage/__init__.py",
     "src/multiverse_workflow/storage/database.py",

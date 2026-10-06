@@ -1,7 +1,7 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound advisory lease checkpoint only; not W15 completion.
-Implementation commit：未提交；当前工作区快照由 manifest 摘要绑定。
+Implementation commit：`dc6fca9400e2a455376702280b7926e37d744bb4`，其受审源文件匹配 manifest。
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Final checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`

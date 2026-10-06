@@ -6,7 +6,7 @@
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
 Manifest SHA256：`271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff`
-Implementation commit：待当前快照最终独立审阅通过后提交；现有 HEAD 不包含 manifest 中的 lease 实现。
+Implementation commit：`dc6fca9400e2a455376702280b7926e37d744bb4`。
 
 ## 已完成
 
