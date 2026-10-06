@@ -106,6 +106,55 @@ def test_claude_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None
     assert result.observations[0]["provider"] == "claude"
 
 
+def test_claude_executor_can_inherit_cc_switch_runtime_config(
+    monkeypatch, tmp_path
+) -> None:
+    class FakeClaude:
+        def __init__(self, **kwargs):
+            assert kwargs["environment"] == {
+                "ANTHROPIC_BASE_URL": "https://example.test"
+            }
+            assert kwargs["model"] == "mapped-sonnet"
+
+        def run(self, **kwargs):
+            return ClaudeResult(
+                output={"text": "cc-switch output", "artifact_refs":[]},
+                observation={"provider": "claude", "protocol": "print-json"},
+            )
+
+    monkeypatch.setattr(executors, "ClaudeCli", FakeClaude)
+    monkeypatch.setattr(
+        executors,
+        "load_cc_switch_claude_config",
+        lambda **_: type(
+            "Config",
+            (),
+            {
+                "environment": {"ANTHROPIC_BASE_URL": "https://example.test"},
+                "model": "mapped-sonnet",
+                "metadata": {
+                    "source": "cc-switch",
+                    "profileId": "profile-1",
+                    "profileName": "current",
+                    "modelAlias": "claude-sonnet-5",
+                },
+            },
+        )(),
+    )
+    result = executors.execute_claude(
+        {"goal": "write"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "expectedVersion": "2.1.197",
+            "configSource": "cc-switch",
+        },
+    )
+    assert result.output["text"] == "cc-switch output"
+    assert result.observations[0]["configSource"]["profileId"] == "profile-1"
+
+
 def test_claude_version_mismatch_is_a_known_executor_failure(monkeypatch, tmp_path) -> None:
     class MismatchClaude:
         def __init__(self, **kwargs):

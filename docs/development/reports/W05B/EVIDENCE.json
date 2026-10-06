@@ -1,0 +1,56 @@
+{
+  "package_id": "W05B",
+  "status": "blocked",
+  "implementation_snapshot_scope": [
+    "src/multiverse_workflow/runtime/pi.py",
+    "src/multiverse_workflow/runtime/executors.py",
+    "src/multiverse_workflow/runtime/runner.py",
+    "src/multiverse_workflow/runtime/config_schemas.py",
+    "src/multiverse_workflow/runtime/registry.py",
+    "src/multiverse_workflow/runtime/catalog.py",
+    "src/multiverse_workflow/protocol/models.py",
+    "schemas/executor-registration.schema.json",
+    "examples/bindings/content-pi.yaml",
+    "tests/runtime/test_pi.py",
+    "tests/runtime/test_executors.py",
+    "tests/runtime/test_catalog.py",
+    "tests/compiler",
+    "tests/integration/test_pi_live.py"
+  ],
+  "implementation_snapshot_manifest": "docs/development/reports/W05A/final-tests/implementation-snapshot.sha256",
+  "implementation_snapshot_digest": "sha256:641abda8556e0ff67854496d73860953e3c3f14be8f249c8d3633cace1aee4b9",
+  "installed": {
+    "package": "@earendil-works/pi-coding-agent",
+    "version": "1.0.1",
+    "cli_version": "1.0.1"
+  },
+  "fixture_tests": {
+    "command": "uv run --python 3.12 --locked pytest -q tests/runtime/test_pi.py tests/runtime/test_executors.py tests/runtime/test_catalog.py tests/compiler",
+    "passed": 136,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "live_probe": {
+    "command": "MULTIVERSE_RUN_PI_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/integration/test_pi_live.py",
+    "status": "blocked",
+    "reason": "Pi provider credentials are not configured",
+    "auth_check": {
+      "command": "pi auth check --provider anthropic --no-refresh --json",
+      "result": "not_ready / credentials_not_configured"
+    },
+    "no_fake_live_evidence": true
+  },
+  "full_suite": {
+    "command": "uv run --python 3.12 --locked pytest -q",
+    "passed": 562,
+    "failed": 0,
+    "skipped": 15,
+    "exit_code": 0
+  },
+  "review": {
+    "status": "code_review_passed_pending_delivery_receipt",
+    "task_id": "01a1114e-ad50-7131-bfb5-dff81ff76060",
+    "record": "docs/development/reports/W05B/REVIEW.md"
+  }
+}

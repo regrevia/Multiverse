@@ -13,7 +13,7 @@ from multiverse_workflow.protocol.models import BindingSet
 from multiverse_workflow.runtime.config_schemas import executor_config_schema
 
 AdapterKind = Literal[
-    "builtin", "local_process", "http_job", "human", "codex", "claude"
+    "builtin", "local_process", "http_job", "human", "codex", "claude", "pi"
 ]
 
 _KNOWN_STOP_EVENTS = {
@@ -462,6 +462,21 @@ _LOCAL_EXECUTOR_DESCRIPTORS = (
         capabilities=frozenset({"content.produce@1", "content.review@1"}),
         contract_version="multiverse/v0.1",
         executor_version="2.1.197",
+        supports_cancel=True,
+        supports_idempotency=False,
+        supports_recovery_query=False,
+        observability_level="structured",
+        permission_level="trusted_local",
+        installed=True,
+        available=True,
+        verified=False,
+    ),
+    ExecutorDescriptor(
+        executor_ref="builtin.pi-deliverable.v1",
+        adapter="pi",
+        capabilities=frozenset({"content.produce@1", "content.review@1"}),
+        contract_version="multiverse/v0.1",
+        executor_version="1.0.1",
         supports_cancel=True,
         supports_idempotency=False,
         supports_recovery_query=False,

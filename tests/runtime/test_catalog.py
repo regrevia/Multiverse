@@ -45,6 +45,14 @@ def test_default_and_directory_catalog(directory: Path) -> None:
     assert registry.capability_catalog()[0]["configSchema"]
 
 
+def test_installed_pi_is_available_in_local_catalog() -> None:
+    descriptor = local_executor_registry().resolve("builtin.pi-deliverable.v1")
+    assert descriptor is not None
+    assert descriptor.executor_version == "1.0.1"
+    assert descriptor.installed is True
+    assert descriptor.available is True
+
+
 @pytest.mark.parametrize(
     "change",
     [

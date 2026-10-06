@@ -24,8 +24,11 @@ def test_real_claude_produces_a_runtime_shaped_artifact(tmp_path: Path) -> None:
                 "cwd": str(tmp_path),
                 "workspaceRoot": str(tmp_path),
                 "homeDir": str(Path(os.environ.get("HOME", str(tmp_path))).resolve()),
-                "model": os.environ.get("MULTIVERSE_CLAUDE_MODEL", "sonnet"),
                 "expectedVersion": os.environ.get("MULTIVERSE_CLAUDE_VERSION", "2.1.197"),
+                "configSource": "cc-switch",
+                "ccSwitchModelAlias": os.environ.get(
+                    "MULTIVERSE_CLAUDE_MODEL_ALIAS", "claude-sonnet-5"
+                ),
                 "systemPrompt": (
                     "Return only JSON with a non-empty text field and an empty "
                     "artifact_refs array. Do not use tools."

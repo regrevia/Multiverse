@@ -289,7 +289,7 @@ class Grant(ProtocolModel):
 
 class SlotBinding(ProtocolModel):
     adapter: Literal[
-        "builtin", "local_process", "http_job", "human", "codex", "claude"
+        "builtin", "local_process", "http_job", "human", "codex", "claude", "pi"
     ]
     executor_ref: str = Field(alias="executorRef", min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)

@@ -207,6 +207,36 @@ def test_claude_cli_enforces_output_limit(tmp_path: Path) -> None:
         )
 
 
+def test_claude_cli_fails_closed_when_final_cleanup_is_unconfirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = tmp_path / "fake_claude_cleanup.py"
+    _write_fake(
+        fake,
+        "import json,sys\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({'type':'result','subtype':'success',"
+        "'result':'{\\\"text\\\":\\\"ok\\\",\\\"artifact_refs\\\":[]}'}))\n",
+    )
+    monkeypatch.setattr(
+        ClaudeCli,
+        "_communicate",
+        lambda self, process, payload, deadline, should_stop: (
+            b'{"type":"result","subtype":"success","result":"{\\"text\\":\\"ok\\",\\"artifact_refs\\":[]}"}',
+            b"",
+        ),
+    )
+    monkeypatch.setattr(ClaudeCli, "_group_alive", staticmethod(lambda _: True))
+    monkeypatch.setattr(ClaudeCli, "_stop_process", staticmethod(lambda _: False))
+    with pytest.raises(ClaudeProtocolError, match="cleanup stop is unconfirmed"):
+        ClaudeCli(command=(sys.executable, "-u", str(fake)), timeout_seconds=2).run(
+            prompt="return JSON",
+            cwd=tmp_path,
+            home_dir=tmp_path,
+            output_schema={"type": "object"},
+        )
+
+
 def test_claude_cli_rejects_non_json_result(tmp_path: Path) -> None:
     fake = tmp_path / "fake_claude_invalid.py"
     _write_fake(fake, "import sys; sys.stdout.write('not json\\n')\n")
@@ -218,6 +248,28 @@ def test_claude_cli_rejects_non_json_result(tmp_path: Path) -> None:
             home_dir=tmp_path,
             output_schema={"type": "object"},
         )
+
+
+def test_claude_cli_accepts_a_single_json_code_fence(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_claude_fenced.py"
+    _write_fake(
+        fake,
+        "import json,sys\n"
+        "sys.stdin.read()\n"
+        "payload='```json\\n{\\\"text\\\":\\\"fenced\\\",\\\"artifact_refs\\\":[]}\\n```'\n"
+        "print(json.dumps({'type':'result','subtype':'success',"
+        "'result':payload}))\n",
+    )
+    result = ClaudeCli(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=2,
+    ).run(
+        prompt="return JSON",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+    )
+    assert result.output == {"text": "fenced", "artifact_refs": []}
 
 
 def test_claude_stream_json_reassembles_fragmented_assistant_output(

@@ -1,42 +1,59 @@
 {
   "package_id": "W05A",
-  "status": "checkpoint_only",
-  "implementation": [
+  "status": "implementation_ready",
+  "implementation_snapshot_scope": [
     "src/multiverse_workflow/runtime/claude.py",
+    "src/multiverse_workflow/runtime/provider_config.py",
     "src/multiverse_workflow/runtime/executors.py",
+    "src/multiverse_workflow/runtime/runner.py",
     "src/multiverse_workflow/runtime/config_schemas.py",
     "src/multiverse_workflow/runtime/registry.py",
+    "src/multiverse_workflow/runtime/catalog.py",
     "src/multiverse_workflow/protocol/models.py",
+    "schemas/executor-registration.schema.json",
     "examples/bindings/content-claude.yaml",
     "tests/runtime/test_claude.py",
     "tests/runtime/test_claude_runner.py",
-    "tests/integration/test_claude_live.py"
+    "tests/runtime/test_executors.py",
+    "tests/runtime/test_catalog.py",
+    "tests/runtime/test_provider_config.py",
+    "tests/integration/test_claude_live.py",
+    "tests/integration/test_claude_delivery_live.py"
   ],
+  "implementation_snapshot_manifest": "docs/development/reports/W05A/final-tests/implementation-snapshot.sha256",
+  "implementation_snapshot_digest": "sha256:641abda8556e0ff67854496d73860953e3c3f14be8f249c8d3633cace1aee4b9",
   "fixture_tests": {
-    "command": "uv run --python 3.12 --locked pytest -q tests/runtime/test_claude.py tests/runtime/test_claude_runner.py tests/runtime/test_executors.py tests/runtime/test_catalog.py tests/compiler",
-    "passed": 118,
+    "command": "uv run --python 3.12 --locked pytest -q tests/runtime/test_claude.py tests/runtime/test_claude_runner.py tests/runtime/test_executors.py tests/runtime/test_catalog.py tests/runtime/test_provider_config.py tests/compiler",
+    "passed": 136,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
   },
-  "live_probe": {
-    "command": "MULTIVERSE_RUN_CLAUDE_LIVE=1 uv run --python 3.12 --locked pytest -q tests/integration/test_claude_live.py",
+  "live_delivery": {
+    "command": "MULTIVERSE_RUN_CLAUDE_LIVE=1 uv run --python 3.12 --locked pytest -q -s tests/integration/test_claude_delivery_live.py",
     "provider_version": "Claude Code 2.1.197",
-    "status": "blocked",
-    "reason": "Not logged in; Claude Code requested /login",
-    "no_fake_live_evidence": true
+    "status": "passed",
+    "run_id": "run_8b54084e4df241b99ad3a57b5ebf922f",
+    "human_request_id": "human_8cc14911ca8e426eb8f56fd777611e75",
+    "artifact_id": "artifact_a87bba1345f54c0296f4d6131bdf8455",
+    "artifact_digest": "sha256:c43b0a091ccaa42e47b8860e689ca0593d27befda8f5ed2db381084822a87b54",
+    "attempt_count": 4
   },
-  "review": {
-    "status": "approved",
-    "task_id": "01a0f198-0ab0-70c0-82e6-272a9e07c986",
-    "record": "docs/development/reports/W05A/REVIEW.md"
+  "direct_probe": {
+    "status": "blocked",
+    "reason": "Direct Claude authentication was unavailable; cc-switch delivery evidence is recorded separately",
+    "no_fake_live_evidence": true
   },
   "full_suite": {
     "command": "uv run --python 3.12 --locked pytest -q",
-    "passed": 543,
+    "passed": 562,
     "failed": 0,
-    "skipped": 13,
-    "exit_code": 0,
-    "log_ref": "docs/development/reports/W05A/final-tests/python-full.log"
+    "skipped": 15,
+    "exit_code": 0
+  },
+  "review": {
+    "status": "code_review_passed_pending_delivery_receipt",
+    "task_id": "01a1114e-ad50-7131-bfb5-dff81ff76060",
+    "record": "docs/development/reports/W05A/REVIEW.md"
   }
 }

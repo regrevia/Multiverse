@@ -1995,7 +1995,7 @@ class Runner:
                     return None
                 self._fail_scope(run_id, scope_id, node_id, error)
                 return None
-        elif binding.adapter in {"codex", "claude"}:
+        elif binding.adapter in {"codex", "claude", "pi"}:
             try:
                 agent_invocation = invocation
                 if agent_invocation is None:

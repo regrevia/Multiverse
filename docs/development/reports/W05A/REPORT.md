@@ -1,76 +1,63 @@
-# W05A: Claude 执行端适配 checkpoint
+# W05A: Claude 执行端适配
 
-日期：2026-09-30
-当前实现基线：待 W05A checkpoint 提交
-依赖：W03（已完成并已推送）
-状态：`checkpoint_only`
+日期：2026-10-06
+依赖：W03（已推送）
+状态：`implementation_ready`，真实 cc-switch Runtime delivery 已通过。
 
-## 已交付
+## 交付范围
 
-- 新增 `runtime/claude.py`，使用 Claude Code `--print --output-format json`
-  或 `stream-json` 的结构化单次新会话接口。
-- 固定显式工作目录、workspaceRoot、homeDir、permissionMode、model、
-  timeout 和 maxOutputBytes。
-- Claude JSON/JSONL envelope、result JSON、事件分片、未知请求、拒绝结果、
-  非零退出、超时、坏输出、输出上限、cooperative stop 均有明确异常分类。
-- 新增 `execute_claude` 和通用 `execute_agent(adapter, ...)`，复用
-  Runtime-owned Artifact 和统一 `ExecutionResult`，Runner 不按 provider 增加
-  专用执行分支。
-- 注册 `builtin.claude-deliverable.v1`、配置 Schema、协议 adapter 类型和
-  `examples/bindings/content-claude.yaml`。
-- W05A fixture 测试覆盖 JSON/stream-json 结构化结果、真实
-  `delta.text` 分片、非零退出、超时、输出上限、坏 JSON、拒绝和未知请求；
-  Executor → Runtime verifier → HumanRequest 的 fixture 也通过。
-- 新增显式 live probe：
-  `tests/integration/test_claude_live.py`。
+- Claude Code `--print` 的 `json` 与 `stream-json` 结构化适配。
+- 强制无工具、无 session persistence、受控 permission mode 和安全参数。
+- deadline、输出上限、cooperative stop、进程组清理和版本绑定。
+- 统一 `execute_agent("claude", ...)`、Runtime Artifact、Observation 和 Runner 路由。
+- `cc-switch` provider 配置继承：
+  - 运行时读取 `~/.cc-switch/cc-switch.db`；
+  - 只注入白名单环境变量；
+  - 不持久化或回显 token；
+  - Observation 记录非敏感 profile 来源和 model alias。
 
-## 验证
+## 真实证据
 
-```text
-uv run --python 3.12 --locked pytest -q \
-  tests/runtime/test_claude.py \
-  tests/runtime/test_executors.py \
-  tests/runtime/test_catalog.py \
-  tests/runtime/test_claude_runner.py \
-  tests/compiler
-118 passed
+Claude Code 版本：`2.1.197`。
 
-uv run --python 3.12 --locked ruff check src tests
-passed
-
-uv run --python 3.12 --locked mypy src
-passed
-```
-
-Live probe command:
+命令：
 
 ```text
 MULTIVERSE_RUN_CLAUDE_LIVE=1 \
-uv run --python 3.12 --locked pytest -q \
-tests/integration/test_claude_live.py
+uv run --python 3.12 --locked pytest -q -s \
+tests/integration/test_claude_delivery_live.py
 ```
 
-本机 Claude Code 版本：`2.1.197`。直接结构化 probe 返回：
-`Not logged in · Please run /login`。因此 live probe 当前准确记录为
-blocked，未伪造真实 Claude 任务/产物证据。
+结果：`1 passed in 34.92s`
 
-## 边界
+- Run：`run_8b54084e4df241b99ad3a57b5ebf922f`
+- HumanRequest：`human_8cc14911ca8e426eb8f56fd777611e75`
+- Artifact：`artifact_a87bba1345f54c0296f4d6131bdf8455`
+- Artifact digest：`sha256:c43b0a091ccaa42e47b8860e689ca0593d27befda8f5ed2db381084822a87b54`
+- 4 个 Attempt；最后一个进入真实人工待办。
 
-- 当前只实现新会话单次 print-json/stream-json 适配；resume/fork、跨 CLI handoff、
-  原生 Claude 交互和多会话身份留给 W06/W07。
-- 未登录/无配额时保持 blocked；不会换成 Anthropic API、Codex 或固定回显
-  冒充 Claude live。
-- 本机 Claude Code `2.1.197` 未登录，live probe 返回 `/login`，因此 W05A
-  保持 blocked/pending；不会用 Codex、Anthropic API 或固定回显冒充 Claude live。
+直接 Claude probe 当前仍因认证条件不满足而 skip；不使用它替代上面的 cc-switch delivery 证据。
 
-完整 Python 回归：`543 passed, 13 skipped`，日志在
-`docs/development/reports/W05A/final-tests/python-full.log`。
+## 验证
 
-## Independent review
+- 定向适配器测试：`136 passed`
+- 完整 Python：`562 passed, 15 skipped`
+- Ruff：通过
+- mypy：通过
+- `git diff --check`：通过
+- 实现快照清单：`final-tests/implementation-snapshot.sha256`
+- 实现快照清单 SHA256：`641abda8556e0ff67854496d73860953e3c3f14be8f249c8d3633cace1aee4b9`
+- 完整测试日志：`final-tests/python-full.log`
+- Ruff 日志：`final-tests/ruff.log`
+- mypy 日志：`final-tests/mypy.log`
 
-Reviewer task：`01a0f198-0ab0-70c0-82e6-272a9e07c986`
+## 限制
 
-Verdict：approved for this implementation checkpoint. Review covered the
-current Claude bridge, stream events, safety flags, process-group stop,
-deadline/version binding, generic Runtime adapter, and catalog/schema
-consistency. Live authentication remains an external blocker.
+- 本轮只支持新建单次 Claude 调用；resume/fork、跨 CLI handoff 和身份/会话绑定属于 W06/W07。
+- cc-switch 只提供运行时配置继承，不自动安装 Claude Code，也不绕过授权。
+- 多租户身份、生产 Secret Provider 和沙箱不在本包范围。
+
+## 独立审阅
+
+最终 reviewer：`01a1114e-ad50-7131-bfb5-dff81ff76060`
+状态：代码问题已关闭；最终状态回执将在实现提交和远端核对后补入。

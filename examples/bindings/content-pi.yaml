@@ -1,25 +1,23 @@
 apiVersion: multiverse/v0.1
 kind: BindingSet
 metadata:
-  name: content-claude
+  name: content-pi
   version: 0.1.0
 spec:
   slots:
     producer:
-      adapter: claude
-      executorRef: builtin.claude-deliverable.v1
+      adapter: pi
+      executorRef: builtin.pi-deliverable.v1
       config:
         cwd: /absolute/path/to/approved/workspace
         workspaceRoot: /absolute/path/to/approved/workspace
-        homeDir: /absolute/path/to/approved/claude-home
-        expectedVersion: 2.1.197
-        configSource: cc-switch
-        ccSwitchModelAlias: claude-sonnet-5
+        homeDir: /absolute/path/to/approved/pi-home
+        expectedVersion: 1.0.1
+        model: default
         systemPrompt: Return only concise JSON with a non-empty text field and an empty artifact_refs array. Do not invent Artifact IDs.
-        artifactName: claude-deliverable.md
+        artifactName: pi-deliverable.md
         artifactMediaType: text/markdown
         timeoutSeconds: 180
-        permissionMode: dontAsk
       secretRefs: {}
       grants:
         - action: content.produce

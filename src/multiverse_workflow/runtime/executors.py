@@ -25,6 +25,15 @@ from multiverse_workflow.runtime.codex import (
     CodexTurnFailed,
 )
 from multiverse_workflow.runtime.ollama import OllamaError, generate_deliverable
+from multiverse_workflow.runtime.pi import (
+    PiCancelledError,
+    PiDeadlineError,
+    PiProcessError,
+    PiProtocolError,
+    PiRpc,
+    PiVersionMismatchError,
+)
+from multiverse_workflow.runtime.provider_config import load_cc_switch_claude_config
 
 
 class ExecutorError(RuntimeError):
@@ -276,6 +285,26 @@ def execute_claude(
             "",
         )
     )
+    provider_config = None
+    if config.get("configSource") == "cc-switch":
+        try:
+            provider_config = load_cc_switch_claude_config(
+                database_path=(
+                    Path(config["ccSwitchDatabase"])
+                    if isinstance(config.get("ccSwitchDatabase"), str)
+                    else None
+                ),
+                profile_id=(
+                    config["ccSwitchProfileId"]
+                    if isinstance(config.get("ccSwitchProfileId"), str)
+                    else None
+                ),
+                model_alias=str(config.get("ccSwitchModelAlias", "claude-sonnet-5")),
+            )
+        except ValueError as exc:
+            raise ExecutorError(str(exc)) from exc
+        if not isinstance(config.get("model"), str) and provider_config.model:
+            config = {**config, "model": provider_config.model}
     try:
         result = ClaudeCli(
             command=command,
@@ -285,6 +314,7 @@ def execute_claude(
             permission_mode=str(config.get("permissionMode", "dontAsk")),
             expected_version=expected_version,
             output_format=str(config.get("outputFormat", "json")),
+            environment=provider_config.environment if provider_config else None,
         ).run(
             prompt=request,
             cwd=cwd_path,
@@ -315,6 +345,8 @@ def execute_claude(
     media_type = config.get("artifactMediaType", "text/markdown")
     if not isinstance(artifact_name, str) or not isinstance(media_type, str):
         raise ExecutorError("claude artifact metadata must be strings")
+    if provider_config is not None:
+        result.observation["configSource"] = provider_config.metadata
     return ExecutionResult(
         output=output,
         observations=[result.observation],
@@ -345,7 +377,103 @@ def execute_agent(
         )
     if adapter == "claude":
         return execute_claude(input_value, config, should_stop=should_stop)
+    if adapter == "pi":
+        return execute_pi(input_value, config, should_stop=should_stop)
     raise ExecutorError(f"unsupported agent adapter: {adapter}")
+
+
+def execute_pi(
+    input_value: Any,
+    config: dict[str, Any],
+    *,
+    should_stop: Callable[[], bool] | None = None,
+) -> ExecutionResult:
+    if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
+        raise ExecutorError("pi deliverable requires a goal string")
+    cwd = config.get("cwd")
+    workspace_root = config.get("workspaceRoot")
+    home_dir = config.get("homeDir")
+    expected_version = config.get("expectedVersion")
+    if (
+        not isinstance(cwd, str)
+        or not cwd.strip()
+        or not isinstance(workspace_root, str)
+        or not workspace_root.strip()
+        or not isinstance(home_dir, str)
+        or not home_dir.strip()
+    ):
+        raise ExecutorError("pi cwd, workspaceRoot and homeDir are required")
+    if not isinstance(expected_version, str) or not expected_version.strip():
+        raise ExecutorError("pi expectedVersion must be a non-empty string")
+    cwd_path = Path(cwd).resolve()
+    workspace_path = Path(workspace_root).resolve()
+    home_path = Path(home_dir).resolve()
+    if not cwd_path.is_relative_to(workspace_path):
+        raise ExecutorError("pi cwd must be inside workspaceRoot")
+    if not home_path.is_dir():
+        raise ExecutorError("pi homeDir must be an existing directory")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["text", "artifact_refs"],
+        "properties": {
+            "text": {"type": "string", "minLength": 1},
+            "artifact_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 0},
+        },
+    }
+    prompt = (
+        f"{config.get('systemPrompt', 'Return a concise JSON deliverable.')}\n"
+        f"Structured task input: {json.dumps(input_value, ensure_ascii=False, sort_keys=True)}\n"
+        "Return only JSON matching the supplied output schema."
+    )
+    command_value = config.get("command")
+    command = (
+        tuple(command_value)
+        if isinstance(command_value, list)
+        and all(isinstance(item, str) for item in command_value)
+        else ("pi", "--mode", "rpc", "--no-session")
+    )
+    try:
+        result = PiRpc(
+            command=command,
+            model=config.get("model") if isinstance(config.get("model"), str) else None,
+            timeout_seconds=float(config.get("timeoutSeconds", 180)),
+            max_output_bytes=int(config.get("maxOutputBytes", 262144)),
+            expected_version=expected_version,
+        ).run(
+            prompt=prompt,
+            cwd=cwd_path,
+            home_dir=home_path,
+            output_schema=schema,
+            should_stop=should_stop,
+        )
+    except PiCancelledError as exc:
+        raise ExecutorCancelledError(str(exc), code="RUN_CANCELLED") from exc
+    except PiDeadlineError as exc:
+        raise ExecutorCancelledError(str(exc), code="DEADLINE_EXCEEDED") from exc
+    except PiVersionMismatchError as exc:
+        raise ExecutorError(str(exc)) from exc
+    except PiProcessError as exc:
+        raise ExecutorError(str(exc)) from exc
+    except (PiProtocolError, OSError, ValueError) as exc:
+        raise ExecutorUnknownError(f"pi result is unknown: {exc}") from exc
+    output = result.output
+    text = output.get("text")
+    if not isinstance(text, str) or not text.strip() or output.get("artifact_refs") != []:
+        raise ExecutorError("pi output must contain non-empty text and no artifact references")
+    artifact_name = config.get("artifactName", "pi-deliverable.md")
+    media_type = config.get("artifactMediaType", "text/markdown")
+    if not isinstance(artifact_name, str) or not isinstance(media_type, str):
+        raise ExecutorError("pi artifact metadata must be strings")
+    return ExecutionResult(
+        output=output,
+        observations=[result.observation],
+        generated_artifact=GeneratedArtifact(
+            name=artifact_name,
+            media_type=media_type,
+            content=text.encode("utf-8"),
+        ),
+    )
 
 
 def execute_builtin(

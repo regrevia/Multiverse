@@ -6,6 +6,7 @@ import selectors
 import signal
 import subprocess
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,7 @@ class ClaudeCli:
         permission_mode: str = "dontAsk",
         expected_version: str | None = None,
         output_format: str = "json",
+        environment: Mapping[str, str] | None = None,
     ) -> None:
         if not command or any(not isinstance(item, str) for item in command):
             raise ValueError("claude command must be a non-empty argument array")
@@ -96,6 +98,7 @@ class ClaudeCli:
         self.max_output_bytes = max_output_bytes
         self.expected_version = expected_version
         self.output_format = output_format
+        self.environment = dict(environment or {})
 
     @staticmethod
     def _with_options(
@@ -194,6 +197,7 @@ class ClaudeCli:
                 "PATH": os.environ.get("PATH", os.defpath),
                 "LANG": "C.UTF-8",
                 "HOME": str(home_dir),
+                **self.environment,
             },
         )
         try:
@@ -237,9 +241,10 @@ class ClaudeCli:
             }:
                 raise ClaudeProcessError("Claude result reported a rejected result")
             raw_result = envelope.get("result")
+            output: Any
             if isinstance(raw_result, str):
                 try:
-                    output = json.loads(raw_result)
+                    output = self._parse_json_payload(raw_result)
                 except json.JSONDecodeError as exc:
                     raise ClaudeProtocolError("Claude result payload was not JSON") from exc
             else:
@@ -258,7 +263,8 @@ class ClaudeCli:
             )
         finally:
             if process.poll() is None or self._group_alive(process.pid):
-                self._stop_process(process)
+                if not self._stop_process(process):
+                    raise ClaudeProtocolError("Claude cleanup stop is unconfirmed")
 
     @staticmethod
     def _stop_process(process: subprocess.Popen[bytes]) -> bool:
@@ -272,10 +278,14 @@ class ClaudeCli:
             return False
         try:
             process.wait(timeout=1)
-            return not ClaudeCli._group_alive(process.pid)
+            if ClaudeCli._group_alive(process.pid):
+                return ClaudeCli._kill_group(process.pid, process=process)
+            return True
         except subprocess.TimeoutExpired:
             pass
-        return ClaudeCli._kill_group(process.pid, process=process)
+        if ClaudeCli._group_alive(process.pid):
+            return ClaudeCli._kill_group(process.pid, process=process)
+        return True
 
     @staticmethod
     def _kill_group(
@@ -459,3 +469,15 @@ class ClaudeCli:
         if not isinstance(output, dict):
             raise ClaudeProtocolError("Claude stream result payload must be an object")
         return result | {"result": output}
+
+    @staticmethod
+    def _parse_json_payload(raw: str) -> dict[str, Any]:
+        payload = raw.strip()
+        if payload.startswith("```") and payload.endswith("```"):
+            lines = payload.splitlines()
+            if lines and lines[0].strip().lower() in {"```json", "```"}:
+                payload = "\n".join(lines[1:-1]).strip()
+        value = json.loads(payload)
+        if not isinstance(value, dict):
+            raise json.JSONDecodeError("JSON payload must be an object", payload, 0)
+        return value
