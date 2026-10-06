@@ -287,7 +287,7 @@
       "status": "pending",
       "package": "../../工作包规划.md#w04",
       "report": null,
-      "implementation_commit": null,
+      "implementation_commit": "c39947bb417c9d1488daddf647a95b7923fa6b49",
       "blockers": []
     },
     {
