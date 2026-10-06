@@ -467,7 +467,7 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
-      "implementation_commit": null,
+      "implementation_commit": "0408be547f362d221776e6f93583c7754ca3c28d",
       "checkpoint_snapshot_digest": "sha256:f138ecf9ae396ce2de83e5dcc294c16a0aecac94309528991a4aecbd851a43b6",
       "blockers": [
         {
