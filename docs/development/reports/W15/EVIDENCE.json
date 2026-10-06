@@ -1,21 +1,52 @@
 {
   "package_id": "W15",
   "status": "blocked",
+  "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
+  "snapshot_manifest_digest": "sha256:271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff",
+  "implementation_commit": null,
   "checkpoint_scope": [
     "src/multiverse_workflow/storage/__init__.py",
     "src/multiverse_workflow/storage/database.py",
-    "tests/storage/test_database_target.py"
+    "src/multiverse_workflow/storage/postgres.py",
+    "pyproject.toml",
+    "uv.lock",
+    "tests/storage/test_database_target.py",
+    "tests/storage/test_postgres_lock.py"
   ],
+  "postgres_environment": {
+    "version": "PostgreSQL 17.11",
+    "installation": "Homebrew local service",
+    "database_url": "postgresql+psycopg:///postgres",
+    "credentials_recorded": false
+  },
   "checkpoint_tests": {
-    "command": "uv run --python 3.12 --locked pytest -q tests/storage/test_database_target.py",
-    "passed": 10,
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_database_target.py tests/storage/test_postgres_lock.py",
+    "passed": 17,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
   },
+  "real_postgres_lock_tests": {
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_lock.py",
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "real_postgres_cases": [
+      "two dedicated connections cannot hold the same advisory lock concurrently",
+      "connection loss makes lease assertion fail closed",
+      "context manager releases the advisory lock after an exception"
+    ],
+    "fixture_cases": [
+      "unlock false response fails closed",
+      "unlock with no result row fails closed",
+      "release and close are idempotent",
+      "empty acquisition result closes the connection"
+    ]
+  },
   "full_suite": {
-    "command": "uv run --python 3.12 --locked pytest -q",
-    "passed": 571,
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
+    "passed": 579,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -25,21 +56,41 @@
     "mypy": "passed",
     "diff_check": "passed"
   },
+  "lockfile_check": {
+    "command": "uv lock --check --python 3.12",
+    "status": "passed",
+    "exit_code": 0
+  },
+  "log_references": {
+    "storage_tests": "docs/development/reports/W15/final-tests/storage.log",
+    "postgres_lock_tests": "docs/development/reports/W15/final-tests/postgres-lock.log",
+    "full_suite": "docs/development/reports/W15/final-tests/python-full.log",
+    "ruff": "docs/development/reports/W15/final-tests/ruff.log",
+    "mypy": "docs/development/reports/W15/final-tests/mypy.log",
+    "diff_check": "docs/development/reports/W15/final-tests/diff-check.log",
+    "lock_check": "docs/development/reports/W15/final-tests/lock-check.log"
+  },
   "review": {
-    "status": "approved",
-    "task_id": "01a11195-a484-7c90-96ee-599fc32047b2",
+    "status": "approved_checkpoint_only",
+    "task_id": "01a11207-ccb1-7e21-bc1e-149f55727b31",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [
     {
-      "code": "POSTGRES_RUNTIME_UNAVAILABLE",
-      "message": "No psql/pg_isready and Docker daemon unavailable; real PostgreSQL integration cannot be run."
+      "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
+      "message": "PostgreSQL Ledger/Repository backend, migrations, SQLite import, Runtime scheduler wiring and fencing are not implemented."
+    },
+    {
+      "code": "REMOTE_PUSH_AUTH",
+      "message": "origin/dev push remains blocked by GitHub SSH alias resolution / local proxy configuration."
     }
   ],
   "not_claimed": [
-    "PostgreSQL connection or transaction support",
+    "PostgreSQL-backed workflow Ledger",
+    "PostgreSQL application transaction support",
     "SQLAlchemy/Alembic migrations",
-    "PostgreSQL advisory lock/fencing",
+    "Runtime scheduler integration with the advisory lease",
+    "lease fencing",
     "SQLite to PostgreSQL import",
     "multi-worker crash recovery"
   ]

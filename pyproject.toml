@@ -8,6 +8,7 @@ license = { file = "LICENSE" }
 dependencies = [
   "fastapi>=0.116,<1",
   "jsonschema>=4.23,<5",
+  "psycopg[binary]>=3.2,<4",
   "pydantic>=2.11,<3",
   "ruamel.yaml>=0.18,<0.19",
   "typer>=0.16,<1",
