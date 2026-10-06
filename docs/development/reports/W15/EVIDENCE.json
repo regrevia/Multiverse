@@ -2,18 +2,22 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:53331b06212a175b26c1e05a4075373db2df7081c6d3ae30ab007b3c8f57bf8a",
-  "implementation_commit": "d05718aad98c517c46b757716be49ab3b1705a35",
+  "snapshot_manifest_digest": "sha256:3a8d5696f1f0939cae92fc45a155f870b4b17cf56535e70667491d1d2f6e8715",
+  "implementation_commit": null,
+  "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
+    "alembic.ini",
+    "migrations/env.py",
+    "migrations/versions/0001_storage_meta.py",
+    "migrations/versions/0002_ledger_tables.py",
+    "migrations/versions/0003_ledger_completeness.py",
+    "migrations/versions/0004_ownership_foreign_keys.py",
+    "pyproject.toml",
+    "uv.lock",
     "src/multiverse_workflow/storage/__init__.py",
     "src/multiverse_workflow/storage/database.py",
     "src/multiverse_workflow/storage/postgres.py",
     "src/multiverse_workflow/storage/sqlalchemy.py",
-    "alembic.ini",
-    "migrations/env.py",
-    "migrations/versions/0001_storage_meta.py",
-    "pyproject.toml",
-    "uv.lock",
     "tests/storage/test_database_target.py",
     "tests/storage/test_postgres_lock.py",
     "tests/storage/test_postgres_migrations.py",
@@ -23,36 +27,54 @@
     "version": "PostgreSQL 17.11",
     "installation": "Homebrew local service",
     "database_url": "postgresql+psycopg:///postgres",
-    "credentials_recorded": false
+    "credentials_recorded": false,
+    "migration_test_isolation": "unique temporary schema per test, dropped on teardown"
   },
-  "checkpoint_tests": {
+  "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 23,
+    "passed": 27,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
   },
-  "real_postgres_lock_tests": {
-    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_lock.py",
+  "migration_schema_tests": {
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_migrations.py",
     "passed": 7,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0,
-    "real_postgres_cases": [
-      "two dedicated connections cannot hold the same advisory lock concurrently",
-      "connection loss makes lease assertion fail closed",
-      "context manager releases the advisory lock after an exception"
-    ],
-    "fixture_cases": [
-      "unlock false response fails closed",
-      "unlock with no result row fails closed",
-      "release and close are idempotent",
-      "empty acquisition result closes the connection"
+    "cases": [
+      "temporary schema upgrade, repeat upgrade, downgrade and re-upgrade",
+      "core Ledger table and declared constraint inventory",
+      "SQLite Ledger table/column parity for all existing Ledger tables",
+      "multi-action outbox, duplicate action key, inbox revision dedupe",
+      "current scope/invocation and parent invocation FK rejection",
+      "valid ownership rows survive 0004 -> 0003 -> 0004",
+      "DATABASE_URL online, percent-encoded URL and offline SQL override"
     ]
+  },
+  "transaction_tests": {
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_transaction.py",
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "cases": [
+      "commit and rollback",
+      "PostgreSQL server health",
+      "standard PostgreSQL URL accepted"
+    ]
+  },
+  "postgres_lock_tests": {
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_lock.py",
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 585,
+    "passed": 589,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -67,38 +89,30 @@
     "status": "passed",
     "exit_code": 0
   },
-  "log_references": {
-    "storage_tests": "docs/development/reports/W15/final-tests/storage.log",
-    "postgres_lock_tests": "docs/development/reports/W15/final-tests/postgres-lock.log",
-    "full_suite": "docs/development/reports/W15/final-tests/python-full.log",
-    "ruff": "docs/development/reports/W15/final-tests/ruff.log",
-    "mypy": "docs/development/reports/W15/final-tests/mypy.log",
-    "diff_check": "docs/development/reports/W15/final-tests/diff-check.log",
-    "lock_check": "docs/development/reports/W15/final-tests/lock-check.log"
-  },
   "review": {
-    "status": "approved_composite_checkpoint_only",
-    "task_id": "01a11232-20f4-7013-86c3-d9eeeacb9fd9",
-    "reviewers": [
+    "status": "approved_checkpoint_only",
+    "task_id": "01a112fe-4e35-7793-ac7c-d4aa73ed989e",
+    "prior_checkpoint_reviewers": [
       "01a11207-ccb1-7e21-bc1e-149f55727b31",
       "01a11232-20f4-7013-86c3-d9eeeacb9fd9"
     ],
+    "final_schema_reviewer": "01a112fe-4e35-7793-ac7c-d4aa73ed989e",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [
     {
       "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
-      "message": "PostgreSQL Ledger/Repository backend, migrations, SQLite import, Runtime scheduler wiring and fencing are not implemented."
+      "message": "PostgreSQL Ledger DDL exists through revision 0004, but the PostgreSQL Repository is not wired to Ledger/Runner; Runtime scheduling, fencing, SQLite import and restore continuation remain incomplete."
     },
     {
       "code": "REMOTE_PUSH_AUTH",
-      "message": "origin/dev push remains blocked by GitHub SSH alias resolution / local proxy configuration."
+      "message": "origin/dev push remains blocked by unresolved github-regrevia SSH alias, local proxy failure and invalid GitHub CLI HTTPS token."
     }
   ],
   "not_claimed": [
-    "PostgreSQL-backed workflow Ledger",
-    "PostgreSQL Ledger application transaction semantics",
-    "complete Ledger-table SQLAlchemy Repository",
+    "PostgreSQL-backed workflow Ledger runtime",
+    "Ledger operations using PostgreSQL transaction semantics",
+    "SQLAlchemy Repository wired to all Ledger operations",
     "Runtime scheduler integration with the advisory lease",
     "lease fencing",
     "SQLite to PostgreSQL import",
