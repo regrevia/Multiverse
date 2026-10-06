@@ -10,6 +10,7 @@ from multiverse_workflow.storage.postgres import (
     PostgresSingleActiveLease,
     PostgresStorageError,
 )
+from multiverse_workflow.storage.sqlalchemy import PostgresTransactionStore
 
 __all__ = [
     "DatabaseTarget",
@@ -17,5 +18,6 @@ __all__ = [
     "PostgresLeaseLost",
     "PostgresSingleActiveLease",
     "PostgresStorageError",
+    "PostgresTransactionStore",
     "parse_database_target",
 ]

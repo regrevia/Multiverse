@@ -2,16 +2,22 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff",
-  "implementation_commit": "dc6fca9400e2a455376702280b7926e37d744bb4",
+  "snapshot_manifest_digest": "sha256:53331b06212a175b26c1e05a4075373db2df7081c6d3ae30ab007b3c8f57bf8a",
+  "implementation_commit": null,
   "checkpoint_scope": [
     "src/multiverse_workflow/storage/__init__.py",
     "src/multiverse_workflow/storage/database.py",
     "src/multiverse_workflow/storage/postgres.py",
+    "src/multiverse_workflow/storage/sqlalchemy.py",
+    "alembic.ini",
+    "migrations/env.py",
+    "migrations/versions/0001_storage_meta.py",
     "pyproject.toml",
     "uv.lock",
     "tests/storage/test_database_target.py",
-    "tests/storage/test_postgres_lock.py"
+    "tests/storage/test_postgres_lock.py",
+    "tests/storage/test_postgres_migrations.py",
+    "tests/storage/test_postgres_transaction.py"
   ],
   "postgres_environment": {
     "version": "PostgreSQL 17.11",
@@ -20,8 +26,8 @@
     "credentials_recorded": false
   },
   "checkpoint_tests": {
-    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_database_target.py tests/storage/test_postgres_lock.py",
-    "passed": 17,
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
+    "passed": 23,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -46,7 +52,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 579,
+    "passed": 585,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -71,8 +77,12 @@
     "lock_check": "docs/development/reports/W15/final-tests/lock-check.log"
   },
   "review": {
-    "status": "approved_checkpoint_only",
-    "task_id": "01a11207-ccb1-7e21-bc1e-149f55727b31",
+    "status": "approved_composite_checkpoint_only",
+    "task_id": "01a11232-20f4-7013-86c3-d9eeeacb9fd9",
+    "reviewers": [
+      "01a11207-ccb1-7e21-bc1e-149f55727b31",
+      "01a11232-20f4-7013-86c3-d9eeeacb9fd9"
+    ],
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

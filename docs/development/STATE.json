@@ -467,9 +467,13 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
-      "implementation_commit": "dc6fca9400e2a455376702280b7926e37d744bb4",
-      "checkpoint_snapshot_digest": "sha256:271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff",
+      "implementation_commit": null,
+      "checkpoint_snapshot_digest": "sha256:53331b06212a175b26c1e05a4075373db2df7081c6d3ae30ab007b3c8f57bf8a",
       "blockers": [
+        {
+          "code": "IMPLEMENTATION_NOT_COMMITTED",
+          "message": "The composite transaction/migration checkpoint is bound by the manifest but awaits one implementation commit after final review."
+        },
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
           "message": "PostgreSQL 17.11 is available and advisory lock integration passes, but PostgreSQL Ledger/Repository backend, migrations, Runtime scheduler wiring and fencing are not implemented."

@@ -2,11 +2,11 @@
 
 日期：2026-10-06
 依赖：W14、W02
-状态：`blocked`，PostgreSQL 目标分类和单活 advisory lease 已通过真实 PG 17 验证；Ledger 后端迁移尚未完成。
+状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和最小 Alembic migration 已通过真实 PG 17 验证；Ledger 后端迁移尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`271acc450b5b980d0839f266ba1a5614bef668b960a7fab84017cfcd1da6e4ff`
-Implementation commit：`dc6fca9400e2a455376702280b7926e37d744bb4`。
+Manifest SHA256：`53331b06212a175b26c1e05a4075373db2df7081c6d3ae30ab007b3c8f57bf8a`
+Implementation commit：待 composite checkpoint 最终提交。
 
 ## 已完成
 
@@ -23,6 +23,8 @@ Implementation commit：`dc6fca9400e2a455376702280b7926e37d744bb4`。
 - 保留现有 SQLite Ledger/Runner 行为不变。
 - 新增 `PostgresSingleActiveLease`，用专用 psycopg 连接持有 PostgreSQL session advisory lock。
 - lock key 被另一个连接持有时拒绝 acquisition；连接丢失时 `assert_held()` 失败关闭；release 必须取得数据库 unlock=true 回执。
+- 新增 SQLAlchemy 2 transaction boundary，接受标准 PostgreSQL DSN 和 `DATABASE_URL` 覆盖。
+- 新增 Alembic `0001_storage_meta` migration，验证 online upgrade/downgrade、重复 upgrade 和 URL 编码密码。
 
 ## 真实 PostgreSQL 17 验证
 
@@ -38,23 +40,23 @@ uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_lock.py
 
 其中 3 个测试连接真实 PostgreSQL，覆盖同 key lease 互斥、连接断开 fail-closed 和 context manager 异常退出释放；另 4 个 fixture 覆盖 unlock=false、unlock 空结果、acquisition 空结果时连接关闭及重复 release/close。
 
-- 存储定向：`17 passed`（目标解析、真实 advisory lock、释放/连接清理负例）
-- 完整 Python，设置 PostgreSQL DSN 后：`579 passed, 15 skipped`
+- 存储定向：`23 passed`（目标、lease、事务、migration）
+- 完整 Python，设置 PostgreSQL DSN 后：`585 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
 - `uv lock --check --python 3.12`：通过
 - 日志：`final-tests/storage.log`、`postgres-lock.log`、`python-full.log`、`ruff.log`、`mypy.log`、`diff-check.log`、`lock-check.log`
 - 上一版 target-parser reviewer：`01a11195-a484-7c90-96ee-599fc32047b2`，其 approval 不覆盖 advisory lease。
-- 最终 lease reviewer：`01a11207-ccb1-7e21-bc1e-149f55727b31`
-- Reviewer verdict：`approved` for this manifest-bound checkpoint only；not W15 completion。
+- Lease reviewer：`01a11207-ccb1-7e21-bc1e-149f55727b31`，approved lease checkpoint。
+- Transaction/migration reviewer：`01a11232-20f4-7013-86c3-d9eeeacb9fd9`，approved transaction+migration checkpoint。
 
 ## W15 尚未完成
 
 本 checkpoint 不满足 W15 完整验收，仍未实现：
 
-- SQLite 与 PostgreSQL 共同 Repository/transaction contract；
-- PostgreSQL Ledger tables、SQLAlchemy backend 与 Alembic migrations；
+- SQLite 与 PostgreSQL 共同 Repository contract；
+- PostgreSQL Ledger tables 和完整 SQLAlchemy backend；
 - 幂等命令、版本竞争、等待领取、审批和 outbox 的真实 PostgreSQL 事务；
 - 调度器持有 lease 的 Runtime 接线与失锁后停止派发；
 - fencing token；
