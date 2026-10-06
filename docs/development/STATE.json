@@ -284,11 +284,20 @@
         "W03"
       ],
       "spec_stage": "M4；G-09 最小人工入口",
-      "status": "pending",
+      "status": "blocked",
       "package": "../../工作包规划.md#w04",
-      "report": null,
+      "report": "reports/W04/REPORT.md",
       "implementation_commit": null,
-      "blockers": []
+      "blockers": [
+        {
+          "code": "HUMAN_DECISION_REQUIRED",
+          "message": "真实 Codex 已创建持久 HumanRequest 并停在 waiting；需要授权真人对 request human_56856693f36c4595b27bdd583834aa22 做一次 approve 或 reject，才能形成 W04 真人闭环终态证据。"
+        },
+        {
+          "code": "REMOTE_PUSH_AUTH",
+          "message": "origin/dev 推送仍受本机代理 127.0.0.1:7897 连接关闭阻塞。"
+        }
+      ]
     },
     {
       "id": "W05A",

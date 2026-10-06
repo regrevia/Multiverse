@@ -1,5 +1,28 @@
 # W04: 首条真实人机协作闭环
 
+## 2026-10-06 真实待办续验
+
+本轮使用本机 `codex-cli 0.156.1` 通过现有 Codex Adapter 执行了真实任务，未提交任何人工决定：
+
+- Run：`run_63116598af92464d89a331750a0550a4`
+- HumanRequest：`human_56856693f36c4595b27bdd583834aa22`
+- Request version：`1`
+- Subject digest：`sha256:ad4373bf516f2e27afdb3cbd24debdc9086b94bebd1d2403d175a67a7e45c5f6`
+- Authorized subjects：`["example-reviewer"]`
+- Artifact：`artifact_2eecd88c20674b95b2a42eb32a22ae05`
+- Checkpoint state：Run `waiting`，HumanRequest `pending`
+
+真实任务经过 Runner 关闭后，数据库仍保留 Run、Artifact 和待办。临时运行目录位于：
+
+`/var/folders/jz/m25rbjt91gq8h84pjh6d4c9c0000gn/T/multiverse-w04-live-ysmag384`
+
+本轮另外验证：
+
+- 真实 Codex 探针：`1 passed, 7 deselected`
+- 服务、API、Application 回归：`35 passed`
+
+当前仍不能标记 W04 完成：需要获授权真人使用同一 HumanRequest 的 `subjectDigest`、`expectedVersion=1` 和唯一幂等键提交一次 approve 或 reject，然后再验证 Run 终态和 exactly-once 计数。此前自动化使用 `example-reviewer` 的 approve/reject 证据仍不等同于真人现场验收。
+
 日期：2026-09-30
 当前源码基线：`86c67dbe704b0c054063659ee53efbe53d619187`
 依赖：W03（远端完成并通过 `scripts/milestones.py check W03 --phase remote`）
