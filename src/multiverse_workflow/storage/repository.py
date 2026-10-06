@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Connection, text
+from sqlalchemy.exc import IntegrityError
 
 from multiverse_workflow.storage.sqlalchemy import PostgresTransactionStore
 
@@ -218,6 +219,185 @@ class PostgresLedgerRepository:
             ).all()
         return [str(row[0]) for row in rows]
 
+    def create_invocation_attempt(
+        self,
+        *,
+        namespace: str,
+        run_id: str,
+        scope_id: str,
+        node_id: str,
+        input_value: Any,
+        dispatch_key: str,
+        effect_key: str,
+        attempt_no: int = 1,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if attempt_no < 1:
+            raise ValueError("attempt_no must be positive")
+        input_json = _json(input_value)
+        input_digest = _digest(input_json)
+        invocation_id = _new_id("inv")
+        attempt_id = _new_id("attempt")
+        now = _now()
+        with self._store.transaction() as connection:
+            scope = connection.execute(
+                text(
+                    "SELECT id, run_id FROM scopes "
+                    "WHERE id = :scope_id AND run_id = :run_id"
+                ),
+                {"scope_id": scope_id, "run_id": run_id},
+            ).mappings().first()
+            if scope is None:
+                raise IntegrityError(
+                    "scope does not belong to run",
+                    params=None,
+                    orig=ValueError("scope does not belong to run"),
+                )
+            run = connection.execute(
+                text(
+                    "SELECT namespace FROM runs WHERE id = :run_id AND namespace = :namespace"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).mappings().first()
+            if run is None:
+                raise IntegrityError(
+                    "run is not visible in namespace",
+                    params=None,
+                    orig=ValueError("run is not visible in namespace"),
+                )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO invocations (
+                        id, run_id, scope_id, node_id, status, input_json,
+                        input_digest, version, created_at, updated_at
+                    ) VALUES (
+                        :invocation_id, :run_id, :scope_id, :node_id, 'planned',
+                        :input_json, :input_digest, 1, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "invocation_id": invocation_id,
+                    "run_id": run_id,
+                    "scope_id": scope_id,
+                    "node_id": node_id,
+                    "input_json": input_json,
+                    "input_digest": input_digest,
+                    "now": now,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=run_id,
+                sequence=self._next_event_sequence(connection, run_id),
+                event_type="invocation.created",
+                payload={
+                    "invocationId": invocation_id,
+                    "nodeId": node_id,
+                    "status": "planned",
+                },
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO attempts (
+                        id, run_id, scope_id, invocation_id, attempt_no, status,
+                        input_json, input_digest, dispatch_key, effect_key,
+                        version, created_at, updated_at
+                    ) VALUES (
+                        :attempt_id, :run_id, :scope_id, :invocation_id,
+                        :attempt_no, 'created', :input_json, :input_digest,
+                        :dispatch_key, :effect_key, 1, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "attempt_id": attempt_id,
+                    "run_id": run_id,
+                    "scope_id": scope_id,
+                    "invocation_id": invocation_id,
+                    "attempt_no": attempt_no,
+                    "input_json": input_json,
+                    "input_digest": input_digest,
+                    "dispatch_key": dispatch_key,
+                    "effect_key": effect_key,
+                    "now": now,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=run_id,
+                sequence=self._next_event_sequence(connection, run_id),
+                event_type="attempt.created",
+                payload={
+                    "attemptId": attempt_id,
+                    "attemptNo": attempt_no,
+                    "status": "created",
+                },
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+            )
+        return self.get_invocation(namespace, invocation_id), self.get_attempt(
+            namespace, attempt_id
+        )
+
+    def get_invocation(self, namespace: str, invocation_id: str) -> dict[str, Any]:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT invocations.* FROM invocations "
+                    "JOIN runs ON runs.id = invocations.run_id "
+                    "WHERE invocations.id = :invocation_id AND runs.namespace = :namespace"
+                ),
+                {"invocation_id": invocation_id, "namespace": namespace},
+            ).mappings().first()
+        if row is None:
+            raise KeyError(f"invocation not found: {invocation_id}")
+        return dict(row)
+
+    def get_attempt(self, namespace: str, attempt_id: str) -> dict[str, Any]:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT attempts.* FROM attempts "
+                    "JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE attempts.id = :attempt_id AND runs.namespace = :namespace"
+                ),
+                {"attempt_id": attempt_id, "namespace": namespace},
+            ).mappings().first()
+        if row is None:
+            raise KeyError(f"attempt not found: {attempt_id}")
+        return dict(row)
+
+    def list_invocations(self, namespace: str, run_id: str) -> list[str]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT invocations.id FROM invocations "
+                    "JOIN runs ON runs.id = invocations.run_id "
+                    "WHERE invocations.run_id = :run_id AND runs.namespace = :namespace "
+                    "ORDER BY invocations.created_at, invocations.id"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).all()
+        return [str(row[0]) for row in rows]
+
+    def list_attempts(self, namespace: str, run_id: str) -> list[str]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT attempts.id FROM attempts "
+                    "JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE attempts.run_id = :run_id AND runs.namespace = :namespace "
+                    "ORDER BY attempts.created_at, attempts.attempt_no"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).all()
+        return [str(row[0]) for row in rows]
+
     def close(self) -> None:
         self._store.close()
 
@@ -230,15 +410,18 @@ class PostgresLedgerRepository:
         event_type: str,
         payload: dict[str, Any],
         scope_id: str | None = None,
+        invocation_id: str | None = None,
+        attempt_id: str | None = None,
     ) -> None:
         connection.execute(
             text(
                 """
                 INSERT INTO run_events (
-                    id, run_id, scope_id, seq, type, payload_json, occurred_at
+                    id, run_id, scope_id, invocation_id, attempt_id, seq,
+                    type, payload_json, occurred_at
                 ) VALUES (
-                    :event_id, :run_id, :scope_id, :sequence,
-                    :event_type, :payload_json, :occurred_at
+                    :event_id, :run_id, :scope_id, :invocation_id, :attempt_id,
+                    :sequence, :event_type, :payload_json, :occurred_at
                 )
                 """
             ),
@@ -246,9 +429,19 @@ class PostgresLedgerRepository:
                 "event_id": _new_id("event"),
                 "run_id": run_id,
                 "scope_id": scope_id,
+                "invocation_id": invocation_id,
+                "attempt_id": attempt_id,
                 "sequence": sequence,
                 "event_type": event_type,
                 "payload_json": _json(payload),
                 "occurred_at": _now(),
             },
         )
+
+    @staticmethod
+    def _next_event_sequence(connection: Connection, run_id: str) -> int:
+        value: Any = connection.execute(
+            text("SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = :run_id"),
+            {"run_id": run_id},
+        ).scalar_one()
+        return int(value)

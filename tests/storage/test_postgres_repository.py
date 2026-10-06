@@ -196,3 +196,80 @@ def test_postgres_repository_rolls_back_after_event_failure(
         finally:
             seed.close()
             repository.close()
+
+
+def test_postgres_repository_creates_invocation_and_attempt_atomically() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-invocation",
+            )
+            invocation, attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-invocation",
+                scope_id=repository.list_scope_ids("local", "run-invocation")[0],
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-invocation",
+                effect_key="effect-invocation",
+            )
+            assert invocation["status"] == "planned"
+            assert attempt["status"] == "created"
+            assert attempt["attempt_no"] == 1
+            assert repository.list_invocations("local", "run-invocation") == [
+                invocation["id"]
+            ]
+            assert repository.list_attempts("local", "run-invocation") == [attempt["id"]]
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_rejects_attempt_scope_mismatch() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-scope-mismatch",
+            )
+            with pytest.raises(IntegrityError):
+                repository.create_invocation_attempt(
+                    namespace="local",
+                    run_id="run-scope-mismatch",
+                    scope_id="missing-scope",
+                    node_id="produce",
+                    input_value={"goal": "write"},
+                    dispatch_key="dispatch-mismatch",
+                    effect_key="effect-mismatch",
+                )
+            assert repository.list_invocations("local", "run-scope-mismatch") == []
+        finally:
+            repository.close()
