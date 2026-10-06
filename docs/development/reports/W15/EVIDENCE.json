@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:3a8d5696f1f0939cae92fc45a155f870b4b17cf56535e70667491d1d2f6e8715",
-  "implementation_commit": "c39947bb417c9d1488daddf647a95b7923fa6b49",
+  "snapshot_manifest_digest": "sha256:f138ecf9ae396ce2de83e5dcc294c16a0aecac94309528991a4aecbd851a43b6",
+  "implementation_commit": null,
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
     "alembic.ini",
@@ -17,10 +17,12 @@
     "src/multiverse_workflow/storage/__init__.py",
     "src/multiverse_workflow/storage/database.py",
     "src/multiverse_workflow/storage/postgres.py",
+    "src/multiverse_workflow/storage/repository.py",
     "src/multiverse_workflow/storage/sqlalchemy.py",
     "tests/storage/test_database_target.py",
     "tests/storage/test_postgres_lock.py",
     "tests/storage/test_postgres_migrations.py",
+    "tests/storage/test_postgres_repository.py",
     "tests/storage/test_postgres_transaction.py"
   ],
   "postgres_environment": {
@@ -32,7 +34,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 27,
+    "passed": 30,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -74,7 +76,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 589,
+    "passed": 592,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -90,13 +92,14 @@
     "exit_code": 0
   },
   "review": {
-    "status": "approved_checkpoint_only",
+    "status": "approved_composite_checkpoint_only",
     "task_id": "01a112fe-4e35-7793-ac7c-d4aa73ed989e",
     "prior_checkpoint_reviewers": [
       "01a11207-ccb1-7e21-bc1e-149f55727b31",
       "01a11232-20f4-7013-86c3-d9eeeacb9fd9"
     ],
     "final_schema_reviewer": "01a112fe-4e35-7793-ac7c-d4aa73ed989e",
+    "repository_reviewer": "01a1133b-fdc8-7143-a6be-594f42e0cce2",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [
