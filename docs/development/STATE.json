@@ -297,11 +297,16 @@
         "W03"
       ],
       "spec_stage": "M3/M5 适配复用验证",
-      "status": "pending",
+      "status": "push_pending",
       "package": "../../工作包规划.md#w05a",
-      "report": null,
-      "implementation_commit": null,
-      "blockers": []
+      "report": "reports/W05A/REPORT.md",
+      "implementation_commit": "4503dd8d37b466238e84ac340238670fcadc9275",
+      "blockers": [
+        {
+          "code": "REMOTE_PUSH_AUTH",
+          "message": "origin/dev push blocked: GitHub HTTPS credential invalid and github-regrevia SSH connection closes at local proxy 127.0.0.1:7897."
+        }
+      ]
     },
     {
       "id": "W05B",
@@ -310,11 +315,20 @@
         "W03"
       ],
       "spec_stage": "M3/M5 适配复用验证",
-      "status": "pending",
+      "status": "push_pending",
       "package": "../../工作包规划.md#w05b",
-      "report": null,
-      "implementation_commit": null,
-      "blockers": []
+      "report": "reports/W05B/REPORT.md",
+      "implementation_commit": "4503dd8d37b466238e84ac340238670fcadc9275",
+      "blockers": [
+        {
+          "code": "PI_PROVIDER_AUTH",
+          "message": "Pi 1.0.1 is installed, but pi auth check reports not_ready / credentials_not_configured for anthropic."
+        },
+        {
+          "code": "REMOTE_PUSH_AUTH",
+          "message": "origin/dev push blocked: GitHub HTTPS credential invalid and github-regrevia SSH connection closes at local proxy 127.0.0.1:7897."
+        }
+      ]
     },
     {
       "id": "W06",
