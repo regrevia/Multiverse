@@ -287,7 +287,7 @@
       "status": "pending",
       "package": "../../工作包规划.md#w04",
       "report": null,
-      "implementation_commit": "d05718aad98c517c46b757716be49ab3b1705a35",
+      "implementation_commit": null,
       "blockers": []
     },
     {
@@ -467,7 +467,7 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
-      "implementation_commit": null,
+      "implementation_commit": "d05718aad98c517c46b757716be49ab3b1705a35",
       "checkpoint_snapshot_digest": "sha256:53331b06212a175b26c1e05a4075373db2df7081c6d3ae30ab007b3c8f57bf8a",
       "blockers": [
         {
