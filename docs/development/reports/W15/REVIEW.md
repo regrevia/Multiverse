@@ -1,7 +1,7 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
-Implementation commit：待本轮提交。
+Implementation commit：`a157312`。
 当前已审 manifest：`sha256:7b968d444e0ebf132b1d6d80bdbfba8c610512955e15e1f7e9c455f0a2edcb77`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
