@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:037fff8aec1317d6ff88452fdfd3a5a82181d7c9a5619fb6e225ddd165e6d7a3",
-  "implementation_commit": "b5e1d36",
+  "snapshot_manifest_digest": "sha256:17e46b779f8c352f19612688989344976f9730541d1bd9152fea0efb406a7561",
+  "implementation_commit": "58bbe95",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
     "alembic.ini",
@@ -12,6 +12,7 @@
     "migrations/versions/0002_ledger_tables.py",
     "migrations/versions/0003_ledger_completeness.py",
     "migrations/versions/0004_ownership_foreign_keys.py",
+    "migrations/versions/0005_human_decision_contract.py",
     "pyproject.toml",
     "uv.lock",
     "src/multiverse_workflow/storage/__init__.py",
@@ -41,7 +42,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 49,
+    "passed": 53,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -83,7 +84,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 615,
+    "passed": 619,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -112,6 +113,7 @@
     "scheduler_waitstore_reviewer": "01a114d7-8d2a-7ad1-a013-1c7645ab4331",
     "command_receipt_reviewer": "01a11502-45ea-75a3-abce-a7de63b743d6",
     "run_update_reviewer": "01a11527-5673-78a3-b1dd-e4f4689549ed",
+    "human_request_reviewer": "01a11557-c252-7b72-a396-456bfdfdf3b3",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

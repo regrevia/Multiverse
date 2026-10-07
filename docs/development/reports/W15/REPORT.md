@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`037fff8aec1317d6ff88452fdfd3a5a82181d7c9a5619fb6e225ddd165e6d7a3`
-Implementation commit：`b5e1d36`。
+Manifest SHA256：`17e46b779f8c352f19612688989344976f9730541d1bd9152fea0efb406a7561`
+Implementation commit：`58bbe95`。
 
 ## 已完成
 
@@ -28,6 +28,7 @@ Implementation commit：`b5e1d36`。
 - 抽取 bounded `WaitStore` 调度契约；SQLite Ledger 通过原子 worker-owned complete/release/reschedule 实现，PostgreSQL Repository 提供对应适配器和真实 PG 契约测试；当前 PostgreSQL 适配器仍未接入完整 Runner/Worker。
 - 抽取 bounded `CommandStore` 回执契约；PostgreSQL commands 支持 namespace/subject/operation 幂等、fingerprint 冲突回滚、accepted-only 原子 finish 和终态幂等；当前尚未接入 RuntimeApplication。
 - PostgreSQL Run optimistic update 支持 `FOR UPDATE`、expected-version CAS、scope/invocation ownership、原子 `run.updated` Event 和节点切换时清空旧 invocation；当前尚未接入完整 Runner。
+- HumanRequest/Decision PostgreSQL 契约支持 0005 namespace-scoped decision idempotency、Schema 校验、授权主体、版本、RFC3339 expiry、过期事件、progress intent 和 continuation wait；当前尚未接入 RuntimeApplication。
 - Alembic `0001` storage metadata、`0002` 14 张核心 Ledger 表、`0003` inbox/host-session/FK/Outbox action-key 约束、`0004` ownership composite FK 约束。
 - 四个 Alembic revisions 建立 14 张核心 Ledger 表、Inbox、host/session 和 ownership 关联；Ledger 业务模型到表的 Repository 映射尚未接入。
 - 真实 schema parity 测试从当前 SQLite Ledger 初始化结构，与 PostgreSQL migration 逐表比较列覆盖；全部当前 Ledger 表列均被覆盖，PostgreSQL 扩展列和新增表单独声明。
@@ -41,13 +42,13 @@ Implementation commit：`b5e1d36`。
 - 服务：Homebrew PostgreSQL `17.11`
 - 每个 migration 集成用例使用临时 schema 并在退出时清理。
 - PostgreSQL DSN：本机 socket `postgresql+psycopg:///postgres`，未写入测试日志或提交内容。
-- 真实 PostgreSQL storage suite：`49 passed`
-- Repository Wait/Worker/Command/Run update slice：`22 passed`
+- 真实 PostgreSQL storage suite：`53 passed`
+- Repository Wait/Worker/Command/Run update/Human slice：`26 passed`
 - Migration schema suite：`7 passed`
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`615 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`619 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -62,6 +63,7 @@ Implementation commit：`b5e1d36`。
 - Scheduler WaitStore bounded checkpoint：`01a114d7-8d2a-7ad1-a013-1c7645ab4331`，初审指出 SQLite TOCTOU、external reschedule 绕过和 namespace/接线边界；修复后按 bounded checkpoint 复审 approved。完整 PostgreSQL Runner/Worker 接线作为 W15 scope limitation 保留。
 - Command Receipt bounded checkpoint：`01a11502-45ea-75a3-abce-a7de63b743d6`，初审发现 finish 终态覆盖 P1；修复为 `FOR UPDATE` + accepted-only + 相同终态幂等后复审 approved。异常类型统一和 RuntimeApplication 接入保留为后续范围。
 - Run optimistic update bounded checkpoint：`01a11527-5673-78a3-b1dd-e4f4689549ed`，初审 P2 测试未建立旧 invocation；补充真实 Invocation 绑定、节点切换清空断言后复审 approved。
+- HumanRequest/Decision bounded checkpoint：`01a11557-c252-7b72-a396-456bfdfdf3b3`，初审发现 Schema、expiry、namespace idempotency 和并发/回滚证据缺口；补齐 0005、RFC3339 expiry、授权/Schema/幂等/并发/回滚后最终 approved。
 
 ## W15 尚未完成
 
