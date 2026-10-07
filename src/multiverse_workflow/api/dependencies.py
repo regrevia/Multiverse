@@ -11,6 +11,11 @@ from multiverse_workflow.runtime.dispatch_lease import DispatchGate
 from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.worker import LocalWorker
 from multiverse_workflow.service.application import RuntimeApplication
+from multiverse_workflow.storage.database import (
+    DatabaseTarget,
+    DatabaseTargetError,
+    parse_database_target,
+)
 
 Scope = Literal[
     "read",
@@ -62,16 +67,38 @@ class ServiceSettings:
     registry_path: Path | None = None
     executor_registry: ExecutorRegistry | None = field(default=None, repr=False)
     dispatch_gate: DispatchGate | None = field(default=None, repr=False)
+    profile: Literal["personal", "team", "offline"] = "personal"
+    _database_target: DatabaseTarget = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.registry_path is not None and self.executor_registry is not None:
             raise ValueError("use registry_path or executor_registry, not both")
+        if self.profile not in {"personal", "team", "offline"}:
+            raise DatabaseTargetError(
+                "profile must be personal, team or offline"
+            )
         snapshot = (
             self.executor_registry.snapshot()
             if self.executor_registry is not None
             else load_executor_registry(self.registry_path)
         )
         object.__setattr__(self, "executor_registry", snapshot)
+        target = parse_database_target(self.database_path)
+        object.__setattr__(self, "_database_target", target)
+        if self.profile == "team":
+            raise DatabaseTargetError(
+                "team profile is not startable yet: PostgreSQL Runtime backend is not wired "
+                "to RuntimeApplication/Runner"
+            )
+        if self.profile == "offline":
+            raise DatabaseTargetError(
+                "offline profile is not startable yet: offline resource closure and "
+                "external-network enforcement are not configured"
+            )
+        if target.backend != "sqlite":
+            raise DatabaseTargetError(
+                "personal/offline profiles require an explicit SQLite Path target"
+            )
         if not self.deployment_id.strip():
             raise ValueError("deployment_id must not be empty")
         if not self.namespace.strip():
@@ -85,6 +112,10 @@ class ServiceSettings:
             token_path.parent.mkdir(parents=True, exist_ok=True)
             token_path.write_text(token + "\n", encoding="utf-8")
             os.chmod(token_path, 0o600)
+
+    @property
+    def database_target(self) -> DatabaseTarget:
+        return self._database_target
 
     def create_application(self) -> RuntimeApplication:
         return RuntimeApplication(

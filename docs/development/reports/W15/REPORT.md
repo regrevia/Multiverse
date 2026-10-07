@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`b7ea60c6da6c7625d578afefeb891e34703ba24f2a04c787c6d6ff034bfe25bd`
-Implementation commit：`caac8f2`。
+Manifest SHA256：`7b968d444e0ebf132b1d6d80bdbfba8c610512955e15e1f7e9c455f0a2edcb77`
+Implementation commit：待本轮提交。
 
 ## 已完成
 
@@ -33,6 +33,7 @@ Implementation commit：`caac8f2`。
 - PostgreSQL Run control 契约支持 pause/resume/cancel、版本 CAS、active attempt stopping、无 active attempt 时级联取消实体及 `RUN_CANCELLED` 错误。
 - DispatchLease/Worker gate bounded contract：Worker 每轮派发前检查 gate，PostgreSQL lease 丢失 fail-closed；gate 关闭异常也不阻塞本地 Worker lock 释放。
 - ServiceSettings Worker factory 可注入 DispatchGate，并在 Runner/Worker 构造失败、锁冲突和关闭路径清理 gate；仍须显式注入，默认 SQLite profile 不代表 PostgreSQL service profile 已完整配置。
+- Service profile boundary：personal 允许 SQLite，team 与未验证资源闭包的 offline 显式 fail-closed；旧 positional `ServiceSettings` 参数顺序保持兼容。
 - 显式 DispatchGate 生命周期支持自动 acquire、release、close；acquire/构造/锁冲突/Worker init 失败均 fail-closed 清理资源。
 - Alembic `0001` storage metadata、`0002` 14 张核心 Ledger 表、`0003` inbox/host-session/FK/Outbox action-key 约束、`0004` ownership composite FK 约束。
 - 四个 Alembic revisions 建立 14 张核心 Ledger 表、Inbox、host/session 和 ownership 关联；Ledger 业务模型到表的 Repository 映射尚未接入。
@@ -53,7 +54,7 @@ Implementation commit：`caac8f2`。
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`637 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`643 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -74,6 +75,7 @@ Implementation commit：`caac8f2`。
 - Run control bounded checkpoint：`01a115d8-a3c4-7363-ba1d-3f5ac1d942a3`，初审发现 cancel 级联状态缺口；补齐 waiting entity 取消与 RUN_CANCELLED 错误后最终 approved。
 - DispatchLease/Worker gate bounded checkpoint：`01a115f7-3c2f-74a0-afb4-a315d7b20b8e`，初审 P2 为 gate 生命周期；补齐 Worker close 的异常安全释放和回归后最终 approved。
 - ServiceSettings gate injection bounded checkpoint：`01a1160e-0fe2-7820-9cc8-4c4ea688e7e3`，构造失败和 falsey gate findings 已修复，最终 approved；完整 PostgreSQL Runtime 接线仍是 scope limitation。
+- Service profile boundary bounded checkpoint：`01a116d4-587e-7273-89f9-9c13df416581`，profile 枚举、offline fail-closed 和 positional compatibility findings 已修复，最终 approved。
 - DispatchGate lifecycle bounded checkpoint：`01a1169b-a536-7cd1-92a0-8bf3aa8e18b2`，release/cleanup lifecycle 与 factory coverage findings 已关闭，最终 approved。
 
 ## W15 尚未完成
