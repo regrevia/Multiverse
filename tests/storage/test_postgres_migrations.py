@@ -90,7 +90,7 @@ def test_postgres_migrations_create_storage_and_ledger_tables() -> None:
                 current = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar_one()
-                assert current == "0004_ownership_foreign_keys"
+                assert current == "0005_human_decision_contract"
                 assert connection.execute(
                     text("SELECT to_regclass('multiverse_storage_meta')")
                 ).scalar_one() == "multiverse_storage_meta"
@@ -482,7 +482,7 @@ def test_postgres_ledger_constraints_cover_replay_and_references() -> None:
             with engine.connect() as connection:
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "0004_ownership_foreign_keys"
+                ).scalar_one() == "0005_human_decision_contract"
         finally:
             engine.dispose()
 
@@ -589,7 +589,7 @@ def test_ownership_migration_downgrade_and_upgrade_preserves_valid_rows() -> Non
             with engine.connect() as connection:
                 assert connection.execute(
                     text("SELECT version_num FROM alembic_version")
-                ).scalar_one() == "0004_ownership_foreign_keys"
+                    ).scalar_one() == "0005_human_decision_contract"
                 assert connection.execute(
                     text("SELECT id FROM runs WHERE id = :run"),
                     {"run": run_id},

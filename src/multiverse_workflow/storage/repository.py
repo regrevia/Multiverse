@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError, ValidationError
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import IntegrityError
 
@@ -22,6 +24,16 @@ def _digest(value: str) -> str:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("timestamp must be RFC3339") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a timezone")
+    return parsed.astimezone(UTC)
 
 
 def _new_id(prefix: str) -> str:
@@ -959,6 +971,532 @@ class PostgresLedgerRepository:
         return self.get_invocation(namespace, invocation_id), self.get_attempt(
             namespace, attempt_id
         )
+
+    def create_human_request(
+        self,
+        *,
+        namespace: str,
+        run_id: str,
+        scope_id: str,
+        invocation_id: str,
+        request_type: str,
+        title: str,
+        instructions: str,
+        input_value: Any,
+        subject_digest: str,
+        choices: list[str],
+        decision_schema: dict[str, Any],
+        authorized_subjects: list[str],
+        expires_at: str,
+    ) -> dict[str, Any]:
+        if not namespace.strip() or not run_id.strip() or not scope_id.strip():
+            raise ValueError("namespace, run_id and scope_id are required")
+        if not invocation_id.strip() or not request_type.strip():
+            raise ValueError("invocation_id and request_type are required")
+        if request_type not in {"approval", "review", "input"}:
+            raise ValueError("human request type must be approval, review or input")
+        if request_type in {"approval", "review"} and not choices:
+            raise ValueError("approval/review request requires choices")
+        if request_type == "input" and choices:
+            raise ValueError("input request choices must be empty")
+        if not authorized_subjects:
+            raise ValueError("human request requires authorized subjects")
+        try:
+            Draft202012Validator.check_schema(decision_schema)
+        except SchemaError as exc:
+            raise ValueError("human decision schema is invalid") from exc
+        if _parse_timestamp(expires_at) <= _parse_timestamp(_now()):
+            raise ValueError("human request expiry must be in the future")
+        input_json = _json(input_value)
+        request_id = _new_id("human")
+        now = _now()
+        with self._store.transaction() as connection:
+            run = connection.execute(
+                text(
+                    "SELECT id FROM runs "
+                    "WHERE id = :run_id AND namespace = :namespace "
+                    "FOR UPDATE"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).mappings().first()
+            if run is None:
+                raise KeyError(f"run not found: {run_id}")
+            scope = connection.execute(
+                text("SELECT run_id FROM scopes WHERE id = :scope_id"),
+                {"scope_id": scope_id},
+            ).mappings().first()
+            if scope is None or scope["run_id"] != run_id:
+                raise ValueError("human request scope does not belong to run")
+            invocation = connection.execute(
+                text(
+                    "SELECT run_id, scope_id FROM invocations "
+                    "WHERE id = :invocation_id"
+                ),
+                {"invocation_id": invocation_id},
+            ).mappings().first()
+            if (
+                invocation is None
+                or invocation["run_id"] != run_id
+                or invocation["scope_id"] != scope_id
+            ):
+                raise ValueError("human request invocation does not match scope")
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO human_requests (
+                        id, run_id, scope_id, invocation_id, request_type, title,
+                        instructions, input_json, input_digest, subject_digest,
+                        choices_json, decision_schema_json, authorized_subjects_json,
+                        created_at, expires_at, version, status, decision_id,
+                        updated_at
+                    ) VALUES (
+                        :request_id, :run_id, :scope_id, :invocation_id,
+                        :request_type, :title, :instructions, :input_json,
+                        :input_digest, :subject_digest, :choices_json,
+                        :decision_schema_json, :authorized_subjects_json,
+                        :now, :expires_at, 1, 'pending', NULL, :now
+                    )
+                    """
+                ),
+                {
+                    "request_id": request_id,
+                    "run_id": run_id,
+                    "scope_id": scope_id,
+                    "invocation_id": invocation_id,
+                    "request_type": request_type,
+                    "title": title,
+                    "instructions": instructions,
+                    "input_json": input_json,
+                    "input_digest": _digest(input_json),
+                    "subject_digest": subject_digest,
+                    "choices_json": _json(choices),
+                    "decision_schema_json": _json(decision_schema),
+                    "authorized_subjects_json": _json(authorized_subjects),
+                    "now": now,
+                    "expires_at": expires_at,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=run_id,
+                sequence=self._next_event_sequence(connection, run_id),
+                event_type="human.created",
+                payload={"requestId": request_id, "status": "pending"},
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id,
+                        invocation_id, not_before, payload_json, status,
+                        worker_id, claimed_at, created_at, updated_at
+                    ) VALUES (
+                        :wait_id, :namespace, :wait_key, 'human',
+                        :run_id, :scope_id, :invocation_id, :expires_at,
+                        :payload_json, 'pending', NULL, NULL, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "wait_id": _new_id("wait"),
+                    "namespace": namespace,
+                    "wait_key": f"human:{request_id}",
+                    "run_id": run_id,
+                    "scope_id": scope_id,
+                    "invocation_id": invocation_id,
+                    "expires_at": expires_at,
+                    "payload_json": _json({"requestId": request_id}),
+                    "now": now,
+                },
+            )
+        request = self.get_human_request(namespace, request_id)
+        if request is None:
+            raise RuntimeError("human request disappeared after commit")
+        return request
+
+    def get_human_request(
+        self, namespace: str, request_id: str
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT human_requests.* FROM human_requests
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_requests.id = :request_id
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                {"request_id": request_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def list_human_requests(
+        self,
+        *,
+        namespace: str,
+        run_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        conditions = ["runs.namespace = :namespace"]
+        parameters: dict[str, Any] = {"namespace": namespace}
+        if run_id is not None:
+            conditions.append("human_requests.run_id = :run_id")
+            parameters["run_id"] = run_id
+        if status is not None:
+            conditions.append("human_requests.status = :status")
+            parameters["status"] = status
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT human_requests.* FROM human_requests "
+                    "JOIN runs ON runs.id = human_requests.run_id "
+                    "WHERE " + " AND ".join(conditions) +
+                    " ORDER BY human_requests.created_at, human_requests.id"
+                ),
+                parameters,
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def get_human_decision(
+        self, namespace: str, request_id: str
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT human_decisions.* FROM human_decisions
+                    JOIN human_requests ON human_requests.id = human_decisions.request_id
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_decisions.request_id = :request_id
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                {"request_id": request_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def get_human_decision_by_idempotency_key(
+        self, namespace: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT human_decisions.* FROM human_decisions
+                    JOIN human_requests ON human_requests.id = human_decisions.request_id
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_decisions.namespace = :namespace
+                      AND human_decisions.idempotency_key = :idempotency_key
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                    {"idempotency_key": idempotency_key, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def get_human_progress_intent(
+        self, namespace: str, request_id: str
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT human_progress_intents.* FROM human_progress_intents
+                    JOIN runs ON runs.id = human_progress_intents.run_id
+                    WHERE human_progress_intents.request_id = :request_id
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                {"request_id": request_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def decide_human_request(
+        self,
+        *,
+        namespace: str,
+        request_id: str,
+        choice: str | None = None,
+        decision: Any | None = None,
+        comment: str = "",
+        expected_version: int,
+        subject_digest: str,
+        actor: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        if self._expire_human_request_if_due(namespace, request_id):
+            raise ValueError("human request has expired")
+        with self._store.transaction() as connection:
+            previous = connection.execute(
+                text(
+                    """
+                    SELECT human_decisions.* FROM human_decisions
+                    JOIN human_requests ON human_requests.id = human_decisions.request_id
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_decisions.idempotency_key = :idempotency_key
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                {"idempotency_key": idempotency_key, "namespace": namespace},
+            ).mappings().first()
+            if previous is not None:
+                if previous["request_id"] != request_id:
+                    raise ValueError("idempotency key belongs to another request")
+                existing = connection.execute(
+                    text("SELECT * FROM human_requests WHERE id = :request_id"),
+                    {"request_id": request_id},
+                ).mappings().one()
+                if (
+                    previous["actor"] != actor
+                    or previous["subject_digest"] != subject_digest
+                    or previous["request_version"] != expected_version + 1
+                    or previous["choice"] != (choice or "")
+                    or previous["comment"] != comment
+                    or previous["decision_json"]
+                    != _json(
+                        {"decision": choice, "comment": comment}
+                        if existing["request_type"] in {"approval", "review"}
+                        else decision
+                    )
+                ):
+                    raise ValueError("idempotency key was reused with different content")
+                return dict(existing)
+            request = connection.execute(
+                text(
+                    """
+                    SELECT human_requests.* FROM human_requests
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_requests.id = :request_id
+                      AND runs.namespace = :namespace
+                    """
+                ),
+                {"request_id": request_id, "namespace": namespace},
+            ).mappings().first()
+            if request is None:
+                raise KeyError(f"human request not found: {request_id}")
+            connection.execute(
+                text("SELECT id FROM runs WHERE id = :run_id FOR UPDATE"),
+                {"run_id": request["run_id"]},
+            )
+            request = connection.execute(
+                text("SELECT * FROM human_requests WHERE id = :request_id FOR UPDATE"),
+                {"request_id": request_id},
+            ).mappings().one()
+            if int(request["version"]) != expected_version:
+                raise ValueError("human request version conflict")
+            if request["status"] != "pending":
+                raise ValueError("human request is not pending")
+            if request["subject_digest"] != subject_digest:
+                raise ValueError("human request subject conflict")
+            if actor not in json.loads(request["authorized_subjects_json"]):
+                raise ValueError("actor is not authorized")
+            if request["request_type"] in {"approval", "review"}:
+                if choice not in json.loads(request["choices_json"]):
+                    raise ValueError("choice is not allowed")
+                stored_decision = {"decision": choice, "comment": comment}
+            else:
+                if decision is None:
+                    raise ValueError("input request requires a structured decision")
+                choice = ""
+                stored_decision = decision
+            try:
+                Draft202012Validator(json.loads(request["decision_schema_json"])).validate(
+                    stored_decision
+                )
+            except ValidationError as exc:
+                raise ValueError("human decision does not match decision schema") from exc
+            if _parse_timestamp(request["expires_at"]) <= _parse_timestamp(_now()):
+                raise ValueError("human request is expired")
+            decision_id = _new_id("decision")
+            version = int(request["version"]) + 1
+            now = _now()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO human_decisions (
+                        id, namespace, request_id, request_version, choice, comment,
+                        decision_json, actor, subject_digest, idempotency_key,
+                        created_at
+                    ) VALUES (
+                        :decision_id, :namespace, :request_id, :request_version, :choice,
+                        :comment, :decision_json, :actor, :subject_digest,
+                        :idempotency_key, :now
+                    )
+                    """
+                ),
+                {
+                    "decision_id": decision_id,
+                    "namespace": namespace,
+                    "request_id": request_id,
+                    "request_version": version,
+                    "choice": choice,
+                    "comment": comment,
+                    "decision_json": _json(stored_decision),
+                    "actor": actor,
+                    "subject_digest": subject_digest,
+                    "idempotency_key": idempotency_key,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE human_requests
+                    SET status = 'decided', version = :version,
+                        decision_id = :decision_id, updated_at = :now
+                    WHERE id = :request_id AND status = 'pending'
+                    """
+                ),
+                {
+                    "version": version,
+                    "decision_id": decision_id,
+                    "now": now,
+                    "request_id": request_id,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=request["run_id"],
+                sequence=self._next_event_sequence(connection, request["run_id"]),
+                event_type="human.decided",
+                payload={
+                    "requestId": request_id,
+                    "choice": choice,
+                    "version": version,
+                },
+                scope_id=request["scope_id"],
+                invocation_id=request["invocation_id"],
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE waits SET status = 'completed', updated_at = :now
+                    WHERE namespace = :namespace AND wait_key = :wait_key
+                      AND status IN ('pending', 'claimed')
+                    """
+                ),
+                {
+                    "namespace": namespace,
+                    "wait_key": f"human:{request_id}",
+                    "now": now,
+                },
+            )
+            intent_id = _new_id("intent")
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO human_progress_intents (
+                        id, request_id, run_id, scope_id, invocation_id,
+                        decision_id, action, status, created_at, updated_at
+                    ) VALUES (
+                        :intent_id, :request_id, :run_id, :scope_id,
+                        :invocation_id, :decision_id, 'resume-human-decision',
+                        'pending', :now, :now
+                    )
+                    """
+                ),
+                {
+                    "intent_id": intent_id,
+                    "request_id": request_id,
+                    "run_id": request["run_id"],
+                    "scope_id": request["scope_id"],
+                    "invocation_id": request["invocation_id"],
+                    "decision_id": decision_id,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO waits (
+                        id, namespace, wait_key, kind, run_id, scope_id,
+                        invocation_id, not_before, payload_json, status,
+                        worker_id, claimed_at, created_at, updated_at
+                    ) VALUES (
+                        :wait_id, :namespace, :wait_key, 'human-progress',
+                        :run_id, :scope_id, :invocation_id, :now, :payload_json,
+                        'pending', NULL, NULL, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "wait_id": _new_id("wait"),
+                    "namespace": namespace,
+                    "wait_key": f"human-progress:{request_id}",
+                    "run_id": request["run_id"],
+                    "scope_id": request["scope_id"],
+                    "invocation_id": request["invocation_id"],
+                    "now": now,
+                    "payload_json": _json({"requestId": request_id}),
+                },
+            )
+            result = connection.execute(
+                text("SELECT * FROM human_requests WHERE id = :request_id"),
+                {"request_id": request_id},
+            ).mappings().one()
+            return dict(result)
+
+    def _expire_human_request_if_due(self, namespace: str, request_id: str) -> bool:
+        with self._store.transaction() as connection:
+            request = connection.execute(
+                text(
+                    """
+                    SELECT human_requests.* FROM human_requests
+                    JOIN runs ON runs.id = human_requests.run_id
+                    WHERE human_requests.id = :request_id
+                      AND runs.namespace = :namespace
+                    FOR UPDATE
+                    """
+                ),
+                {"request_id": request_id, "namespace": namespace},
+            ).mappings().first()
+            if request is None or request["status"] != "pending":
+                return False
+            connection.execute(
+                text("SELECT id FROM runs WHERE id = :run_id FOR UPDATE"),
+                {"run_id": request["run_id"]},
+            )
+            now = _now()
+            if _parse_timestamp(request["expires_at"]) > _parse_timestamp(now):
+                return False
+            version = int(request["version"]) + 1
+            connection.execute(
+                text(
+                    """
+                    UPDATE human_requests
+                    SET status = 'expired', version = :version, updated_at = :now
+                    WHERE id = :request_id AND status = 'pending'
+                    """
+                ),
+                {"version": version, "now": now, "request_id": request_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE waits SET status = 'cancelled', updated_at = :now
+                    WHERE namespace = :namespace AND wait_key = :wait_key
+                      AND status IN ('pending', 'claimed')
+                    """
+                ),
+                {
+                    "namespace": namespace,
+                    "wait_key": f"human:{request_id}",
+                    "now": now,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=request["run_id"],
+                sequence=self._next_event_sequence(connection, request["run_id"]),
+                event_type="human.expired",
+                payload={"requestId": request_id, "status": "expired"},
+                scope_id=request["scope_id"],
+                invocation_id=request["invocation_id"],
+            )
+            return True
 
     def ensure_submit_outbox(
         self,

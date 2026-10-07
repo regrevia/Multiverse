@@ -798,6 +798,390 @@ def test_postgres_repository_run_update_has_one_concurrent_version_winner() -> N
         assert sorted(item[0] for item in results) == ["conflict", "ok"]
 
 
+def test_postgres_repository_creates_and_decides_human_request_atomically() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-human-contract",
+            )
+            scope_id = repository.list_scope_ids("local", "run-human-contract")[0]
+            invocation, _attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-human-contract",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-human-contract",
+                effect_key="effect-human-contract",
+            )
+            request = repository.create_human_request(
+                namespace="local",
+                run_id="run-human-contract",
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                request_type="review",
+                title="Review deliverable",
+                instructions="Approve or reject the deliverable.",
+                input_value={"artifactRefs": ["artifact_1"]},
+                subject_digest="sha256:subject",
+                choices=["approve", "reject"],
+                decision_schema={
+                    "type": "object",
+                    "required": ["decision", "comment"],
+                },
+                authorized_subjects=["reviewer"],
+                expires_at="2099-01-01T00:00:00Z",
+            )
+            assert request["status"] == "pending"
+            assert request["version"] == 1
+            assert repository.list_human_requests(
+                namespace="local",
+                run_id="run-human-contract",
+                status="pending",
+            )[0]["id"] == request["id"]
+            assert repository.list_waits("local", "run-human-contract")[-1] == (
+                f"human:{request['id']}"
+            )
+
+            decided = repository.decide_human_request(
+                namespace="local",
+                request_id=request["id"],
+                choice="approve",
+                comment="Approved.",
+                expected_version=1,
+                subject_digest="sha256:subject",
+                actor="reviewer",
+                idempotency_key="human-decision-1",
+            )
+            assert decided["status"] == "decided"
+            assert decided["version"] == 2
+            decision = repository.get_human_decision("local", request["id"])
+            assert decision is not None
+            assert decision["choice"] == "approve"
+            assert decision["actor"] == "reviewer"
+            assert repository.get_human_decision_by_idempotency_key(
+                "local", "human-decision-1"
+            )["request_id"] == request["id"]
+            assert repository.list_waits("local", "run-human-contract")[-1] == (
+                f"human-progress:{request['id']}"
+            )
+            assert repository.get_human_progress_intent(
+                "local", request["id"]
+            )["status"] == "pending"
+            assert repository.decide_human_request(
+                namespace="local",
+                request_id=request["id"],
+                choice="approve",
+                comment="Approved.",
+                expected_version=1,
+                subject_digest="sha256:subject",
+                actor="reviewer",
+                idempotency_key="human-decision-1",
+            )["status"] == "decided"
+            with pytest.raises(ValueError, match="different content"):
+                repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice="approve",
+                    comment="Changed.",
+                    expected_version=1,
+                    subject_digest="sha256:subject",
+                    actor="reviewer",
+                    idempotency_key="human-decision-1",
+                )
+            events = repository.list_run_events("local", "run-human-contract")
+            assert "human.created" in events
+            assert "human.decided" in events
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_human_decision_rejects_stale_or_unauthorized_replies() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-human-conflict",
+            )
+            scope_id = repository.list_scope_ids("local", "run-human-conflict")[0]
+            invocation, _attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-human-conflict",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-human-conflict",
+                effect_key="effect-human-conflict",
+            )
+            request = repository.create_human_request(
+                namespace="local",
+                run_id="run-human-conflict",
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                request_type="review",
+                title="Review",
+                instructions="Choose.",
+                input_value={"artifactRefs": []},
+                subject_digest="sha256:subject",
+                choices=["approve", "reject"],
+                decision_schema={"type": "object"},
+                authorized_subjects=["reviewer"],
+                expires_at="2099-01-01T00:00:00Z",
+            )
+            with pytest.raises(ValueError, match="human request type"):
+                repository.create_human_request(
+                    namespace="local",
+                    run_id="run-human-conflict",
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    request_type="unknown",
+                    title="Invalid",
+                    instructions="Invalid.",
+                    input_value={},
+                    subject_digest="sha256:subject",
+                    choices=[],
+                    decision_schema={"type": "object"},
+                    authorized_subjects=["reviewer"],
+                    expires_at="2099-01-01T00:00:00Z",
+                )
+            with pytest.raises(ValueError, match="authorized"):
+                repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice="approve",
+                    comment="",
+                    expected_version=1,
+                    subject_digest="sha256:subject",
+                    actor="intruder",
+                    idempotency_key="human-conflict-unauthorized",
+                )
+            with pytest.raises(ValueError, match="version"):
+                repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice="approve",
+                    comment="",
+                    expected_version=2,
+                    subject_digest="sha256:subject",
+                    actor="reviewer",
+                    idempotency_key="human-conflict-stale",
+                )
+            assert repository.get_human_request(
+                "local", request["id"]
+            )["status"] == "pending"
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE human_requests SET expires_at = '2020-01-01T00:00:00Z' "
+                        "WHERE id = :request_id"
+                    ),
+                    {"request_id": request["id"]},
+                )
+            with pytest.raises(ValueError, match="expired"):
+                repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice="approve",
+                    comment="",
+                    expected_version=1,
+                    subject_digest="sha256:subject",
+                    actor="reviewer",
+                    idempotency_key="human-conflict-expired",
+                )
+            assert repository.get_human_request(
+                "local", request["id"]
+            )["status"] == "expired"
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_human_decision_has_one_concurrent_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        seed = PostgresLedgerRepository(isolated)
+        try:
+            seed.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-human-race",
+            )
+            scope_id = seed.list_scope_ids("local", "run-human-race")[0]
+            invocation, _attempt = seed.create_invocation_attempt(
+                namespace="local",
+                run_id="run-human-race",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-human-race",
+                effect_key="effect-human-race",
+            )
+            request = seed.create_human_request(
+                namespace="local",
+                run_id="run-human-race",
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                request_type="review",
+                title="Review",
+                instructions="Choose.",
+                input_value={"artifactRefs": []},
+                subject_digest="sha256:subject",
+                choices=["approve", "reject"],
+                decision_schema={"type": "object"},
+                authorized_subjects=["reviewer"],
+                expires_at="2099-01-01T00:00:00Z",
+            )
+        finally:
+            seed.close()
+
+        barrier = Barrier(2)
+
+        def decide(choice: str) -> tuple[str, str]:
+            repository = PostgresLedgerRepository(isolated)
+            try:
+                barrier.wait(timeout=5)
+                result = repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice=choice,
+                    comment="",
+                    expected_version=1,
+                    subject_digest="sha256:subject",
+                    actor="reviewer",
+                    idempotency_key=f"human-race-{choice}",
+                )
+                return ("ok", str(result["status"]))
+            except ValueError:
+                return ("conflict", choice)
+            finally:
+                repository.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(decide, ["approve", "reject"]))
+        assert sorted(item[0] for item in results) == ["conflict", "ok"]
+
+
+def test_postgres_repository_human_decision_rolls_back_on_event_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-human-rollback",
+            )
+            scope_id = repository.list_scope_ids("local", "run-human-rollback")[0]
+            invocation, _attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-human-rollback",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-human-rollback",
+                effect_key="effect-human-rollback",
+            )
+            request = repository.create_human_request(
+                namespace="local",
+                run_id="run-human-rollback",
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                request_type="review",
+                title="Review",
+                instructions="Choose.",
+                input_value={"artifactRefs": []},
+                subject_digest="sha256:subject",
+                choices=["approve", "reject"],
+                decision_schema={"type": "object"},
+                authorized_subjects=["reviewer"],
+                expires_at="2099-01-01T00:00:00Z",
+            )
+            original_insert_event = repository._insert_event
+
+            def fail_decision_event(*args: object, **kwargs: object) -> None:
+                if kwargs.get("event_type") == "human.decided":
+                    raise RuntimeError("injected human decision event failure")
+                original_insert_event(*args, **kwargs)
+
+            monkeypatch.setattr(repository, "_insert_event", fail_decision_event)
+            with pytest.raises(RuntimeError, match="human decision event failure"):
+                repository.decide_human_request(
+                    namespace="local",
+                    request_id=request["id"],
+                    choice="approve",
+                    comment="",
+                    expected_version=1,
+                    subject_digest="sha256:subject",
+                    actor="reviewer",
+                    idempotency_key="human-rollback",
+                )
+            assert repository.get_human_request(
+                "local", request["id"]
+            )["status"] == "pending"
+            assert repository.get_human_decision(
+                "local", request["id"]
+            ) is None
+            assert repository.get_human_progress_intent(
+                "local", request["id"]
+            ) is None
+        finally:
+            repository.close()
+
+
 def test_postgres_repository_rolls_back_after_event_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
