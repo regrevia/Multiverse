@@ -362,7 +362,7 @@
       "status": "pending",
       "package": "../../工作包规划.md#w07",
       "report": null,
-      "implementation_commit": null,
+      "implementation_commit": "8a26d61",
       "blockers": []
     },
     {
