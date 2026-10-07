@@ -5,7 +5,7 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`646e6513609c796a93226f60e2f75387c2490dec4a7690c4a08934a7b1da56cb`
+Manifest SHA256：`bb5fedd887ad9c8a11956ae7e11a0b15f0d0c17f933130ff852fdd5fcb5d6f82`
 Implementation commit：`d6e6f23`。
 
 ## 已完成
@@ -38,12 +38,13 @@ Implementation commit：`d6e6f23`。
 - 服务：Homebrew PostgreSQL `17.11`
 - 每个 migration 集成用例使用临时 schema 并在退出时清理。
 - PostgreSQL DSN：本机 socket `postgresql+psycopg:///postgres`，未写入测试日志或提交内容。
-- 真实 PostgreSQL storage suite：`38 passed`
+- 真实 PostgreSQL storage suite：`42 passed`
+- Repository Wait/Worker slice：`15 passed`
 - Migration schema suite：`7 passed`
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`600 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`604 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -54,6 +55,7 @@ Implementation commit：`d6e6f23`。
 - Final 0004 schema reviewer：`01a112fe-4e35-7793-ac7c-d4aa73ed989e`，approved 当前 manifest checkpoint；不代表 W15 完成。
 - Repository first-slice reviewer：`01a1135b-fe5e-7cc0-8b16-cacfde7b5d31`，approved namespace/transaction/Invocation/Attempt slice。
 - Repository Outbox first slice：`01a1138b-b9eb-7b23-9228-fea12f747317`，首次发现两个 P1，修复后最终复审 approved；复审覆盖原子 Outbox、Run 行锁事件序号、cancelled wait 重激活和新增并发/回滚测试。
+- Repository Wait/Worker slice：`01a113a0-b8d0-7540-b899-4c9f5d059c8b`，首次发现完成竞态和 stale Worker ownership 两个 P1；修复后最终复审 approved。新增条件完成/释放、worker ownership、stale reclaim、并发唯一领取和 namespace 重排测试。
 
 ## W15 尚未完成
 

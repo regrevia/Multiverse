@@ -206,6 +206,236 @@ class PostgresLedgerRepository:
             ).all()
         return [str(row[0]) for row in rows]
 
+    def list_wait_records(
+        self,
+        *,
+        namespace: str,
+        run_id: str | None = None,
+        kind: str | None = None,
+        statuses: tuple[str, ...] = ("pending", "claimed"),
+    ) -> list[dict[str, Any]]:
+        if not namespace.strip():
+            raise ValueError("namespace is required")
+        if not statuses:
+            return []
+        conditions = ["namespace = :namespace", "status = ANY(:statuses)"]
+        parameters: dict[str, Any] = {
+            "namespace": namespace,
+            "statuses": list(statuses),
+        }
+        if run_id is not None:
+            conditions.append("run_id = :run_id")
+            parameters["run_id"] = run_id
+        if kind is not None:
+            conditions.append("kind = :kind")
+            parameters["kind"] = kind
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT * FROM waits WHERE "
+                    + " AND ".join(conditions)
+                    + " ORDER BY not_before, created_at, id"
+                ),
+                parameters,
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def list_due_wait_records(
+        self,
+        *,
+        namespace: str,
+        now: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if not namespace.strip():
+            raise ValueError("namespace is required")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT * FROM waits
+                    WHERE namespace = :namespace
+                      AND status = 'pending'
+                      AND not_before <= :now
+                    ORDER BY not_before, created_at, id
+                    LIMIT :limit
+                    """
+                ),
+                {"namespace": namespace, "now": now, "limit": limit},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def get_wait(self, *, namespace: str, wait_id: str) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT * FROM waits "
+                    "WHERE id = :wait_id AND namespace = :namespace"
+                ),
+                {"wait_id": wait_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def claim_wait(
+        self,
+        *,
+        namespace: str,
+        wait_id: str,
+        worker_id: str,
+        now: str,
+    ) -> dict[str, Any] | None:
+        if not namespace.strip():
+            raise ValueError("namespace is required")
+        if not worker_id.strip():
+            raise ValueError("worker id is required")
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    UPDATE waits
+                    SET status = 'claimed', worker_id = :worker_id,
+                        claimed_at = :now, updated_at = :now
+                    WHERE id = :wait_id AND namespace = :namespace
+                      AND status = 'pending' AND not_before <= :now
+                    RETURNING *
+                    """
+                ),
+                {
+                    "wait_id": wait_id,
+                    "namespace": namespace,
+                    "worker_id": worker_id,
+                    "now": now,
+                },
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def complete_wait(
+        self,
+        *,
+        namespace: str,
+        wait_id: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        if not worker_id.strip():
+            raise ValueError("worker id is required")
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT * FROM waits "
+                    "WHERE id = :wait_id AND namespace = :namespace"
+                ),
+                {"wait_id": wait_id, "namespace": namespace},
+            ).mappings().first()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] in {"completed", "cancelled"}:
+                return dict(row)
+            if row["status"] != "claimed":
+                raise ValueError(f"wait is not claimed: {row['status']}")
+            updated = connection.execute(
+                text(
+                    """
+                    UPDATE waits SET status = 'completed', updated_at = :now
+                    WHERE id = :wait_id AND namespace = :namespace
+                      AND status = 'claimed' AND worker_id = :worker_id
+                    RETURNING *
+                    """
+                ),
+                {
+                    "wait_id": wait_id,
+                    "namespace": namespace,
+                    "worker_id": worker_id,
+                    "now": _now(),
+                },
+            ).mappings().first()
+            if updated is None:
+                current = connection.execute(
+                    text(
+                        "SELECT status, worker_id FROM waits "
+                        "WHERE id = :wait_id AND namespace = :namespace"
+                    ),
+                    {"wait_id": wait_id, "namespace": namespace},
+                ).mappings().one()
+                if current["worker_id"] != worker_id:
+                    raise ValueError("wait is claimed by another worker")
+                raise ValueError(f"wait state changed: {current['status']}")
+        return dict(updated)
+
+    def release_wait(
+        self,
+        *,
+        namespace: str,
+        wait_id: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        if not worker_id.strip():
+            raise ValueError("worker id is required")
+        with self._store.transaction() as connection:
+            updated = connection.execute(
+                text(
+                    """
+                    UPDATE waits
+                    SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                        updated_at = :now
+                    WHERE id = :wait_id AND namespace = :namespace
+                      AND status = 'claimed' AND worker_id = :worker_id
+                    RETURNING *
+                    """
+                ),
+                {
+                    "wait_id": wait_id,
+                    "namespace": namespace,
+                    "worker_id": worker_id,
+                    "now": _now(),
+                },
+            ).mappings().first()
+            if updated is not None:
+                return dict(updated)
+            row = connection.execute(
+                text(
+                    "SELECT * FROM waits "
+                    "WHERE id = :wait_id AND namespace = :namespace"
+                ),
+                {"wait_id": wait_id, "namespace": namespace},
+            ).mappings().first()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["worker_id"] != worker_id and row["status"] == "claimed":
+                raise ValueError("wait is claimed by another worker")
+        return dict(row)
+
+    def requeue_stale_waits(
+        self,
+        *,
+        namespace: str,
+        older_than: str,
+        now: str,
+    ) -> int:
+        if not namespace.strip():
+            raise ValueError("namespace is required")
+        with self._store.transaction() as connection:
+            result = connection.execute(
+                text(
+                    """
+                    UPDATE waits
+                    SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                        updated_at = :now
+                    WHERE namespace = :namespace
+                      AND status = 'claimed'
+                      AND claimed_at IS NOT NULL
+                      AND claimed_at <= :older_than
+                    """
+                ),
+                {
+                    "namespace": namespace,
+                    "older_than": older_than,
+                    "now": now,
+                },
+            )
+            return int(result.rowcount)
+
     def list_scope_ids(self, namespace: str, run_id: str) -> list[str]:
         with self._store.transaction() as connection:
             rows = connection.execute(

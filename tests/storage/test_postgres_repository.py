@@ -98,6 +98,284 @@ def test_postgres_repository_creates_durable_queued_run() -> None:
             repository.close()
 
 
+def test_postgres_repository_claims_completes_and_releases_waits() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-wait-contract",
+            )
+            waits = repository.list_wait_records(
+                namespace="local",
+                run_id="run-wait-contract",
+            )
+            assert len(waits) == 1
+            wait_id = waits[0]["id"]
+            due = repository.list_due_wait_records(
+                namespace="local",
+                now="9999-01-01T00:00:00Z",
+            )
+            assert [item["id"] for item in due] == [wait_id]
+            claimed = repository.claim_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-1",
+                now="9999-01-01T00:00:00Z",
+            )
+            assert claimed is not None
+            assert claimed["status"] == "claimed"
+            assert claimed["worker_id"] == "worker-1"
+            assert (
+                repository.claim_wait(
+                    namespace="local",
+                    wait_id=wait_id,
+                    worker_id="worker-2",
+                    now="9999-01-01T00:00:01Z",
+                )
+                is None
+            )
+            released = repository.release_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-1",
+            )
+            assert released["status"] == "pending"
+            claimed_again = repository.claim_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-2",
+                now="9999-01-01T00:00:02Z",
+            )
+            assert claimed_again is not None
+            completed = repository.complete_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-2",
+            )
+            assert completed["status"] == "completed"
+            assert repository.list_due_wait_records(
+                namespace="local",
+                now="9999-01-01T00:00:00Z",
+            ) == []
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_requeues_only_stale_waits_in_namespace() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            for namespace, run_id in (("local", "run-stale-local"), ("other", "run-stale-other")):
+                repository.create_queued_run(
+                    namespace=namespace,
+                    deployment_id=None,
+                    workflow_id="delivery",
+                    package_digest="sha256:package",
+                    binding_digest=None,
+                    plan={"entry": "produce"},
+                    input_value={"goal": namespace},
+                    deadline_at="2099-01-01T00:00:00Z",
+                    entry_node_id="produce",
+                    run_id=run_id,
+                )
+                wait_id = repository.list_wait_records(
+                    namespace=namespace,
+                    run_id=run_id,
+                )[0]["id"]
+                assert repository.claim_wait(
+                        namespace=namespace,
+                        wait_id=wait_id,
+                        worker_id=f"{namespace}-worker",
+                        now="9999-01-01T00:00:00Z",
+                )
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE waits SET claimed_at = :claimed_at "
+                        "WHERE wait_key IN ('run-start:run-stale-local', "
+                        "'run-start:run-stale-other')"
+                    ),
+                    {"claimed_at": "2026-10-05T00:00:00Z"},
+                )
+            assert (
+                repository.requeue_stale_waits(
+                    namespace="local",
+                    older_than="2026-10-06T00:00:00Z",
+                    now="2026-10-06T00:01:00Z",
+                )
+                == 1
+            )
+            assert repository.list_wait_records(
+                namespace="local",
+                run_id="run-stale-local",
+                statuses=("pending",),
+            )[0]["status"] == "pending"
+            assert repository.list_wait_records(
+                namespace="other",
+                run_id="run-stale-other",
+                statuses=("claimed",),
+            )[0]["status"] == "claimed"
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_claim_wait_has_one_concurrent_winner() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        seed = PostgresLedgerRepository(isolated)
+        try:
+            seed.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-wait-race",
+            )
+            wait_id = seed.list_wait_records(
+                namespace="local",
+                run_id="run-wait-race",
+            )[0]["id"]
+        finally:
+            seed.close()
+
+        barrier = Barrier(2)
+
+        def claim(worker_id: str) -> dict[str, object] | None:
+            barrier.wait(timeout=5)
+            repository = PostgresLedgerRepository(isolated)
+            try:
+                return repository.claim_wait(
+                    namespace="local",
+                    wait_id=wait_id,
+                    worker_id=worker_id,
+                    now="9999-01-01T00:00:00Z",
+                )
+            finally:
+                repository.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(claim, ["worker-1", "worker-2"]))
+
+        assert sum(result is not None for result in results) == 1
+        winner = next(result for result in results if result is not None)
+        assert winner["status"] == "claimed"
+        assert winner["worker_id"] in {"worker-1", "worker-2"}
+
+
+def test_postgres_repository_stale_worker_cannot_complete_or_release_new_claim(
+) -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-wait-fencing",
+            )
+            wait_id = repository.list_wait_records(
+                namespace="local",
+                run_id="run-wait-fencing",
+            )[0]["id"]
+            assert repository.claim_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-old",
+                now="9999-01-01T00:00:00Z",
+            )
+            assert (
+                repository.requeue_stale_waits(
+                    namespace="local",
+                    older_than="9998-12-31T23:59:59Z",
+                    now="9999-01-01T00:00:02Z",
+                )
+                == 0
+            )
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE waits SET claimed_at = :claimed_at "
+                        "WHERE id = :wait_id"
+                    ),
+                    {
+                        "claimed_at": "2026-10-05T00:00:00Z",
+                        "wait_id": wait_id,
+                    },
+                )
+            assert (
+                repository.requeue_stale_waits(
+                    namespace="local",
+                    older_than="2026-10-06T00:00:00Z",
+                    now="2026-10-06T00:01:00Z",
+                )
+                == 1
+            )
+            assert repository.claim_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-new",
+                now="9999-01-01T00:00:00Z",
+            )
+            with pytest.raises(ValueError, match="worker"):
+                repository.complete_wait(
+                    namespace="local",
+                    wait_id=wait_id,
+                    worker_id="worker-old",
+                )
+            with pytest.raises(ValueError, match="worker"):
+                repository.release_wait(
+                    namespace="local",
+                    wait_id=wait_id,
+                    worker_id="worker-old",
+                )
+            assert repository.complete_wait(
+                namespace="local",
+                wait_id=wait_id,
+                worker_id="worker-new",
+            )["status"] == "completed"
+        finally:
+            repository.close()
+
+
 def test_postgres_repository_duplicate_run_id_rolls_back_second_write() -> None:
     dsn = _dsn()
     if not dsn:
