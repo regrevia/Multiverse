@@ -477,7 +477,7 @@
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
       "implementation_commit": null,
-      "checkpoint_snapshot_digest": "sha256:993434c8f0e2dbc324a5beec1572875172f0b791c12d5903d594785077c6805d",
+      "checkpoint_snapshot_digest": "sha256:4b5713758af5e59015737389a45001ba30d59847b23ce7be948f1e7bd2ff01a0",
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",

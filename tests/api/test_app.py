@@ -40,6 +40,17 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
         ready = await client.get("/health/ready")
         assert ready.status_code == 200
         assert ready.json()["status"] == "ready"
+        assert ready.json()["profile"] == "personal"
+        assert ready.json()["databaseBackend"] == "sqlite"
+        assert ready.json()["runtimeBackend"] == "sqlite-ledger"
+        assert ready.json()["scheduler"] == "local-single-active"
+        assert ready.json()["capabilities"]["workflowLedger"] is True
+        assert ready.json()["capabilities"]["postgresRuntime"] is False
+        assert ready.json()["capabilities"]["localArtifactBytes"] is True
+        assert ready.json()["capabilities"]["serviceArtifactBytes"] is False
+        assert ready.json()["checks"]["database"]["status"] == "ready"
+        assert ready.json()["checks"]["artifactStorage"]["status"] == "ready"
+        assert "test-token" not in ready.text
 
         created = await client.post(
             "/api/v1/namespaces/local/runs",
@@ -78,6 +89,22 @@ async def test_health_and_run_projection_endpoints(settings: ServiceSettings) ->
         assert [event["seq"] for event in events.json()["events"]] == list(
             range(1, len(events.json()["events"]) + 1)
         )
+
+
+@pytest.mark.anyio
+async def test_health_ready_returns_503_when_runtime_database_disappears(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    settings.database_path.unlink()
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+    assert response.json()["namespace"] == "local"
+    assert response.json()["deploymentId"] == "deployment_local"
+    application.state.runtime.close()
 
 
 @pytest.mark.anyio

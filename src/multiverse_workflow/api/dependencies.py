@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import secrets
+import sqlite3
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from multiverse_workflow.runtime.catalog import load_executor_registry
 from multiverse_workflow.runtime.dispatch_lease import DispatchGate
@@ -116,6 +118,140 @@ class ServiceSettings:
     @property
     def database_target(self) -> DatabaseTarget:
         return self._database_target
+
+    def readiness(self) -> dict[str, Any]:
+        database_ready = False
+        artifact_ready = False
+        database_detail = "database is not available"
+        artifact_detail = "artifact storage is not available"
+        if self.database_target.backend == "sqlite":
+            database_path = self.database_path.expanduser().resolve()
+            try:
+                if database_path.is_file():
+                    connection = sqlite3.connect(
+                        f"file:{database_path}?mode=ro",
+                        uri=True,
+                    )
+                    try:
+                        connection.execute("SELECT 1").fetchone()
+                        required_tables = {
+                            "runs",
+                            "commands",
+                            "scopes",
+                            "invocations",
+                            "attempts",
+                            "human_requests",
+                            "human_decisions",
+                            "human_progress_intents",
+                            "waits",
+                            "outbox",
+                            "run_events",
+                            "artifacts",
+                            "codex_interactions",
+                            "external_artifact_sources",
+                        }
+                        actual_tables = {
+                            str(row[0])
+                            for row in connection.execute(
+                                "SELECT name FROM sqlite_master "
+                                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                            ).fetchall()
+                        }
+                        required_columns = {
+                            "runs": {"id", "namespace", "status", "version"},
+                            "commands": {"id", "idempotency_key", "namespace", "status"},
+                            "scopes": {"id", "run_id", "status"},
+                            "invocations": {"id", "run_id", "scope_id", "status"},
+                            "attempts": {"id", "run_id", "scope_id", "invocation_id"},
+                            "human_requests": {"id", "run_id", "version", "status"},
+                            "human_decisions": {"id", "request_id", "idempotency_key"},
+                            "human_progress_intents": {"id", "request_id", "status"},
+                            "waits": {"id", "namespace", "wait_key", "run_id", "status"},
+                            "outbox": {"id", "action_key", "attempt_id", "status"},
+                            "run_events": {"id", "run_id", "seq", "type"},
+                            "artifacts": {"id", "namespace", "run_id", "digest", "status"},
+                            "codex_interactions": {"id", "attempt_id", "status"},
+                            "external_artifact_sources": {
+                                "attempt_id",
+                                "execution_ref",
+                                "source_artifact_id",
+                                "version",
+                            },
+                        }
+                        schema_ready = required_tables.issubset(actual_tables)
+                        for table, columns in required_columns.items():
+                            actual_columns = {
+                                str(row[1])
+                                for row in connection.execute(
+                                    f'PRAGMA table_info("{table}")'
+                                ).fetchall()
+                            }
+                            if not columns.issubset(actual_columns):
+                                schema_ready = False
+                        integrity = connection.execute(
+                            "PRAGMA integrity_check"
+                        ).fetchone()
+                        database_ready = (
+                            schema_ready
+                            and integrity is not None
+                            and integrity[0] == "ok"
+                        )
+                    finally:
+                        connection.close()
+                    if database_ready:
+                        database_detail = "sqlite is readable with the Runtime schema"
+                    else:
+                        database_detail = "sqlite Runtime schema is incomplete"
+            except (OSError, sqlite3.Error):
+                database_ready = False
+            artifact_root = database_path.parent / "artifacts"
+            try:
+                artifact_root.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    dir=artifact_root,
+                    prefix=".readiness-",
+                    delete=True,
+                ) as probe:
+                    probe.write(b"multiverse-readiness")
+                    probe.flush()
+                    probe.seek(0)
+                    artifact_ready = probe.read() == b"multiverse-readiness"
+                if artifact_ready:
+                    artifact_detail = "local artifact storage passed write/read probe"
+            except OSError:
+                artifact_ready = False
+        return {
+            "status": "ready" if database_ready and artifact_ready else "not_ready",
+            "profile": self.profile,
+            "databaseBackend": self.database_target.backend,
+            "runtimeBackend": "sqlite-ledger",
+            "scheduler": "local-single-active",
+            "checks": {
+                "database": {
+                    "status": "ready" if database_ready else "not_ready",
+                    "detail": database_detail,
+                },
+                "artifactStorage": {
+                    "status": "ready" if artifact_ready else "not_ready",
+                    "detail": artifact_detail,
+                },
+                "migration": {
+                    "status": "ready" if database_ready else "not_ready",
+                    "detail": "SQLite Ledger schema is checked during startup",
+                },
+            },
+            "capabilities": {
+                "workflowLedger": True,
+                "persistentWorker": True,
+                "postgresRuntime": False,
+                "localArtifactBytes": True,
+                "serviceArtifactBytes": False,
+            },
+            "limitations": [
+                "team PostgreSQL Runtime backend is not wired",
+                "single-process SQLite deployment",
+            ],
+        }
 
     def create_application(self) -> RuntimeApplication:
         return RuntimeApplication(

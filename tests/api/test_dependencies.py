@@ -85,3 +85,89 @@ def test_service_settings_rejects_offline_until_resource_closure_is_verified(
             binding_path=Path("examples/bindings/content-local.yaml"),
             profile="offline",
         )
+
+
+def test_service_settings_readiness_reports_missing_runtime_storage(tmp_path: Path) -> None:
+    settings = ServiceSettings(
+        database_path=tmp_path / "not-created.db",
+        package_dir=Path("presets/content-delivery"),
+        binding_path=Path("examples/bindings/content-local.yaml"),
+    )
+    readiness = settings.readiness()
+    assert readiness["status"] == "not_ready"
+    assert readiness["checks"]["database"]["status"] == "not_ready"
+    assert readiness["capabilities"]["serviceArtifactBytes"] is False
+
+
+def test_service_settings_readiness_rejects_incomplete_runtime_schema(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "partial.db"
+    import sqlite3
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE unrelated (id INTEGER)")
+    (tmp_path / "artifacts").mkdir()
+    settings = ServiceSettings(
+        database_path=database,
+        package_dir=Path("presets/content-delivery"),
+        binding_path=Path("examples/bindings/content-local.yaml"),
+    )
+    assert settings.readiness()["checks"]["database"]["status"] == "not_ready"
+
+
+def test_service_settings_readiness_rejects_placeholder_runtime_tables(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+
+    database = tmp_path / "placeholder.db"
+    table_names = (
+        "runs",
+        "commands",
+        "scopes",
+        "invocations",
+        "attempts",
+        "human_requests",
+        "human_decisions",
+        "human_progress_intents",
+        "waits",
+        "outbox",
+        "run_events",
+        "artifacts",
+        "codex_interactions",
+        "external_artifact_sources",
+    )
+    with sqlite3.connect(database) as connection:
+        for table in table_names:
+            connection.execute(f'CREATE TABLE "{table}" (placeholder TEXT)')
+    (tmp_path / "artifacts").mkdir()
+    settings = ServiceSettings(
+        database_path=database,
+        package_dir=Path("presets/content-delivery"),
+        binding_path=Path("examples/bindings/content-local.yaml"),
+    )
+    assert settings.readiness()["status"] == "not_ready"
+
+
+def test_service_settings_readiness_probes_artifact_write_read_delete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "runtime.db"
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    settings = ServiceSettings(
+        database_path=database,
+        package_dir=Path("presets/content-delivery"),
+        binding_path=Path("examples/bindings/content-local.yaml"),
+    )
+    settings.create_application().close()
+
+    def reject_artifact_probe(*args: object, **kwargs: object):
+        raise OSError("simulated read-only artifact storage")
+
+    monkeypatch.setattr("tempfile.NamedTemporaryFile", reject_artifact_probe)
+    readiness = settings.readiness()
+    assert readiness["checks"]["artifactStorage"]["status"] == "not_ready"
+    assert readiness["status"] == "not_ready"

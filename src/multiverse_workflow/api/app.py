@@ -108,13 +108,19 @@ def create_app(settings: ServiceSettings) -> FastAPI:
     async def live() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/health/ready")
-    async def ready() -> dict[str, str]:
-        return {
-            "status": "ready",
+    @app.get("/health/ready", response_model=None)
+    async def ready() -> dict[str, Any] | Response:
+        report = settings.readiness()
+        payload = {
+            **report,
             "namespace": settings.namespace,
             "deploymentId": settings.deployment_id,
         }
+        if report["status"] != "ready":
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(status_code=503, content=payload)
+        return payload
 
     @app.post("/api/v1/namespaces/{namespace}/runs", status_code=202)
     async def create_run(
