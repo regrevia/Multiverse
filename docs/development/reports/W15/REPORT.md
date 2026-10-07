@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`6d414134dc8633e42bf905286d09ce727e8ad204742e95a295f648f3c239a123`
-Implementation commit：`37fc221`。
+Manifest SHA256：`8267313c43440146cd17b9e3d60863b531b4ea8477ab96fccc45da6b4c428b2a`
+Implementation commit：待本轮提交。
 
 ## 已完成
 
@@ -43,13 +43,13 @@ Implementation commit：`37fc221`。
 - 服务：Homebrew PostgreSQL `17.11`
 - 每个 migration 集成用例使用临时 schema 并在退出时清理。
 - PostgreSQL DSN：本机 socket `postgresql+psycopg:///postgres`，未写入测试日志或提交内容。
-- 真实 PostgreSQL storage suite：`54 passed`
-- Repository Wait/Worker/Command/Run update/Human/Artifact slice：`27 passed`
+- 真实 PostgreSQL storage suite：`55 passed`
+- Repository Wait/Worker/Command/Run update/Human/Artifact/Runtime read slice：`28 passed`
 - Migration schema suite：`7 passed`
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`620 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`621 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -66,6 +66,7 @@ Implementation commit：`37fc221`。
 - Run optimistic update bounded checkpoint：`01a11527-5673-78a3-b1dd-e4f4689549ed`，初审 P2 测试未建立旧 invocation；补充真实 Invocation 绑定、节点切换清空断言后复审 approved。
 - HumanRequest/Decision bounded checkpoint：`01a11557-c252-7b72-a396-456bfdfdf3b3`，初审发现 Schema、expiry、namespace idempotency 和并发/回滚证据缺口；补齐 0005、RFC3339 expiry、授权/Schema/幂等/并发/回滚后最终 approved。
 - Artifact metadata bounded checkpoint：`01a1158d-acfc-7733-a26c-6bdf37eaa39c`，初审发现 stale observation、终态、完整 metadata 校验和并发证据缺口；补齐事务内重核验、W02 validator、Run lock 和非法 digest 负例后最终 approved。
+- Runtime entity read bounded checkpoint：`01a115bf-b32f-7550-866e-5eed40eaa6e5`，覆盖 namespace-scoped Scope/Invocation/Attempt/Event 读取与 Artifact metadata；最终 approved。
 
 ## W15 尚未完成
 

@@ -747,6 +747,62 @@ def test_postgres_repository_updates_run_with_optimistic_version_and_event() -> 
             repository.close()
 
 
+def test_postgres_repository_reads_namespace_scoped_runtime_entities() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-runtime-read",
+            )
+            scope_id = repository.list_scope_ids("local", "run-runtime-read")[0]
+            invocation, attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-runtime-read",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-runtime-read",
+                effect_key="effect-runtime-read",
+            )
+            assert repository.get_scope("local", scope_id)["run_id"] == (
+                "run-runtime-read"
+            )
+            assert repository.get_scope("other", scope_id) is None
+            assert repository.get_invocation("local", invocation["id"])["scope_id"] == (
+                scope_id
+            )
+            assert repository.get_invocation("other", invocation["id"]) is None
+            assert repository.get_attempt("local", attempt["id"])["invocation_id"] == (
+                invocation["id"]
+            )
+            assert repository.get_attempt("other", attempt["id"]) is None
+            assert repository.list_invocations(
+                "local", "run-runtime-read"
+            ) == [invocation["id"]]
+            assert repository.list_attempts("local", "run-runtime-read") == [
+                attempt["id"]
+            ]
+            events = repository.list_event_records("local", "run-runtime-read")
+            assert [event["seq"] for event in events] == [1, 2, 3, 4]
+            assert events[-1]["attempt_id"] == attempt["id"]
+        finally:
+            repository.close()
+
+
 def test_postgres_repository_run_update_has_one_concurrent_version_winner() -> None:
     dsn = _dsn()
     if not dsn:

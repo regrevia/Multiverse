@@ -848,6 +848,88 @@ class PostgresLedgerRepository:
             ).all()
         return [str(row[0]) for row in rows]
 
+    def get_scope(self, namespace: str, scope_id: str) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT scopes.* FROM scopes "
+                    "JOIN runs ON runs.id = scopes.run_id "
+                    "WHERE scopes.id = :scope_id AND runs.namespace = :namespace"
+                ),
+                {"scope_id": scope_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def get_invocation(
+        self, namespace: str, invocation_id: str
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT invocations.* FROM invocations "
+                    "JOIN runs ON runs.id = invocations.run_id "
+                    "WHERE invocations.id = :invocation_id "
+                    "AND runs.namespace = :namespace"
+                ),
+                {"invocation_id": invocation_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def get_attempt(self, namespace: str, attempt_id: str) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT attempts.* FROM attempts "
+                    "JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE attempts.id = :attempt_id AND runs.namespace = :namespace"
+                ),
+                {"attempt_id": attempt_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def list_invocations(self, namespace: str, run_id: str) -> list[str]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT invocations.id FROM invocations "
+                    "JOIN runs ON runs.id = invocations.run_id "
+                    "WHERE invocations.run_id = :run_id "
+                    "AND runs.namespace = :namespace "
+                    "ORDER BY invocations.created_at, invocations.id"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).all()
+        return [str(row[0]) for row in rows]
+
+    def list_attempts(self, namespace: str, run_id: str) -> list[str]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT attempts.id FROM attempts "
+                    "JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE attempts.run_id = :run_id "
+                    "AND runs.namespace = :namespace "
+                    "ORDER BY attempts.created_at, attempts.attempt_no"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).all()
+        return [str(row[0]) for row in rows]
+
+    def list_event_records(
+        self, namespace: str, run_id: str
+    ) -> list[dict[str, Any]]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT events.* FROM run_events events "
+                    "JOIN runs ON runs.id = events.run_id "
+                    "WHERE events.run_id = :run_id AND runs.namespace = :namespace "
+                    "ORDER BY events.seq"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
     def create_invocation_attempt(
         self,
         *,
@@ -969,9 +1051,11 @@ class PostgresLedgerRepository:
                 invocation_id=invocation_id,
                 attempt_id=attempt_id,
             )
-        return self.get_invocation(namespace, invocation_id), self.get_attempt(
-            namespace, attempt_id
-        )
+        invocation = self.get_invocation(namespace, invocation_id)
+        attempt = self.get_attempt(namespace, attempt_id)
+        if invocation is None or attempt is None:
+            raise RuntimeError("invocation or attempt disappeared after commit")
+        return invocation, attempt
 
     def create_human_request(
         self,
@@ -1458,7 +1542,7 @@ class PostgresLedgerRepository:
             "sizeBytes",
             "digest",
         }
-        if any(set(item) != required for item in artifacts):
+        if any(not isinstance(item, dict) or set(item) != required for item in artifacts):
             raise ValueError("artifact metadata shape is invalid")
         if any(
             item["executionRef"] != execution_ref or item["namespace"] != namespace
@@ -1849,60 +1933,6 @@ class PostgresLedgerRepository:
                     "wait_id": existing["id"],
                 },
             )
-
-    def get_invocation(self, namespace: str, invocation_id: str) -> dict[str, Any]:
-        with self._store.transaction() as connection:
-            row = connection.execute(
-                text(
-                    "SELECT invocations.* FROM invocations "
-                    "JOIN runs ON runs.id = invocations.run_id "
-                    "WHERE invocations.id = :invocation_id AND runs.namespace = :namespace"
-                ),
-                {"invocation_id": invocation_id, "namespace": namespace},
-            ).mappings().first()
-        if row is None:
-            raise KeyError(f"invocation not found: {invocation_id}")
-        return dict(row)
-
-    def get_attempt(self, namespace: str, attempt_id: str) -> dict[str, Any]:
-        with self._store.transaction() as connection:
-            row = connection.execute(
-                text(
-                    "SELECT attempts.* FROM attempts "
-                    "JOIN runs ON runs.id = attempts.run_id "
-                    "WHERE attempts.id = :attempt_id AND runs.namespace = :namespace"
-                ),
-                {"attempt_id": attempt_id, "namespace": namespace},
-            ).mappings().first()
-        if row is None:
-            raise KeyError(f"attempt not found: {attempt_id}")
-        return dict(row)
-
-    def list_invocations(self, namespace: str, run_id: str) -> list[str]:
-        with self._store.transaction() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT invocations.id FROM invocations "
-                    "JOIN runs ON runs.id = invocations.run_id "
-                    "WHERE invocations.run_id = :run_id AND runs.namespace = :namespace "
-                    "ORDER BY invocations.created_at, invocations.id"
-                ),
-                {"run_id": run_id, "namespace": namespace},
-            ).all()
-        return [str(row[0]) for row in rows]
-
-    def list_attempts(self, namespace: str, run_id: str) -> list[str]:
-        with self._store.transaction() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT attempts.id FROM attempts "
-                    "JOIN runs ON runs.id = attempts.run_id "
-                    "WHERE attempts.run_id = :run_id AND runs.namespace = :namespace "
-                    "ORDER BY attempts.created_at, attempts.attempt_no"
-                ),
-                {"run_id": run_id, "namespace": namespace},
-            ).all()
-        return [str(row[0]) for row in rows]
 
     def close(self) -> None:
         self._store.close()

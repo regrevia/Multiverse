@@ -1,8 +1,8 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
-Implementation commit：`37fc221`。
-当前已审 manifest：`sha256:6d414134dc8633e42bf905286d09ce727e8ad204742e95a295f648f3c239a123`
+Implementation commit：待本轮提交。
+当前已审 manifest：`sha256:8267313c43440146cd17b9e3d60863b531b4ea8477ab96fccc45da6b4c428b2a`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
@@ -15,7 +15,7 @@ Scheduler WaitStore reviewer task：`01a114d7-8d2a-7ad1-a013-1c7645ab4331`，bou
 Command Receipt reviewer task：`01a11502-45ea-75a3-abce-a7de63b743d6`，初审 P1 已关闭，最终复审 approved
 Run optimistic update reviewer task：`01a11527-5673-78a3-b1dd-e4f4689549ed`，初审 P2 已关闭，最终复审 approved
 HumanRequest/Decision reviewer task：`01a11557-c252-7b72-a396-456bfdfdf3b3`，初审 P1/P2 已关闭，最终复审 approved
-Artifact reviewer task：`01a1158d-acfc-7733-a26c-6bdf37eaa39c`，初审 P1/P2 已关闭，最终复审 approved
+Artifact/Runtime read reviewer task：`01a115bf-b32f-7550-866e-5eed40eaa6e5`，初审 P1/P2/P3 已关闭，最终复审 approved
 
 已审阅范围：
 
