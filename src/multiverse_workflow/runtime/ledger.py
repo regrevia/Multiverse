@@ -3140,6 +3140,98 @@ class Ledger:
                     raise KeyError(f"wait not found: {wait_id}")
         return self.get_wait(wait_id)  # type: ignore[return-value]
 
+    def complete_wait_owned(
+        self,
+        wait_id: str,
+        *,
+        namespace: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM waits WHERE id = ? AND namespace = ?",
+                (wait_id, namespace),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] in {"completed", "cancelled"}:
+                return dict(row)
+            if row["status"] != "claimed":
+                raise LedgerConflict(f"wait is not claimed: {row['status']}")
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'completed', updated_at = ?
+                WHERE id = ? AND namespace = ? AND status = 'claimed'
+                  AND worker_id = ?
+                """,
+                (_now(), wait_id, namespace, worker_id),
+            )
+            if updated.rowcount != 1:
+                raise LedgerConflict("wait is claimed by another worker")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def release_wait_owned(
+        self,
+        wait_id: str,
+        *,
+        namespace: str,
+        worker_id: str,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM waits WHERE id = ? AND namespace = ?",
+                (wait_id, namespace),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] != "claimed":
+                return dict(row)
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                    updated_at = ?
+                WHERE id = ? AND namespace = ? AND status = 'claimed'
+                  AND worker_id = ?
+                """,
+                (_now(), wait_id, namespace, worker_id),
+            )
+            if updated.rowcount != 1:
+                raise LedgerConflict("wait is claimed by another worker")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
+    def reschedule_wait_owned(
+        self,
+        wait_id: str,
+        *,
+        namespace: str,
+        worker_id: str,
+        not_before: str,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM waits WHERE id = ? AND namespace = ?",
+                (wait_id, namespace),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] != "claimed":
+                raise LedgerConflict(f"wait cannot be rescheduled from {row['status']}")
+            updated = connection.execute(
+                """
+                UPDATE waits
+                SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                    not_before = ?, updated_at = ?
+                WHERE id = ? AND namespace = ? AND status = 'claimed'
+                  AND worker_id = ?
+                """,
+                (not_before, _now(), wait_id, namespace, worker_id),
+            )
+            if updated.rowcount != 1:
+                raise LedgerConflict("wait is claimed by another worker")
+        return self.get_wait(wait_id)  # type: ignore[return-value]
+
     def requeue_stale_waits(
         self,
         *,

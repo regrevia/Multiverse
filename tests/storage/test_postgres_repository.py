@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from multiverse_workflow.runtime.wait_store import PostgresWaitStore
 from multiverse_workflow.storage import repository as repository_module
 from multiverse_workflow.storage.repository import PostgresLedgerRepository
 
@@ -92,6 +93,27 @@ def test_postgres_repository_creates_durable_queued_run() -> None:
                     "run-start:run-repository-test"
                 ]
                 assert reopened.list_waits("other", "run-repository-test") == []
+                assert [
+                    item["id"]
+                    for item in reopened.list_queued_runs(
+                        namespace="local",
+                        limit=10,
+                    )
+                ] == ["run-repository-test"]
+                assert (
+                    reopened.get_wait_by_key(
+                        namespace="local",
+                        wait_key="run-start:run-repository-test",
+                    )
+                    is not None
+                )
+                assert (
+                    reopened.get_wait_by_key(
+                        namespace="other",
+                        wait_key="run-start:run-repository-test",
+                    )
+                    is None
+                )
             finally:
                 reopened.close()
         finally:
@@ -171,6 +193,63 @@ def test_postgres_repository_claims_completes_and_releases_waits() -> None:
                 namespace="local",
                 now="9999-01-01T00:00:00Z",
             ) == []
+        finally:
+            repository.close()
+
+
+def test_postgres_wait_store_implements_scheduler_contract() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-postgres-wait-store",
+            )
+            store = PostgresWaitStore(repository)
+            waits = store.list_due_waits(
+                namespace="local",
+                now="9999-01-01T00:00:00Z",
+                limit=10,
+            )
+            assert len(waits) == 1
+            claimed = store.claim_wait(
+                namespace="local",
+                wait_id=waits[0]["id"],
+                worker_id="worker-contract",
+                now="9999-01-01T00:00:00Z",
+            )
+            assert claimed is not None
+            assert store.reschedule_wait(
+                namespace="local",
+                wait_id=claimed["id"],
+                worker_id="worker-contract",
+                not_before="9999-01-01T00:00:01Z",
+            )["status"] == "pending"
+            claimed_again = store.claim_wait(
+                namespace="local",
+                wait_id=claimed["id"],
+                worker_id="worker-contract",
+                now="9999-01-01T00:00:02Z",
+            )
+            assert claimed_again is not None
+            assert store.complete_wait(
+                namespace="local",
+                wait_id=claimed_again["id"],
+                worker_id="worker-contract",
+            )["status"] == "completed"
         finally:
             repository.close()
 

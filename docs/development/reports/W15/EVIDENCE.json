@@ -2,7 +2,7 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:bb5fedd887ad9c8a11956ae7e11a0b15f0d0c17f933130ff852fdd5fcb5d6f82",
+  "snapshot_manifest_digest": "sha256:309b6271ae752c0791139abf691c57430cc4615cbec58ee3214932f609fbfb17",
   "implementation_commit": "98057bf",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
@@ -19,11 +19,16 @@
     "src/multiverse_workflow/storage/postgres.py",
     "src/multiverse_workflow/storage/repository.py",
     "src/multiverse_workflow/storage/sqlalchemy.py",
+    "src/multiverse_workflow/runtime/ledger.py",
+    "src/multiverse_workflow/runtime/runner.py",
+    "src/multiverse_workflow/runtime/wait_store.py",
+    "src/multiverse_workflow/runtime/worker.py",
     "tests/storage/test_database_target.py",
     "tests/storage/test_postgres_lock.py",
     "tests/storage/test_postgres_migrations.py",
     "tests/storage/test_postgres_repository.py",
-    "tests/storage/test_postgres_transaction.py"
+    "tests/storage/test_postgres_transaction.py",
+    "tests/runtime/test_wait_store.py"
   ],
   "postgres_environment": {
     "version": "PostgreSQL 17.11",
@@ -34,7 +39,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 42,
+    "passed": 43,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -76,7 +81,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 604,
+    "passed": 608,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -102,6 +107,7 @@
     "repository_reviewer": "01a1135b-fe5e-7cc0-8b16-cacfde7b5d31",
     "repository_outbox_reviewer": "01a1138b-b9eb-7b23-9228-fea12f747317",
     "repository_wait_reviewer": "01a113a0-b8d0-7540-b899-4c9f5d059c8b",
+    "scheduler_waitstore_reviewer": "01a114d7-8d2a-7ad1-a013-1c7645ab4331",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

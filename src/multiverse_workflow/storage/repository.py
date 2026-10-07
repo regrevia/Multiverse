@@ -181,6 +181,30 @@ class PostgresLedgerRepository:
             ).mappings().first()
         return dict(row) if row is not None else None
 
+    def list_queued_runs(
+        self,
+        *,
+        namespace: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if not namespace.strip():
+            raise ValueError("namespace is required")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT * FROM runs
+                    WHERE namespace = :namespace AND status = 'queued'
+                    ORDER BY created_at, id
+                    LIMIT :limit
+                    """
+                ),
+                {"namespace": namespace, "limit": limit},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
     def list_run_events(self, namespace: str, run_id: str) -> list[str]:
         with self._store.transaction() as connection:
             rows = connection.execute(
@@ -205,6 +229,22 @@ class PostgresLedgerRepository:
                 {"run_id": run_id, "namespace": namespace},
             ).all()
         return [str(row[0]) for row in rows]
+
+    def get_wait_by_key(
+        self,
+        *,
+        namespace: str,
+        wait_key: str,
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT * FROM waits "
+                    "WHERE namespace = :namespace AND wait_key = :wait_key"
+                ),
+                {"namespace": namespace, "wait_key": wait_key},
+            ).mappings().first()
+        return dict(row) if row is not None else None
 
     def list_wait_records(
         self,
@@ -405,6 +445,51 @@ class PostgresLedgerRepository:
             if row["worker_id"] != worker_id and row["status"] == "claimed":
                 raise ValueError("wait is claimed by another worker")
         return dict(row)
+
+    def reschedule_wait(
+        self,
+        *,
+        namespace: str,
+        wait_id: str,
+        worker_id: str,
+        not_before: str,
+    ) -> dict[str, Any]:
+        if not worker_id.strip():
+            raise ValueError("worker id is required")
+        with self._store.transaction() as connection:
+            updated = connection.execute(
+                text(
+                    """
+                    UPDATE waits
+                    SET status = 'pending', worker_id = NULL, claimed_at = NULL,
+                        not_before = :not_before, updated_at = :now
+                    WHERE id = :wait_id AND namespace = :namespace
+                      AND status = 'claimed' AND worker_id = :worker_id
+                    RETURNING *
+                    """
+                ),
+                {
+                    "wait_id": wait_id,
+                    "namespace": namespace,
+                    "worker_id": worker_id,
+                    "not_before": not_before,
+                    "now": _now(),
+                },
+            ).mappings().first()
+            if updated is not None:
+                return dict(updated)
+            row = connection.execute(
+                text(
+                    "SELECT status, worker_id FROM waits "
+                    "WHERE id = :wait_id AND namespace = :namespace"
+                ),
+                {"wait_id": wait_id, "namespace": namespace},
+            ).mappings().first()
+            if row is None:
+                raise KeyError(f"wait not found: {wait_id}")
+            if row["status"] == "claimed" and row["worker_id"] != worker_id:
+                raise ValueError("wait is claimed by another worker")
+            raise ValueError(f"wait cannot be rescheduled from {row['status']}")
 
     def requeue_stale_waits(
         self,

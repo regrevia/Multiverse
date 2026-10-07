@@ -97,7 +97,7 @@ class LocalWorker:
         now = datetime.now(UTC)
         now_text = _timestamp(now)
         cutoff = _timestamp(now - timedelta(seconds=self.claim_timeout_seconds))
-        self.runner.ledger.requeue_stale_waits(
+        self.runner.wait_store.requeue_stale_waits(
             now=now_text,
             older_than=cutoff,
             namespace=self.runner.namespace,

@@ -36,6 +36,7 @@ from multiverse_workflow.runtime.http_job import (
 )
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict, error_output
 from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
+from multiverse_workflow.runtime.wait_store import LedgerWaitStore, WaitStore
 
 
 class RunError(RuntimeError):
@@ -82,6 +83,7 @@ class Runner:
                 load_document(self.package_dir / relative_path).value
             )
         self.ledger = Ledger(database_path)
+        self.wait_store: WaitStore = LedgerWaitStore(self.ledger)
 
     def close(self) -> None:
         self.ledger.close()
@@ -95,6 +97,8 @@ class Runner:
     ) -> dict[str, Any]:
         run = self.ledger.get_run(run_id)
         if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        if run["namespace"] != self.namespace:
             raise KeyError(f"run not found: {run_id}")
         if run["status"] != "retry_wait" or run["next_attempt_at"] is None:
             return run
@@ -113,8 +117,9 @@ class Runner:
         claimed_wait = None
         if retry_wait is not None:
             if retry_wait["status"] == "pending":
-                claimed_wait = self.ledger.claim_wait(
-                    retry_wait["id"],
+                claimed_wait = self.wait_store.claim_wait(
+                    namespace=self.namespace,
+                    wait_id=retry_wait["id"],
                     worker_id=worker_id,
                     now=now,
                 )
@@ -133,10 +138,18 @@ class Runner:
             )
         except Exception:
             if claimed_wait is not None:
-                self.ledger.release_wait(claimed_wait["id"])
+                self.wait_store.release_wait(
+                    namespace=self.namespace,
+                    wait_id=claimed_wait["id"],
+                    worker_id=worker_id,
+                )
             raise
         if claimed_wait is not None:
-            self.ledger.complete_wait(claimed_wait["id"])
+            self.wait_store.complete_wait(
+                namespace=self.namespace,
+                wait_id=claimed_wait["id"],
+                worker_id=worker_id,
+            )
         return resumed
 
     def sweep(
@@ -151,7 +164,7 @@ class Runner:
         if limit < 1:
             raise ValueError("limit must be positive")
         now = now or _timestamp(datetime.now(UTC))
-        due_waits = self.ledger.list_due_waits(
+        due_waits = self.wait_store.list_due_waits(
             now=now,
             namespace=self.namespace,
             limit=limit,
@@ -168,8 +181,9 @@ class Runner:
                 "external-observe",
             }:
                 continue
-            claimed = self.ledger.claim_wait(
-                wait["id"],
+            claimed = self.wait_store.claim_wait(
+                namespace=self.namespace,
+                wait_id=wait["id"],
                 worker_id=worker_id,
                 now=now,
             )
@@ -216,7 +230,11 @@ class Runner:
                     if attempt is None or attempt["run_id"] != claimed["run_id"]:
                         raise RunError("attempt reconciliation target is missing")
                     result = self.resume_reconciled_attempt(attempt_id)
-                    self.ledger.complete_wait(claimed["id"])
+                    self.wait_store.complete_wait(
+                        namespace=self.namespace,
+                        wait_id=claimed["id"],
+                        worker_id=worker_id,
+                    )
                     resumed_run = self.ledger.get_run(result["run_id"])
                     if resumed_run is None:
                         raise RunError("attempt reconciliation run disappeared")
@@ -232,24 +250,42 @@ class Runner:
                 elif claimed["kind"] == "external-submit":
                     result = self._process_external_submit(claimed, payload)
                     if result["wait_status"] == "completed":
-                        self.ledger.complete_wait(claimed["id"])
+                        self.wait_store.complete_wait(
+                            namespace=self.namespace,
+                            wait_id=claimed["id"],
+                            worker_id=worker_id,
+                        )
                     else:
-                        self.ledger.reschedule_wait(
-                            claimed["id"], not_before=_timestamp(datetime.now(UTC))
+                        self.wait_store.reschedule_wait(
+                            namespace=self.namespace,
+                            wait_id=claimed["id"],
+                            worker_id=worker_id,
+                            not_before=_timestamp(datetime.now(UTC)),
                         )
                     results.append(result)
                 elif claimed["kind"] == "external-observe":
                     result = self._process_external_observe(claimed, payload)
                     if result["wait_status"] == "completed":
-                        self.ledger.complete_wait(claimed["id"])
+                        self.wait_store.complete_wait(
+                            namespace=self.namespace,
+                            wait_id=claimed["id"],
+                            worker_id=worker_id,
+                        )
                     else:
-                        self.ledger.reschedule_wait(
-                            claimed["id"], not_before=_timestamp(datetime.now(UTC))
+                        self.wait_store.reschedule_wait(
+                            namespace=self.namespace,
+                            wait_id=claimed["id"],
+                            worker_id=worker_id,
+                            not_before=_timestamp(datetime.now(UTC)),
                         )
                     results.append(result)
                 else:
                     result = self.resume_queued(claimed["run_id"])
-                    self.ledger.complete_wait(claimed["id"])
+                    self.wait_store.complete_wait(
+                        namespace=self.namespace,
+                        wait_id=claimed["id"],
+                        worker_id=worker_id,
+                    )
                     results.append(
                         {
                             "wait_id": claimed["id"],
@@ -259,17 +295,22 @@ class Runner:
                         }
                     )
             except Exception:
-                self.ledger.release_wait(claimed["id"])
+                self.wait_store.release_wait(
+                    namespace=self.namespace,
+                    wait_id=claimed["id"],
+                    worker_id=worker_id,
+                )
                 raise
         # A crash can occur after the queued Run transaction and before its
         # wake record is written. Recover those Runs without creating another
         # Scope, Invocation, or Attempt.
-        for run in self.ledger.list_queued_runs(
+        for run in self.wait_store.list_queued_runs(
             namespace=self.namespace,
             limit=max(0, limit - len(results)),
         ) if len(results) < limit else []:
-            start_wait = self.ledger.get_wait_by_key(
-                self.namespace, f"run-start:{run['id']}"
+            start_wait = self.wait_store.get_wait_by_key(
+                namespace=self.namespace,
+                wait_key=f"run-start:{run['id']}",
             )
             if start_wait is not None:
                 continue
