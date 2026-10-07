@@ -13,7 +13,7 @@ from multiverse_workflow.runtime.executors import (
     ExecutorError,
     GeneratedArtifact,
 )
-from multiverse_workflow.runtime.ledger import LedgerConflict
+from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.registry import (
     ExecutorDescriptor,
@@ -23,6 +23,36 @@ from multiverse_workflow.runtime.registry import (
 from multiverse_workflow.runtime.runner import RunError, Runner
 
 ROOT = Path(__file__).parents[2]
+
+
+def test_runner_uses_explicit_ledger_factory(tmp_path: Path) -> None:
+    calls: list[Path] = []
+
+    def factory(path: Path) -> Ledger:
+        calls.append(path)
+        return Ledger(path)
+
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+        ledger_factory=factory,
+    )
+    try:
+        assert calls == [(tmp_path / "runtime.db").resolve()]
+        assert isinstance(runner.ledger, Ledger)
+    finally:
+        runner.close()
+
+
+def test_runner_rejects_incompatible_ledger_factory(tmp_path: Path) -> None:
+    with pytest.raises(RunError, match="ledger backend"):
+        Runner(
+            ROOT / "presets/content-delivery",
+            binding_path=ROOT / "examples/bindings/content-local.yaml",
+            database_path=tmp_path / "runtime.db",
+            ledger_factory=lambda _path: object(),
+        )
 
 
 def _start_with_unknown_producer_attempt(runner: Runner) -> tuple[dict, dict, dict]:

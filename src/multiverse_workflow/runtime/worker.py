@@ -80,6 +80,7 @@ class LocalWorker:
         claim_timeout_seconds: float = 60.0,
         executor_registry: ExecutorRegistry | None = None,
         dispatch_gate: DispatchGate | None = None,
+        ledger_factory: Any | None = None,
     ) -> LocalWorker:
         if not worker_id.strip():
             raise ValueError("worker id is required")
@@ -125,6 +126,7 @@ class LocalWorker:
                 database_path=database_path,
                 namespace=namespace,
                 executor_registry=executor_registry,
+                ledger_factory=ledger_factory,
             )
             return cls(
                 runner,

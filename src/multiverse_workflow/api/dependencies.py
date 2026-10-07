@@ -69,6 +69,7 @@ class ServiceSettings:
     registry_path: Path | None = None
     executor_registry: ExecutorRegistry | None = field(default=None, repr=False)
     dispatch_gate: DispatchGate | None = field(default=None, repr=False)
+    ledger_factory: Any | None = field(default=None, repr=False)
     profile: Literal["personal", "team", "offline"] = "personal"
     _database_target: DatabaseTarget = field(init=False, repr=False)
 
@@ -262,6 +263,7 @@ class ServiceSettings:
             namespace=self.namespace,
             subject=self.subject,
             executor_registry=self.executor_registry,
+            ledger_factory=self.ledger_factory,
         )
 
     def create_worker(
@@ -284,4 +286,5 @@ class ServiceSettings:
             limit=limit,
             claim_timeout_seconds=claim_timeout_seconds,
             dispatch_gate=self.dispatch_gate,
+            ledger_factory=self.ledger_factory,
         )

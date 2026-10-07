@@ -42,6 +42,7 @@ class RuntimeApplication:
         subject: str = "local-user",
         executor_registry: ExecutorRegistry | None = None,
         command_store_factory: Callable[[Ledger], CommandStore] | None = None,
+        ledger_factory: Callable[[Path], Any] | None = None,
     ) -> None:
         self.package_dir = package_dir.expanduser().resolve()
         self.binding_path = binding_path.expanduser().resolve()
@@ -55,13 +56,18 @@ class RuntimeApplication:
             deployment_id=deployment_id,
             namespace=namespace,
             executor_registry=executor_registry,
+            ledger_factory=ledger_factory,
         )
-        self.command_store: CommandStore = (
-            command_store_factory(self.runner.ledger)
-            if command_store_factory is not None
-            else LedgerCommandStore(self.runner.ledger)
-        )
-        self.command_store.assert_bound_to(self.runner.ledger)
+        try:
+            self.command_store: CommandStore = (
+                command_store_factory(self.runner.ledger)
+                if command_store_factory is not None
+                else LedgerCommandStore(self.runner.ledger)
+            )
+            self.command_store.assert_bound_to(self.runner.ledger)
+        except BaseException:
+            self.runner.close()
+            raise
     def create_run(
         self,
         request: RunCreateRequest,

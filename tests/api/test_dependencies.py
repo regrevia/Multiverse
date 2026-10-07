@@ -23,6 +23,32 @@ def test_service_settings_passes_dispatch_gate_to_worker_factory(tmp_path: Path)
         worker.close()
 
 
+def test_service_settings_passes_ledger_factory_to_application_and_worker(
+    tmp_path: Path,
+) -> None:
+    calls: list[Path] = []
+
+    def factory(path: Path):
+        from multiverse_workflow.runtime.ledger import Ledger
+
+        calls.append(path)
+        return Ledger(path)
+
+    settings = ServiceSettings(
+        database_path=tmp_path / "runtime.db",
+        package_dir=Path("presets/content-delivery"),
+        binding_path=Path("examples/bindings/content-local.yaml"),
+        ledger_factory=factory,
+    )
+    application = settings.create_application()
+    worker = settings.create_worker(worker_id="factory-worker", poll_interval=0)
+    try:
+        assert len(calls) == 2
+    finally:
+        application.close()
+        worker.close()
+
+
 def test_service_settings_reports_sqlite_personal_target(tmp_path: Path) -> None:
     settings = ServiceSettings(
         database_path=tmp_path / "runtime.db",
