@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`7b968d444e0ebf132b1d6d80bdbfba8c610512955e15e1f7e9c455f0a2edcb77`
-Implementation commit：`a157312`。
+Manifest SHA256：`b430c264ad74b30bc30860246a10774ffddf4ac1d55a912beb8ab50b887c659d`
+Implementation commit：待本轮提交。
 
 ## 已完成
 
@@ -54,7 +54,7 @@ Implementation commit：`a157312`。
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`643 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`647 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -77,6 +77,7 @@ Implementation commit：`a157312`。
 - ServiceSettings gate injection bounded checkpoint：`01a1160e-0fe2-7820-9cc8-4c4ea688e7e3`，构造失败和 falsey gate findings 已修复，最终 approved；完整 PostgreSQL Runtime 接线仍是 scope limitation。
 - Service profile boundary bounded checkpoint：`01a116d4-587e-7273-89f9-9c13df416581`，profile 枚举、offline fail-closed 和 positional compatibility findings 已修复，最终 approved。
 - DispatchGate lifecycle bounded checkpoint：`01a1169b-a536-7cd1-92a0-8bf3aa8e18b2`，release/cleanup lifecycle 与 factory coverage findings 已关闭，最终 approved。
+- SQLite snapshot manifest bounded checkpoint：`01a116f6-338f-7832-b7d7-034b529fa19b`，稳定排序、结构摘要、BLOB 脱敏和错误边界 findings 已关闭，最终 approved。
 
 ## W15 尚未完成
 
