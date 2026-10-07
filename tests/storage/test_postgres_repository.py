@@ -634,6 +634,170 @@ def test_postgres_repository_duplicate_run_id_rolls_back_second_write() -> None:
             repository.close()
 
 
+def test_postgres_repository_updates_run_with_optimistic_version_and_event() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-update-contract",
+            )
+            updated = repository.update_run(
+                namespace="local",
+                run_id="run-update-contract",
+                expected_version=1,
+                status="running",
+                control_mode="run",
+                current_node_id="produce",
+                output=None,
+                error=None,
+            )
+            assert updated["status"] == "running"
+            assert updated["version"] == 2
+            assert updated["output_json"] is None
+            assert updated["error_json"] is None
+            assert repository.list_run_events(
+                "local", "run-update-contract"
+            ) == [
+                "run.created",
+                "scope.created",
+                "run.updated",
+            ]
+            scope_id = repository.list_scope_ids(
+                "local", "run-update-contract"
+            )[0]
+            invocation, _attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-update-contract",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-run-update",
+                effect_key="effect-run-update",
+            )
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE runs SET current_invocation_id = :invocation_id "
+                        "WHERE id = :run_id"
+                    ),
+                    {
+                        "invocation_id": invocation["id"],
+                        "run_id": "run-update-contract",
+                    },
+                )
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE runs SET version = 3 "
+                        "WHERE id = :run_id"
+                    ),
+                    {"run_id": "run-update-contract"},
+                )
+            with pytest.raises(ValueError, match="version"):
+                repository.update_run(
+                    namespace="local",
+                    run_id="run-update-contract",
+                    expected_version=2,
+                    status="failed",
+                    control_mode="run",
+                    current_node_id="produce",
+                    output=None,
+                    error={"code": "stale"},
+                )
+            encoded = repository.update_run(
+                namespace="local",
+                run_id="run-update-contract",
+                expected_version=3,
+                status="failed",
+                control_mode="run",
+                current_node_id="produce",
+                output={"result": "done"},
+                error={"code": "EXAMPLE"},
+            )
+            assert json.loads(encoded["output_json"]) == {"result": "done"}
+            assert json.loads(encoded["error_json"]) == {"code": "EXAMPLE"}
+
+            moved = repository.update_run(
+                namespace="local",
+                run_id="run-update-contract",
+                expected_version=4,
+                status="running",
+                control_mode="run",
+                current_node_id="next-node",
+                output=None,
+                error=None,
+            )
+            assert moved["current_node_id"] == "next-node"
+            assert moved["current_invocation_id"] is None
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_run_update_has_one_concurrent_version_winner() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        seed = PostgresLedgerRepository(isolated)
+        try:
+            seed.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-update-race",
+            )
+        finally:
+            seed.close()
+
+        barrier = Barrier(2)
+
+        def update(status: str) -> tuple[str, str]:
+            repository = PostgresLedgerRepository(isolated)
+            try:
+                barrier.wait(timeout=5)
+                result = repository.update_run(
+                    namespace="local",
+                    run_id="run-update-race",
+                    expected_version=1,
+                    status=status,
+                    control_mode="run",
+                    current_node_id="produce",
+                    output=None,
+                    error=None,
+                )
+                return ("ok", str(result["status"]))
+            except ValueError:
+                return ("conflict", status)
+            finally:
+                repository.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(update, ["running", "paused"]))
+        assert sorted(item[0] for item in results) == ["conflict", "ok"]
+
+
 def test_postgres_repository_rolls_back_after_event_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -699,6 +863,60 @@ def test_postgres_repository_rolls_back_after_event_failure(
             assert repository.list_waits("local", "run-atomic-failure") == []
         finally:
             seed.close()
+            repository.close()
+
+
+def test_postgres_repository_run_update_rolls_back_on_event_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-update-rollback",
+            )
+            original_insert_event = repository._insert_event
+
+            def fail_update_event(*args: object, **kwargs: object) -> None:
+                if kwargs.get("event_type") == "run.updated":
+                    raise RuntimeError("injected run update event failure")
+                original_insert_event(*args, **kwargs)
+
+            monkeypatch.setattr(repository, "_insert_event", fail_update_event)
+            with pytest.raises(RuntimeError, match="run update event failure"):
+                repository.update_run(
+                    namespace="local",
+                    run_id="run-update-rollback",
+                    expected_version=1,
+                    status="running",
+                    control_mode="run",
+                    current_node_id="produce",
+                    output={"result": "not committed"},
+                    error=None,
+                )
+            run = repository.get_run("local", "run-update-rollback")
+            assert run is not None
+            assert run["status"] == "queued"
+            assert run["version"] == 1
+            assert run["output_json"] is None
+            assert repository.list_run_events(
+                "local", "run-update-rollback"
+            ) == ["run.created", "scope.created"]
+        finally:
             repository.close()
 
 

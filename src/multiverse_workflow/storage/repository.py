@@ -28,6 +28,9 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+_UNSET = object()
+
+
 class PostgresLedgerRepository:
     """PostgreSQL persistence slice for queued Run creation and inspection.
 
@@ -180,6 +183,133 @@ class PostgresLedgerRepository:
                 {"run_id": run_id, "namespace": namespace},
             ).mappings().first()
         return dict(row) if row is not None else None
+
+    def update_run(
+        self,
+        *,
+        namespace: str,
+        run_id: str,
+        expected_version: int,
+        status: str,
+        control_mode: str,
+        current_node_id: str | None,
+        current_scope_id: str | None | object = _UNSET,
+        current_invocation_id: str | None | object = _UNSET,
+        output: Any = None,
+        error: Any = None,
+        next_attempt_at: str | None | object = _UNSET,
+    ) -> dict[str, Any]:
+        with self._store.transaction() as connection:
+            run = connection.execute(
+                text(
+                    "SELECT * FROM runs "
+                    "WHERE id = :run_id AND namespace = :namespace "
+                    "FOR UPDATE"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).mappings().first()
+            if run is None:
+                raise KeyError(f"run not found: {run_id}")
+            if int(run["version"]) != expected_version:
+                raise ValueError("run version conflict")
+            scope_id = (
+                run["current_scope_id"]
+                if current_scope_id is _UNSET
+                else current_scope_id
+            )
+            invocation_id = (
+                run["current_invocation_id"]
+                if current_invocation_id is _UNSET
+                else current_invocation_id
+            )
+            if (
+                current_invocation_id is _UNSET
+                and (
+                    current_node_id != run["current_node_id"]
+                    or scope_id != run["current_scope_id"]
+                )
+            ):
+                invocation_id = None
+            next_attempt = (
+                run["next_attempt_at"]
+                if next_attempt_at is _UNSET
+                else next_attempt_at
+            )
+            if scope_id is not None:
+                scope = connection.execute(
+                    text("SELECT run_id FROM scopes WHERE id = :scope_id"),
+                    {"scope_id": scope_id},
+                ).mappings().first()
+                if scope is None or scope["run_id"] != run_id:
+                    raise ValueError("continuation scope does not belong to run")
+            if invocation_id is not None:
+                invocation = connection.execute(
+                    text(
+                        "SELECT run_id, scope_id, node_id FROM invocations "
+                        "WHERE id = :invocation_id"
+                    ),
+                    {"invocation_id": invocation_id},
+                ).mappings().first()
+                if invocation is None or invocation["run_id"] != run_id:
+                    raise ValueError("continuation invocation does not belong to run")
+                if invocation["scope_id"] != scope_id:
+                    raise ValueError("continuation invocation does not belong to scope")
+                if invocation["node_id"] != current_node_id:
+                    raise ValueError("continuation invocation node does not match")
+            version = expected_version + 1
+            connection.execute(
+                text(
+                    """
+                    UPDATE runs
+                    SET status = :status, control_mode = :control_mode,
+                        current_node_id = :current_node_id,
+                        current_scope_id = :current_scope_id,
+                        current_invocation_id = :current_invocation_id,
+                        output_json = :output_json, error_json = :error_json,
+                        next_attempt_at = :next_attempt_at, version = :version,
+                        updated_at = :now
+                    WHERE id = :run_id AND namespace = :namespace
+                      AND version = :expected_version
+                    """
+                ),
+                {
+                    "status": status,
+                    "control_mode": control_mode,
+                    "current_node_id": current_node_id,
+                    "current_scope_id": scope_id,
+                    "current_invocation_id": invocation_id,
+                    "output_json": _json(output) if output is not None else None,
+                    "error_json": _json(error) if error is not None else None,
+                    "next_attempt_at": next_attempt,
+                    "version": version,
+                    "now": _now(),
+                    "run_id": run_id,
+                    "namespace": namespace,
+                    "expected_version": expected_version,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=run_id,
+                sequence=self._next_event_sequence(connection, run_id),
+                event_type="run.updated",
+                payload={
+                    "status": status,
+                    "controlMode": control_mode,
+                    "currentNodeId": current_node_id,
+                    "currentScopeId": scope_id,
+                    "currentInvocationId": invocation_id,
+                    "version": version,
+                },
+                scope_id=scope_id if isinstance(scope_id, str) else None,
+                invocation_id=(
+                    invocation_id if isinstance(invocation_id, str) else None
+                ),
+            )
+        updated = self.get_run(namespace, run_id)
+        if updated is None:
+            raise RuntimeError("run disappeared after update")
+        return updated
 
     def create_command(
         self,

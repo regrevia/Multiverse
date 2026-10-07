@@ -476,8 +476,8 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
-      "implementation_commit": "becd410",
-      "checkpoint_snapshot_digest": "sha256:6eaa4cd5faa4c0554cd1e71e22b6c6ce9ff475ea561430d15eb1069a9ef451c3",
+      "implementation_commit": null,
+      "checkpoint_snapshot_digest": "sha256:037fff8aec1317d6ff88452fdfd3a5a82181d7c9a5619fb6e225ddd165e6d7a3",
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
