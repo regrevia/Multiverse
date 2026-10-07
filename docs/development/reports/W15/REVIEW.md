@@ -2,7 +2,7 @@
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
 Implementation commit：`8a26d61`。
-当前已审 manifest：`sha256:38a4bb96d91a29459f5deb885122faff3f5ca362d415c439e84725edb137b349`
+当前已审 manifest：`sha256:27a6d8fda16a86deaae82ac74383ec2c81e97e67146fe21f73946c9b25b9ae15`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`

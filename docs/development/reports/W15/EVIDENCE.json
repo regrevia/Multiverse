@@ -2,7 +2,7 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:38a4bb96d91a29459f5deb885122faff3f5ca362d415c439e84725edb137b349",
+  "snapshot_manifest_digest": "sha256:27a6d8fda16a86deaae82ac74383ec2c81e97e67146fe21f73946c9b25b9ae15",
   "implementation_commit": "8a26d61",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
@@ -22,6 +22,7 @@
     "src/multiverse_workflow/storage/sqlalchemy.py",
     "src/multiverse_workflow/api/dependencies.py",
     "src/multiverse_workflow/runtime/dispatch_lease.py",
+    "src/multiverse_workflow/runtime/worker.py",
     "src/multiverse_workflow/runtime/command_store.py",
     "src/multiverse_workflow/runtime/ledger.py",
     "src/multiverse_workflow/runtime/runner.py",
