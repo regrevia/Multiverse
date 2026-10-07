@@ -18,6 +18,28 @@ class WorkerLockError(RuntimeError):
     """Another local Worker already owns the SQLite runtime lock."""
 
 
+def _cleanup_dispatch_gate(gate: DispatchGate, *, acquired: bool) -> None:
+    cleanup_error: BaseException | None = None
+    if acquired:
+        release_gate = getattr(gate, "release", None)
+        if callable(release_gate):
+            try:
+                release_gate()
+            except BaseException as exc:
+                cleanup_error = exc
+    close_gate = getattr(gate, "close", None)
+    if callable(close_gate):
+        try:
+            close_gate()
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+            else:
+                cleanup_error.add_note(f"dispatch gate close failed: {exc}")
+    if cleanup_error is not None:
+        raise cleanup_error
+
+
 class LocalWorker:
     """A single-active local scheduler for durable SQLite waits."""
 
@@ -31,6 +53,7 @@ class LocalWorker:
         limit: int,
         claim_timeout_seconds: float,
         dispatch_gate: DispatchGate,
+        dispatch_gate_acquired: bool = False,
     ) -> None:
         self.runner = runner
         self.worker_id = worker_id
@@ -38,6 +61,7 @@ class LocalWorker:
         self.limit = limit
         self.claim_timeout_seconds = claim_timeout_seconds
         self.dispatch_gate = dispatch_gate
+        self._dispatch_gate_acquired = dispatch_gate_acquired
         self._lock_file = lock_file
         self._closed = False
         self._recover_codex_interactions()
@@ -87,8 +111,14 @@ class LocalWorker:
                 lock_file.close()
             raise lock_error from exc
 
+        gate_acquired = False
         runner: Runner | None = None
         try:
+            acquire_gate = getattr(gate, "acquire", None)
+            if callable(acquire_gate):
+                if not acquire_gate():
+                    raise WorkerLockError("dispatch lease is already held")
+                gate_acquired = True
             runner = Runner(
                 package_dir,
                 binding_path=binding_path,
@@ -104,6 +134,7 @@ class LocalWorker:
                 limit=limit,
                 claim_timeout_seconds=claim_timeout_seconds,
                 dispatch_gate=gate,
+                dispatch_gate_acquired=gate_acquired,
             )
         except BaseException as construction_error:
             if runner is not None:
@@ -114,9 +145,7 @@ class LocalWorker:
                         f"runner cleanup failed: {cleanup_error}"
                     )
             try:
-                close_gate = getattr(gate, "close", None)
-                if callable(close_gate):
-                    close_gate()
+                _cleanup_dispatch_gate(gate, acquired=gate_acquired)
             except BaseException as cleanup_error:
                 construction_error.add_note(
                     f"dispatch gate cleanup failed: {cleanup_error}"
@@ -175,9 +204,10 @@ class LocalWorker:
             self.runner.close()
         finally:
             try:
-                close_gate = getattr(self.dispatch_gate, "close", None)
-                if callable(close_gate):
-                    close_gate()
+                _cleanup_dispatch_gate(
+                    self.dispatch_gate,
+                    acquired=getattr(self, "_dispatch_gate_acquired", False),
+                )
             finally:
                 try:
                     fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)

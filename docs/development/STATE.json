@@ -349,7 +349,7 @@
       "status": "pending",
       "package": "../../工作包规划.md#w06",
       "report": null,
-      "implementation_commit": "8a26d61",
+      "implementation_commit": null,
       "blockers": []
     },
     {
@@ -477,7 +477,7 @@
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
       "implementation_commit": null,
-      "checkpoint_snapshot_digest": "sha256:27a6d8fda16a86deaae82ac74383ec2c81e97e67146fe21f73946c9b25b9ae15",
+      "checkpoint_snapshot_digest": "sha256:3e707677e783692b9c976f46f70fcb2e3e7f41cb0ea31258f5373c4732a259ae",
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",

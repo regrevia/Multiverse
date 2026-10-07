@@ -45,10 +45,14 @@ def test_worker_checks_dispatch_gate_before_sweeping() -> None:
 
 def test_dispatch_gate_close_is_idempotent(tmp_path: Path) -> None:
     class Gate:
+        released = 0
         closed = 0
 
         def assert_can_dispatch(self) -> None:
             return None
+
+        def release(self) -> None:
+            self.released += 1
 
         def close(self) -> None:
             self.closed += 1
@@ -57,11 +61,13 @@ def test_dispatch_gate_close_is_idempotent(tmp_path: Path) -> None:
     worker = object.__new__(LocalWorker)
     worker.runner = type("Runner", (), {"close": lambda self: None})()
     worker.dispatch_gate = Gate()
+    worker._dispatch_gate_acquired = True
     worker._lock_file = lock_file
     worker._closed = False
     worker.close()
     worker.close()
     assert worker.dispatch_gate.closed == 1
+    assert worker.dispatch_gate.released == 1
 
 
 def test_worker_releases_local_lock_when_gate_close_fails(tmp_path: Path) -> None:
@@ -72,11 +78,15 @@ def test_worker_releases_local_lock_when_gate_close_fails(tmp_path: Path) -> Non
         def close(self) -> None:
             raise RuntimeError("gate close failed")
 
+        def release(self) -> None:
+            return None
+
     lock_path = tmp_path / "worker.lock"
     lock_file = lock_path.open("a+", encoding="utf-8")
     worker = object.__new__(LocalWorker)
     worker.runner = type("Runner", (), {"close": lambda self: None})()
     worker.dispatch_gate = FailingGate()
+    worker._dispatch_gate_acquired = True
     worker._lock_file = lock_file
     worker._closed = False
     with pytest.raises(RuntimeError, match="gate close failed"):
@@ -228,3 +238,60 @@ def test_worker_factory_closes_gate_when_local_lock_is_held(tmp_path: Path) -> N
         assert gate.closed is True
     finally:
         first.close()
+
+
+def test_worker_factory_acquires_and_releases_explicit_gate(tmp_path: Path) -> None:
+    class Gate:
+        acquired = 0
+        released = 0
+        closed = 0
+
+        def acquire(self) -> bool:
+            self.acquired += 1
+            return True
+
+        def assert_can_dispatch(self) -> None:
+            return None
+
+        def release(self) -> None:
+            self.released += 1
+
+        def close(self) -> None:
+            self.closed += 1
+
+    gate = Gate()
+    worker = LocalWorker.from_paths(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+        worker_id="acquire-gate-worker",
+        dispatch_gate=gate,  # type: ignore[arg-type]
+        executor_registry=local_executor_registry(),
+    )
+    assert gate.acquired == 1
+    worker.close()
+    assert gate.released == 1
+    assert gate.closed == 1
+
+
+def test_worker_factory_rejects_gate_that_cannot_acquire(tmp_path: Path) -> None:
+    class Gate:
+        closed = 0
+
+        def acquire(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            self.closed += 1
+
+    gate = Gate()
+    with pytest.raises(WorkerLockError, match="dispatch lease"):
+        LocalWorker.from_paths(
+            package_dir=ROOT / "presets/content-delivery",
+            binding_path=ROOT / "examples/bindings/content-local.yaml",
+            database_path=tmp_path / "runtime.db",
+            worker_id="rejected-gate-worker",
+            dispatch_gate=gate,  # type: ignore[arg-type]
+            executor_registry=local_executor_registry(),
+        )
+    assert gate.closed == 1
