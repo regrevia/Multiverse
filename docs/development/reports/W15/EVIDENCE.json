@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:795b11c8241b5e5083cbb460058f7531c91f88827dfb3980106c1d390de8bbad",
-  "implementation_commit": "abb1618",
+  "snapshot_manifest_digest": "sha256:a6b24da20363a2f9550a0d7c7494ae59c70e5f1e9d0312b059700ec2ec717630",
+  "implementation_commit": null,
   "ledger_schema_revision": "0006_sqlite_import_receipts",
   "checkpoint_scope": [
     "alembic.ini",
@@ -45,9 +45,9 @@
     "tests/runtime/test_snapshot.py",
     "tests/api/test_dependencies.py",
     "tests/api/test_app.py",
-    "tests/service/test_command_store_injection.py"
-    ,"tests/runtime/test_ledger_backend.py"
-    ,"tests/runtime/test_runner.py"
+    "tests/service/test_command_store_injection.py",
+    "tests/runtime/test_ledger_backend.py",
+    "tests/runtime/test_runner.py"
   ],
   "postgres_environment": {
     "version": "PostgreSQL 17.11",

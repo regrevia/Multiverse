@@ -65,9 +65,15 @@ class RuntimeApplication:
                 else LedgerCommandStore(self.runner.ledger)
             )
             self.command_store.assert_bound_to(self.runner.ledger)
-        except BaseException:
-            self.runner.close()
+        except BaseException as construction_error:
+            try:
+                self.runner.close()
+            except BaseException as cleanup_error:
+                construction_error.add_note(
+                    f"runtime cleanup failed: {cleanup_error}"
+                )
             raise
+        self._closed = False
     def create_run(
         self,
         request: RunCreateRequest,
@@ -750,7 +756,10 @@ class RuntimeApplication:
         )
 
     def close(self) -> None:
-        self.runner.ledger.close()
+        if self._closed:
+            return
+        self._closed = True
+        self.runner.close()
 
     def _require_run(self, namespace: str, run_id: str) -> dict[str, Any]:
         self._require_namespace(namespace)

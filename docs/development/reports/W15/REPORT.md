@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0006 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`795b11c8241b5e5083cbb460058f7531c91f88827dfb3980106c1d390de8bbad`
-Implementation commit：`abb1618`。
+Manifest SHA256：`a6b24da20363a2f9550a0d7c7494ae59c70e5f1e9d0312b059700ec2ec717630`
+Implementation commit：待本轮提交。
 
 ## 已完成
 

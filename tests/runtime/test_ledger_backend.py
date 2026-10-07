@@ -63,3 +63,25 @@ def test_runtime_application_closes_ledger_when_command_store_bind_fails(
             command_store_factory=lambda _ledger: UnboundStore(),  # type: ignore[arg-type]
         )
     assert created
+
+
+def test_runner_close_is_idempotent(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    runner.close()
+    runner.close()
+
+
+def test_application_close_is_idempotent(tmp_path: Path) -> None:
+    from multiverse_workflow.service.application import RuntimeApplication
+
+    application = RuntimeApplication(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    application.close()
+    application.close()

@@ -100,7 +100,6 @@ _LEDGER_BACKEND_METHODS = (
     "invalidate_codex_interaction",
     "invalidate_codex_interactions_for_attempt",
     "list_child_scopes",
-    "list_human_requests",
     "list_scope_invocations",
     "list_codex_interactions",
     "mark_submit_outbox_retryable",
@@ -173,14 +172,23 @@ class Runner:
         )
         try:
             _validate_ledger_backend(self.ledger)
-        except Exception:
+        except BaseException as construction_error:
             close = getattr(self.ledger, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except BaseException as cleanup_error:
+                    construction_error.add_note(
+                        f"ledger cleanup failed: {cleanup_error}"
+                    )
             raise
         self.wait_store: WaitStore = LedgerWaitStore(self.ledger)
+        self._closed = False
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         self.ledger.close()
 
     def resume_due(
