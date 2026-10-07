@@ -6,7 +6,7 @@
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
 Manifest SHA256：`039bb94bd29d34f9336bc83a068d17533a74494ae7ab96fccc45da6b4c428b2a`
-Implementation commit：`5dc12bd`。
+Implementation commit：待本轮提交。
 
 ## 已完成
 
@@ -55,7 +55,7 @@ Implementation commit：`5dc12bd`。
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`650 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`652 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -80,6 +80,7 @@ Implementation commit：`5dc12bd`。
 - DispatchGate lifecycle bounded checkpoint：`01a1169b-a536-7cd1-92a0-8bf3aa8e18b2`，release/cleanup lifecycle 与 factory coverage findings 已关闭，最终 approved。
 - SQLite snapshot manifest bounded checkpoint：`01a116f6-338f-7832-b7d7-034b529fa19b`，稳定排序、结构摘要、BLOB 脱敏和错误边界 findings 已关闭，最终 approved。
 - SQLite import bounded checkpoint：`01a11739-f92c-7f42-926c-1580e59ae067`，初审发现快照 TOCTOU、namespace/ownership、嵌套 Scope 和 fail-closed 缺口；补齐停写锁、0006 receipt、两阶段恢复和全表校验后最终 approved。
+- RuntimeApplication CommandStore bounded checkpoint：`01a11792-0d07-7dd0-9b22-2f9a19dceca4`，独立 store 混用 P1 已收紧为同一 Ledger 绑定校验，最终 approved；PostgreSQL Runtime 全台账接线仍未宣称完成。
 
 ## W15 尚未完成
 

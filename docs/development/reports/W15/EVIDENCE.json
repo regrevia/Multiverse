@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:039bb94bd29d34f9336bc83a068d17533a74494ae7ab96fccc45da6b4c428b2a",
-  "implementation_commit": "5dc12bd",
+  "snapshot_manifest_digest": "sha256:993434c8f0e2dbc324a5beec1572875172f0b791c12d5903d594785077c6805d",
+  "implementation_commit": null,
   "ledger_schema_revision": "0006_sqlite_import_receipts",
   "checkpoint_scope": [
     "alembic.ini",
@@ -22,6 +22,7 @@
     "src/multiverse_workflow/storage/repository.py",
     "src/multiverse_workflow/storage/sqlalchemy.py",
     "src/multiverse_workflow/api/dependencies.py",
+    "src/multiverse_workflow/service/application.py",
     "src/multiverse_workflow/runtime/dispatch_lease.py",
     "src/multiverse_workflow/runtime/worker.py",
     "src/multiverse_workflow/runtime/command_store.py",
@@ -40,7 +41,8 @@
     "tests/runtime/test_wait_store.py",
     "tests/runtime/test_dispatch_lease.py",
     "tests/runtime/test_snapshot.py",
-    "tests/api/test_dependencies.py"
+    "tests/api/test_dependencies.py",
+    "tests/service/test_command_store_injection.py"
   ],
   "postgres_environment": {
     "version": "PostgreSQL 17.11",
@@ -100,7 +102,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 650,
+    "passed": 652,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -138,6 +140,7 @@
     "dispatch_gate_lifecycle_reviewer": "01a1169b-a536-7cd1-92a0-8bf3aa8e18b2",
     "sqlite_snapshot_reviewer": "01a116f6-338f-7832-b7d7-034b529fa19b",
     "sqlite_import_reviewer": "01a11739-f92c-7f42-926c-1580e59ae067",
+    "command_store_injection_reviewer": "01a11792-0d07-7dd0-9b22-2f9a19dceca4",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

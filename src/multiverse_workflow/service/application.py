@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from multiverse_workflow.runtime.ledger import LedgerConflict
+from multiverse_workflow.runtime.command_store import (
+    CommandStore,
+    CommandStoreConflict,
+    LedgerCommandStore,
+)
+from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict
 from multiverse_workflow.runtime.projection import build_run_projection
 from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.runner import RunError, Runner, SchemaValidationError
@@ -36,6 +41,7 @@ class RuntimeApplication:
         namespace: str = "local",
         subject: str = "local-user",
         executor_registry: ExecutorRegistry | None = None,
+        command_store_factory: Callable[[Ledger], CommandStore] | None = None,
     ) -> None:
         self.package_dir = package_dir.expanduser().resolve()
         self.binding_path = binding_path.expanduser().resolve()
@@ -50,6 +56,12 @@ class RuntimeApplication:
             namespace=namespace,
             executor_registry=executor_registry,
         )
+        self.command_store: CommandStore = (
+            command_store_factory(self.runner.ledger)
+            if command_store_factory is not None
+            else LedgerCommandStore(self.runner.ledger)
+        )
+        self.command_store.assert_bound_to(self.runner.ledger)
     def create_run(
         self,
         request: RunCreateRequest,
@@ -73,7 +85,7 @@ class RuntimeApplication:
             run_id = self._new_resource_id("run")
             command_id = self._new_resource_id("cmd")
             try:
-                self.runner.ledger.create_command(
+                self.command_store.create_command(
                     command_id=command_id,
                     idempotency_key=idempotency_key,
                     fingerprint=fingerprint,
@@ -98,8 +110,9 @@ class RuntimeApplication:
 
         existing_run = self.runner.ledger.get_run(run_id)
         if existing_run is not None:
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=self.namespace,
+                command_id=command_id,
                 status="completed",
                 resource_version=int(existing_run["version"]),
             )
@@ -118,14 +131,16 @@ class RuntimeApplication:
                 command_id=command_id,
             )
         except (KeyError, RunError, LedgerConflict) as exc:
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=self.namespace,
+                command_id=command_id,
                 status="rejected",
                 error={"message": str(exc)},
             )
             raise ServiceError("RUN_REJECTED", str(exc), status_code=422) from exc
-        self.runner.ledger.finish_command(
-            command_id,
+        self.command_store.finish_command(
+            namespace=self.namespace,
+            command_id=command_id,
             status="completed",
             resource_version=int(run["version"]),
         )
@@ -133,10 +148,12 @@ class RuntimeApplication:
 
     def get_command(self, namespace: str, command_id: str) -> dict[str, Any]:
         self._require_namespace(namespace)
-        command = self.runner.ledger.get_command(command_id)
+        command = self.command_store.get_command(
+            namespace=namespace,
+            command_id=command_id,
+        )
         if (
             command is None
-            or command["namespace"] != namespace
             or command["subject"] != self.subject
         ):
             raise not_found(f"command not found: {command_id}")
@@ -196,7 +213,7 @@ class RuntimeApplication:
 
         if previous is None:
             try:
-                self.runner.ledger.create_command(
+                self.command_store.create_command(
                     command_id=command_id,
                     idempotency_key=idempotency_key,
                     fingerprint=fingerprint,
@@ -205,7 +222,7 @@ class RuntimeApplication:
                     resource_id=attempt_id,
                     subject=self.subject,
                 )
-            except sqlite3.IntegrityError:
+            except CommandStoreConflict:
                 previous = self._existing_command(
                     idempotency_key,
                     fingerprint,
@@ -239,8 +256,9 @@ class RuntimeApplication:
                     resume=False,
                 )
         except SchemaValidationError as exc:
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=namespace,
+                command_id=command_id,
                 status="rejected",
                 error={"code": "SCHEMA_VALIDATION_FAILED", "message": str(exc)},
             )
@@ -255,8 +273,9 @@ class RuntimeApplication:
                 request.expected_version,
                 exc,
             )
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=namespace,
+                command_id=command_id,
                 status="rejected",
                 error={
                     "code": "STATE_CONFLICT",
@@ -265,8 +284,9 @@ class RuntimeApplication:
                 },
             )
             raise state_conflict(str(exc), details=details) from exc
-        self.runner.ledger.finish_command(
-            command_id,
+        self.command_store.finish_command(
+            namespace=namespace,
+            command_id=command_id,
             status="completed",
             resource_version=int(reconciled["version"]),
         )
@@ -434,7 +454,7 @@ class RuntimeApplication:
         resource_id = run_id
         if previous is None:
             try:
-                self.runner.ledger.create_command(
+                self.command_store.create_command(
                     command_id=command_id,
                     idempotency_key=idempotency_key,
                     fingerprint=fingerprint,
@@ -443,7 +463,7 @@ class RuntimeApplication:
                     resource_id=resource_id,
                     subject=self.subject,
                 )
-            except sqlite3.IntegrityError:
+            except CommandStoreConflict:
                 previous = self._existing_command(
                     idempotency_key,
                     fingerprint,
@@ -479,20 +499,25 @@ class RuntimeApplication:
                     command_id=command_id,
                 )
         except (KeyError, LedgerConflict, RunError) as exc:
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=namespace,
+                command_id=command_id,
                 status="rejected",
                 error={"message": str(exc)},
             )
             raise state_conflict(str(exc)) from exc
-        command = self.runner.ledger.get_command(command_id)
+        command = self.command_store.get_command(
+            namespace=namespace,
+            command_id=command_id,
+        )
         applied_version = (
             command["after_version"]
             if command is not None and command["after_version"] is not None
             else int(run["version"])
         )
-        self.runner.ledger.finish_command(
-            command_id,
+        self.command_store.finish_command(
+            namespace=namespace,
+            command_id=command_id,
             status="completed",
             resource_version=int(applied_version),
         )
@@ -662,7 +687,7 @@ class RuntimeApplication:
         )
         if previous is None:
             try:
-                self.runner.ledger.create_command(
+                self.command_store.create_command(
                     command_id=command_id,
                     idempotency_key=idempotency_key,
                     fingerprint=fingerprint,
@@ -671,7 +696,7 @@ class RuntimeApplication:
                     resource_id=run["id"],
                     subject=self.subject,
                 )
-            except sqlite3.IntegrityError:
+            except CommandStoreConflict:
                 previous = self._existing_command(
                     idempotency_key,
                     fingerprint,
@@ -697,14 +722,16 @@ class RuntimeApplication:
                 resume=False,
             )
         except (KeyError, LedgerConflict, RunError) as exc:
-            self.runner.ledger.finish_command(
-                command_id,
+            self.command_store.finish_command(
+                namespace=namespace,
+                command_id=command_id,
                 status="rejected",
                 error={"message": str(exc)},
             )
             raise state_conflict(str(exc)) from exc
-        self.runner.ledger.finish_command(
-            command_id,
+        self.command_store.finish_command(
+            namespace=namespace,
+            command_id=command_id,
             status="completed",
             resource_version=int(finished["version"]),
         )
@@ -800,18 +827,21 @@ class RuntimeApplication:
         *,
         operation: str,
     ) -> dict[str, Any] | None:
-        command = self.runner.ledger.get_command_by_key(
-            idempotency_key,
+        command = self.command_store.get_command_by_key(
+            idempotency_key=idempotency_key,
             namespace=namespace,
             subject=self.subject,
             operation=operation,
         )
         if command is None:
-            same_subject_commands = self.runner.ledger.list_commands_by_key(
-                idempotency_key,
-                namespace=namespace,
-                subject=self.subject,
-            )
+            same_subject_commands = [
+                item
+                for item in self.command_store.list_commands_by_key(
+                    namespace=namespace,
+                    idempotency_key=idempotency_key,
+                )
+                if item["subject"] == self.subject
+            ]
             if same_subject_commands:
                 raise idempotency_conflict(
                     "idempotency key was already used for another operation"
