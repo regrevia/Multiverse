@@ -11,6 +11,7 @@ from jsonschema.exceptions import SchemaError, ValidationError
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import IntegrityError
 
+from multiverse_workflow.runtime.http_job import validate_artifact_metadata
 from multiverse_workflow.storage.sqlalchemy import PostgresTransactionStore
 
 
@@ -1438,6 +1439,193 @@ class PostgresLedgerRepository:
                 {"request_id": request_id},
             ).mappings().one()
             return dict(result)
+
+    def register_external_artifact_metadata(
+        self,
+        *,
+        namespace: str,
+        attempt_id: str,
+        execution_ref: str,
+        artifacts: list[dict[str, Any]],
+    ) -> list[str]:
+        required = {
+            "artifactId",
+            "version",
+            "executionRef",
+            "namespace",
+            "name",
+            "mediaType",
+            "sizeBytes",
+            "digest",
+        }
+        if any(set(item) != required for item in artifacts):
+            raise ValueError("artifact metadata shape is invalid")
+        if any(
+            item["executionRef"] != execution_ref or item["namespace"] != namespace
+            for item in artifacts
+        ):
+            raise ValueError("artifact metadata identity mismatch")
+        validate_artifact_metadata(artifacts, execution_ref, namespace)
+        refs: list[str] = []
+        with self._store.transaction() as connection:
+            attempt_row = connection.execute(
+                text(
+                    """
+                    SELECT * FROM attempts
+                    WHERE id = :attempt_id
+                    FOR UPDATE
+                    """
+                ),
+                {"attempt_id": attempt_id},
+            ).mappings().first()
+            if attempt_row is None or attempt_row["external_ref"] != execution_ref:
+                raise ValueError("artifact source does not match attempt")
+            run = connection.execute(
+                text(
+                    "SELECT * FROM runs WHERE id = :run_id AND namespace = :namespace "
+                    "FOR UPDATE"
+                ),
+                {"run_id": attempt_row["run_id"], "namespace": namespace},
+            ).mappings().first()
+            if run is None:
+                raise KeyError(f"run not found: {attempt_row['run_id']}")
+            observation = json.loads(attempt_row["observation_json"] or "null")
+            if (
+                not isinstance(observation, dict)
+                or observation.get("status") != "succeeded"
+                or observation.get("executionFinal") is not True
+                or observation.get("executionRef") != execution_ref
+                or observation.get("artifacts") != artifacts
+            ):
+                raise ValueError("artifact metadata differs from persisted observation")
+            for item in artifacts:
+                source_key = (
+                    attempt_id,
+                    execution_ref,
+                    item["artifactId"],
+                    item["version"],
+                )
+                existing = connection.execute(
+                    text(
+                        """
+                        SELECT * FROM external_artifact_sources
+                        WHERE attempt_id = :attempt_id
+                          AND execution_ref = :execution_ref
+                          AND source_artifact_id = :source_artifact_id
+                          AND version = :version
+                        """
+                    ),
+                    {
+                        "attempt_id": source_key[0],
+                        "execution_ref": source_key[1],
+                        "source_artifact_id": source_key[2],
+                        "version": source_key[3],
+                    },
+                ).mappings().first()
+                if existing is not None:
+                    if existing["metadata_json"] != _json(item):
+                        raise ValueError("artifact source metadata conflict")
+                    refs.append(str(existing["artifact_id"]))
+                    continue
+                artifact_id = _new_id("artifact")
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO artifacts (
+                            id, namespace, run_id, invocation_id, name, media_type,
+                            size_bytes, digest, storage_ref, status, created_at
+                        ) VALUES (
+                            :artifact_id, :namespace, :run_id, :invocation_id,
+                            :name, :media_type, :size_bytes, :digest,
+                            :storage_ref, 'external', :now
+                        )
+                        """
+                    ),
+                    {
+                        "artifact_id": artifact_id,
+                        "namespace": namespace,
+                    "run_id": run["id"],
+                    "invocation_id": attempt_row["invocation_id"],
+                        "name": item["name"],
+                        "media_type": item["mediaType"],
+                        "size_bytes": item["sizeBytes"],
+                        "digest": item["digest"],
+                        "storage_ref": (
+                            f"external:{execution_ref}:{item['artifactId']}:{item['version']}"
+                        ),
+                        "now": _now(),
+                    },
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO external_artifact_sources (
+                            attempt_id, execution_ref, source_artifact_id,
+                            version, metadata_json, artifact_id
+                        ) VALUES (
+                            :attempt_id, :execution_ref, :source_artifact_id,
+                            :version, :metadata_json, :artifact_id
+                        )
+                        """
+                    ),
+                    {
+                        "attempt_id": source_key[0],
+                        "execution_ref": source_key[1],
+                        "source_artifact_id": source_key[2],
+                        "version": source_key[3],
+                        "metadata_json": _json(item),
+                        "artifact_id": artifact_id,
+                    },
+                )
+                self._insert_event(
+                    connection,
+                    run_id=run["id"],
+                    sequence=self._next_event_sequence(connection, run["id"]),
+                    event_type="artifact.created",
+                    payload={
+                        "artifactId": artifact_id,
+                        "digest": item["digest"],
+                        "status": "external",
+                    },
+                    invocation_id=attempt_row["invocation_id"],
+                    attempt_id=attempt_id,
+                )
+                refs.append(artifact_id)
+        return refs
+
+    def get_artifact(self, namespace: str, artifact_id: str) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT * FROM artifacts "
+                    "WHERE id = :artifact_id AND namespace = :namespace"
+                ),
+                {"artifact_id": artifact_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def list_artifacts(self, namespace: str, run_id: str) -> list[dict[str, Any]]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    "SELECT * FROM artifacts "
+                    "WHERE namespace = :namespace AND run_id = :run_id "
+                    "ORDER BY created_at, id"
+                ),
+                {"namespace": namespace, "run_id": run_id},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def validate_artifact_refs(
+        self, namespace: str, run_id: str, artifact_refs: list[str]
+    ) -> None:
+        run = self.get_run(namespace, run_id)
+        if run is None:
+            raise KeyError(f"run not found: {run_id}")
+        for artifact_id in artifact_refs:
+            artifact = self.get_artifact(namespace, artifact_id)
+            if artifact is None or artifact["run_id"] != run_id:
+                raise ValueError(f"artifact is not authorized for run: {artifact_id}")
 
     def _expire_human_request_if_due(self, namespace: str, request_id: str) -> bool:
         with self._store.transaction() as connection:

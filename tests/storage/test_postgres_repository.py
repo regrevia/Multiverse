@@ -1102,6 +1102,105 @@ def test_postgres_repository_human_decision_has_one_concurrent_winner(
         assert sorted(item[0] for item in results) == ["conflict", "ok"]
 
 
+def test_postgres_repository_registers_external_artifact_metadata_idempotently() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-artifact-contract",
+            )
+            scope_id = repository.list_scope_ids("local", "run-artifact-contract")[0]
+            _invocation, attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-artifact-contract",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-artifact-contract",
+                effect_key="effect-artifact-contract",
+            )
+            metadata = [
+                {
+                    "artifactId": "remote-1",
+                    "version": 1,
+                    "executionRef": "execution-1",
+                    "namespace": "local",
+                    "name": "result.txt",
+                    "mediaType": "text/plain",
+                    "sizeBytes": 5,
+                    "digest": "sha256:" + ("a" * 64),
+                }
+            ]
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE attempts
+                        SET external_ref = :external_ref,
+                            status = 'succeeded',
+                            observation_json = :observation
+                        WHERE id = :attempt_id
+                        """
+                    ),
+                    {
+                        "external_ref": "execution-1",
+                        "observation": json.dumps(
+                            {
+                                "executionRef": "execution-1",
+                                "status": "succeeded",
+                                "executionFinal": True,
+                                "artifacts": metadata,
+                            },
+                            separators=(",", ":"),
+                        ),
+                        "attempt_id": attempt["id"],
+                    },
+                )
+            first = repository.register_external_artifact_metadata(
+                namespace="local",
+                attempt_id=attempt["id"],
+                execution_ref="execution-1",
+                artifacts=metadata,
+            )
+            second = repository.register_external_artifact_metadata(
+                namespace="local",
+                attempt_id=attempt["id"],
+                execution_ref="execution-1",
+                artifacts=metadata,
+            )
+            assert first == second
+            assert repository.list_artifacts(
+                "local", "run-artifact-contract"
+            )[0]["status"] == "external"
+            repository.validate_artifact_refs(
+                "local", "run-artifact-contract", first
+            )
+            invalid = [dict(metadata[0], digest="sha256:invalid")]
+            with pytest.raises(RuntimeError, match="artifact digest"):
+                repository.register_external_artifact_metadata(
+                    namespace="local",
+                    attempt_id=attempt["id"],
+                    execution_ref="execution-1",
+                    artifacts=invalid,
+                )
+        finally:
+            repository.close()
+
+
 def test_postgres_repository_human_decision_rolls_back_on_event_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
