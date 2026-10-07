@@ -341,12 +341,23 @@ class Ledger:
         resource_version: int | None = None,
         error: Any = None,
     ) -> dict[str, Any]:
+        if status not in {"completed", "rejected"}:
+            raise LedgerConflict("command status must be completed or rejected")
+        error_json = _json_or_none(error)
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM commands WHERE id = ?", (command_id,)
             ).fetchone()
             if row is None:
                 raise KeyError(f"command not found: {command_id}")
+            if row["status"] != "accepted":
+                if (
+                    row["status"] == status
+                    and row["resource_version"] == resource_version
+                    and row["error_json"] == error_json
+                ):
+                    return dict(row)
+                raise LedgerConflict("command terminal state conflict")
             connection.execute(
                 """
                 UPDATE commands
@@ -356,7 +367,7 @@ class Ledger:
                 (
                     status,
                     resource_version,
-                    _json_or_none(error),
+                    error_json,
                     _now(),
                     command_id,
                 ),

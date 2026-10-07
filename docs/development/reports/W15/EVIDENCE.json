@@ -2,7 +2,7 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:309b6271ae752c0791139abf691c57430cc4615cbec58ee3214932f609fbfb17",
+  "snapshot_manifest_digest": "sha256:6eaa4cd5faa4c0554cd1e71e22b6c6ce9ff475ea561430d15eb1069a9ef451c3",
   "implementation_commit": "7bff433",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
@@ -19,6 +19,7 @@
     "src/multiverse_workflow/storage/postgres.py",
     "src/multiverse_workflow/storage/repository.py",
     "src/multiverse_workflow/storage/sqlalchemy.py",
+    "src/multiverse_workflow/runtime/command_store.py",
     "src/multiverse_workflow/runtime/ledger.py",
     "src/multiverse_workflow/runtime/runner.py",
     "src/multiverse_workflow/runtime/wait_store.py",
@@ -28,6 +29,7 @@
     "tests/storage/test_postgres_migrations.py",
     "tests/storage/test_postgres_repository.py",
     "tests/storage/test_postgres_transaction.py",
+    "tests/runtime/test_command_store.py",
     "tests/runtime/test_wait_store.py"
   ],
   "postgres_environment": {
@@ -39,7 +41,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 43,
+    "passed": 46,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -81,7 +83,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 608,
+    "passed": 612,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -108,6 +110,7 @@
     "repository_outbox_reviewer": "01a1138b-b9eb-7b23-9228-fea12f747317",
     "repository_wait_reviewer": "01a113a0-b8d0-7540-b899-4c9f5d059c8b",
     "scheduler_waitstore_reviewer": "01a114d7-8d2a-7ad1-a013-1c7645ab4331",
+    "command_receipt_reviewer": "01a11502-45ea-75a3-abce-a7de63b743d6",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

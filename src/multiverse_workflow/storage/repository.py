@@ -181,6 +181,177 @@ class PostgresLedgerRepository:
             ).mappings().first()
         return dict(row) if row is not None else None
 
+    def create_command(
+        self,
+        *,
+        namespace: str,
+        subject: str,
+        operation: str,
+        idempotency_key: str,
+        fingerprint: str,
+        resource_id: str,
+        command_id: str,
+    ) -> dict[str, Any]:
+        for value, name in (
+            (namespace, "namespace"),
+            (subject, "subject"),
+            (operation, "operation"),
+            (idempotency_key, "idempotency key"),
+            (fingerprint, "fingerprint"),
+            (resource_id, "resource id"),
+            (command_id, "command id"),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} is required")
+        now = _now()
+        with self._store.transaction() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO commands (
+                        id, idempotency_key, fingerprint, operation, namespace,
+                        subject, resource_id, status, resource_version,
+                        before_version, after_version, transition, error_json,
+                        created_at, updated_at
+                    ) VALUES (
+                        :command_id, :idempotency_key, :fingerprint, :operation,
+                        :namespace, :subject, :resource_id, 'accepted', NULL,
+                        NULL, NULL, NULL, NULL, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "command_id": command_id,
+                    "idempotency_key": idempotency_key,
+                    "fingerprint": fingerprint,
+                    "operation": operation,
+                    "namespace": namespace,
+                    "subject": subject,
+                    "resource_id": resource_id,
+                    "now": now,
+                },
+            )
+        created = self.get_command(namespace, command_id)
+        if created is None:
+            raise RuntimeError("command disappeared after commit")
+        return created
+
+    def get_command(self, namespace: str, command_id: str) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT * FROM commands "
+                    "WHERE id = :command_id AND namespace = :namespace"
+                ),
+                {"command_id": command_id, "namespace": namespace},
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def get_command_by_key(
+        self,
+        *,
+        namespace: str,
+        subject: str,
+        operation: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        with self._store.transaction() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT * FROM commands
+                    WHERE namespace = :namespace AND subject = :subject
+                      AND operation = :operation
+                      AND idempotency_key = :idempotency_key
+                    """
+                ),
+                {
+                    "namespace": namespace,
+                    "subject": subject,
+                    "operation": operation,
+                    "idempotency_key": idempotency_key,
+                },
+            ).mappings().first()
+        return dict(row) if row is not None else None
+
+    def list_commands_by_key(
+        self,
+        *,
+        namespace: str,
+        idempotency_key: str,
+    ) -> list[dict[str, Any]]:
+        with self._store.transaction() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT * FROM commands
+                    WHERE namespace = :namespace
+                      AND idempotency_key = :idempotency_key
+                    ORDER BY created_at, id
+                    """
+                ),
+                {"namespace": namespace, "idempotency_key": idempotency_key},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    def finish_command(
+        self,
+        *,
+        namespace: str,
+        command_id: str,
+        status: str,
+        resource_version: int | None = None,
+        error: Any = None,
+    ) -> dict[str, Any]:
+        if status not in {"completed", "rejected"}:
+            raise ValueError("command status must be completed or rejected")
+        with self._store.transaction() as connection:
+            existing = connection.execute(
+                text(
+                    "SELECT * FROM commands "
+                    "WHERE id = :command_id AND namespace = :namespace "
+                    "FOR UPDATE"
+                ),
+                {"command_id": command_id, "namespace": namespace},
+            ).mappings().first()
+            if existing is None:
+                raise KeyError(f"command not found: {command_id}")
+            error_json = _json(error) if error is not None else None
+            if existing["status"] != "accepted":
+                if (
+                    existing["status"] == status
+                    and existing["resource_version"] == resource_version
+                    and existing["error_json"] == error_json
+                ):
+                    return dict(existing)
+                raise IntegrityError(
+                    "command terminal state conflict",
+                    params=None,
+                    orig=ValueError("command terminal state conflict"),
+                )
+            connection.execute(
+                text(
+                    """
+                    UPDATE commands
+                    SET status = :status, resource_version = :resource_version,
+                        error_json = :error_json, updated_at = :now
+                    WHERE id = :command_id AND namespace = :namespace
+                    """
+                ),
+                {
+                    "status": status,
+                    "resource_version": resource_version,
+                    "error_json": error_json,
+                    "now": _now(),
+                    "command_id": command_id,
+                    "namespace": namespace,
+                },
+            )
+        completed = self.get_command(namespace, command_id)
+        if completed is None:
+            raise RuntimeError("command disappeared after update")
+        return completed
+
     def list_queued_runs(
         self,
         *,

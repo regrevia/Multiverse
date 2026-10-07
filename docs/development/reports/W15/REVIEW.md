@@ -2,7 +2,7 @@
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
 Implementation commit：`7bff433`。
-当前已审 manifest：`sha256:309b6271ae752c0791139abf691c57430cc4615cbec58ee3214932f609fbfb17`
+当前已审 manifest：`sha256:6eaa4cd5faa4c0554cd1e71e22b6c6ce9ff475ea561430d15eb1069a9ef451c3`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
@@ -12,6 +12,7 @@ Repository first-slice reviewer task：`01a1135b-fe5e-7cc0-8b16-cacfde7b5d31`
 Repository Outbox reviewer task：`01a1138b-b9eb-7b23-9228-fea12f747317`，初审 P1 已关闭，最终复审 approved
 Repository Wait reviewer task：`01a113a0-b8d0-7540-b899-4c9f5d059c8b`，初审 P1 已关闭，最终复审 approved
 Scheduler WaitStore reviewer task：`01a114d7-8d2a-7ad1-a013-1c7645ab4331`，bounded checkpoint 初审 P1 已关闭，最终复审 approved
+Command Receipt reviewer task：`01a11502-45ea-75a3-abce-a7de63b743d6`，初审 P1 已关闭，最终复审 approved
 
 已审阅范围：
 
@@ -26,6 +27,7 @@ Scheduler WaitStore reviewer task：`01a114d7-8d2a-7ad1-a013-1c7645ab4331`，bou
 - Wait 领取/完成/释放/过期重排、worker ownership/fencing；
 - SQLite/PostgreSQL bounded WaitStore contract；
 - Runner/Worker wait routing and owned reschedule；
+- Command Receipt accepted-only finish、终态幂等和并发 winner；
 - payload conflict、namespace 隔离、事务回滚、重复事件/Wait 和并发测试。
 
-Earlier checkpoint reviewers approved lease and transaction boundaries; the final 0004 and Repository reviewers confirmed manifest hashes, storage/full-suite counts, ownership constraints, namespace-scoped queries, atomic queued Run write/rollback, and isolated schema migrations. The Outbox and Wait reviewers first reported P1 findings; all were fixed, retested, and approved. The Scheduler WaitStore reviewer approved the bounded checkpoint while explicitly leaving complete PostgreSQL Runner/Worker wiring as a scope limitation. W15 remains blocked until the full Repository is wired to Ledger/Runner, plus lease integration, SQLite import/restore and remote push.
+Earlier checkpoint reviewers approved lease and transaction boundaries; the final 0004 and Repository reviewers confirmed manifest hashes, storage/full-suite counts, ownership constraints, namespace-scoped queries, atomic queued Run write/rollback, and isolated schema migrations. The Outbox, Wait, Scheduler WaitStore, and Command Receipt reviewers reported P1 findings; all were fixed, retested, and approved. Complete PostgreSQL Runner/Worker and RuntimeApplication wiring remains a scope limitation. W15 remains blocked until the full Repository is wired to Ledger/Runner, plus lease integration, SQLite import/restore and remote push.

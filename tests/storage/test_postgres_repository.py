@@ -120,6 +120,150 @@ def test_postgres_repository_creates_durable_queued_run() -> None:
             repository.close()
 
 
+def test_postgres_repository_persists_namespace_scoped_command_receipts() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            created = repository.create_command(
+                namespace="local",
+                subject="reviewer",
+                operation="run.create",
+                idempotency_key="command-1",
+                fingerprint="sha256:fingerprint",
+                resource_id="run-command-1",
+                command_id="cmd-command-1",
+            )
+            assert created["status"] == "accepted"
+            assert repository.get_command("local", "cmd-command-1")["id"] == (
+                "cmd-command-1"
+            )
+            assert repository.get_command("other", "cmd-command-1") is None
+            assert repository.get_command_by_key(
+                namespace="local",
+                subject="reviewer",
+                operation="run.create",
+                idempotency_key="command-1",
+            )["id"] == "cmd-command-1"
+            assert repository.list_commands_by_key(
+                namespace="local",
+                idempotency_key="command-1",
+            )[0]["id"] == "cmd-command-1"
+
+            completed = repository.finish_command(
+                namespace="local",
+                command_id="cmd-command-1",
+                status="completed",
+                resource_version=2,
+            )
+            assert completed["status"] == "completed"
+            assert completed["resource_version"] == 2
+            assert repository.finish_command(
+                namespace="local",
+                command_id="cmd-command-1",
+                status="completed",
+                resource_version=2,
+            )["status"] == "completed"
+            with pytest.raises(IntegrityError, match="terminal"):
+                repository.finish_command(
+                    namespace="local",
+                    command_id="cmd-command-1",
+                    status="rejected",
+                    error={"code": "late"},
+                )
+            assert repository.get_command("local", "cmd-command-1")["status"] == (
+                "completed"
+            )
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_command_finish_has_one_concurrent_winner() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        seed = PostgresLedgerRepository(isolated)
+        try:
+            seed.create_command(
+                namespace="local",
+                subject="reviewer",
+                operation="run.create",
+                idempotency_key="command-race",
+                fingerprint="sha256:fingerprint",
+                resource_id="run-command-race",
+                command_id="cmd-command-race",
+            )
+        finally:
+            seed.close()
+
+        barrier = Barrier(2)
+
+        def finish(status: str) -> tuple[str, str]:
+            repository = PostgresLedgerRepository(isolated)
+            try:
+                barrier.wait(timeout=5)
+                record = repository.finish_command(
+                    namespace="local",
+                    command_id="cmd-command-race",
+                    status=status,
+                    resource_version=2 if status == "completed" else None,
+                    error={"code": "rejected"} if status == "rejected" else None,
+                )
+                return ("ok", str(record["status"]))
+            except IntegrityError:
+                return ("conflict", status)
+            finally:
+                repository.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(finish, ["completed", "rejected"]))
+        assert sorted(result[0] for result in results) == ["conflict", "ok"]
+
+
+def test_postgres_repository_rejects_command_fingerprint_conflicts() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_command(
+                namespace="local",
+                subject="reviewer",
+                operation="run.create",
+                idempotency_key="command-conflict",
+                fingerprint="sha256:first",
+                resource_id="run-first",
+                command_id="cmd-first",
+            )
+            with pytest.raises(IntegrityError):
+                repository.create_command(
+                    namespace="local",
+                    subject="reviewer",
+                    operation="run.create",
+                    idempotency_key="command-conflict",
+                    fingerprint="sha256:second",
+                    resource_id="run-second",
+                    command_id="cmd-second",
+                )
+            assert repository.get_command("local", "cmd-second") is None
+            assert repository.list_commands_by_key(
+                namespace="local",
+                idempotency_key="command-conflict",
+            ) == [repository.get_command("local", "cmd-first")]
+        finally:
+            repository.close()
+
+
 def test_postgres_repository_claims_completes_and_releases_waits() -> None:
     dsn = _dsn()
     if not dsn:
