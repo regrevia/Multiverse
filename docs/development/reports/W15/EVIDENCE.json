@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:3e707677e783692b9c976f46f70fcb2e3e7f41cb0ea31258f5373c4732a259ae",
-  "implementation_commit": "e1c6667",
+  "snapshot_manifest_digest": "sha256:b7ea60c6da6c7625d578afefeb891e34703ba24f2a04c787c6d6ff034bfe25bd",
+  "implementation_commit": "caac8f2",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
     "alembic.ini",
