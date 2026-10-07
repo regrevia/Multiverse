@@ -3,7 +3,7 @@
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
   "snapshot_manifest_digest": "sha256:4b5713758af5e59015737389a45001ba30d59847b23ce7be948f1e7bd2ff01a0",
-  "implementation_commit": null,
+  "implementation_commit": "fe9c802",
   "ledger_schema_revision": "0006_sqlite_import_receipts",
   "checkpoint_scope": [
     "alembic.ini",
