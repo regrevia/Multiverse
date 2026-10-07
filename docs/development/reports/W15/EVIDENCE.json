@@ -3,7 +3,7 @@
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
   "snapshot_manifest_digest": "sha256:037fff8aec1317d6ff88452fdfd3a5a82181d7c9a5619fb6e225ddd165e6d7a3",
-  "implementation_commit": null,
+  "implementation_commit": "b5e1d36",
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
     "alembic.ini",
