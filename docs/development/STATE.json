@@ -349,7 +349,7 @@
       "status": "pending",
       "package": "../../工作包规划.md#w06",
       "report": null,
-      "implementation_commit": null,
+      "implementation_commit": "e1c6667",
       "blockers": []
     },
     {
