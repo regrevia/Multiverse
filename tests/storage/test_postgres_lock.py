@@ -5,6 +5,10 @@ import uuid
 
 import pytest
 
+from multiverse_workflow.runtime.dispatch_lease import (
+    DispatchLeaseLost,
+    PostgresDispatchGate,
+)
 from multiverse_workflow.storage import postgres
 from multiverse_workflow.storage.postgres import (
     PostgresLeaseLost,
@@ -113,6 +117,15 @@ def test_release_requires_database_confirmation(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(PostgresLeaseLost, match="release"):
         lease.release()
     assert connection.closed is True
+
+
+def test_dispatch_gate_translates_lease_loss() -> None:
+    class LostLease:
+        def assert_held(self) -> None:
+            raise PostgresLeaseLost("connection lost")
+
+    with pytest.raises(DispatchLeaseLost, match="connection lost"):
+        PostgresDispatchGate(LostLease()).assert_can_dispatch()  # type: ignore[arg-type]
 
 
 def test_release_requires_unlock_result_row(monkeypatch: pytest.MonkeyPatch) -> None:

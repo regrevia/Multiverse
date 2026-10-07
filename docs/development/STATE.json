@@ -287,7 +287,7 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w04",
       "report": "reports/W04/REPORT.md",
-      "implementation_commit": "86bd7f8",
+      "implementation_commit": null,
       "blockers": [
         {
           "code": "HUMAN_DECISION_REQUIRED",
@@ -477,7 +477,7 @@
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
       "implementation_commit": null,
-      "checkpoint_snapshot_digest": "sha256:9983ec4504c6e62ccff22665c87f1990b6732b1aa83bf347ff774b035015dec5",
+      "checkpoint_snapshot_digest": "sha256:fe4e90956a480a72b826615bff381964e809a09af066a74baf70430a6519d62d",
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",

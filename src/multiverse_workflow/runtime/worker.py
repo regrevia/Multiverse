@@ -6,6 +6,10 @@ from pathlib import Path
 from threading import Event
 from typing import Any, TextIO
 
+from multiverse_workflow.runtime.dispatch_lease import (
+    DispatchGate,
+    NoopDispatchGate,
+)
 from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.runner import Runner
 
@@ -26,12 +30,14 @@ class LocalWorker:
         poll_interval: float,
         limit: int,
         claim_timeout_seconds: float,
+        dispatch_gate: DispatchGate,
     ) -> None:
         self.runner = runner
         self.worker_id = worker_id
         self.poll_interval = poll_interval
         self.limit = limit
         self.claim_timeout_seconds = claim_timeout_seconds
+        self.dispatch_gate = dispatch_gate
         self._lock_file = lock_file
         self._closed = False
         self._recover_codex_interactions()
@@ -49,6 +55,7 @@ class LocalWorker:
         limit: int = 100,
         claim_timeout_seconds: float = 60.0,
         executor_registry: ExecutorRegistry | None = None,
+        dispatch_gate: DispatchGate | None = None,
     ) -> LocalWorker:
         if not worker_id.strip():
             raise ValueError("worker id is required")
@@ -90,10 +97,12 @@ class LocalWorker:
             poll_interval=poll_interval,
             limit=limit,
             claim_timeout_seconds=claim_timeout_seconds,
+            dispatch_gate=dispatch_gate or NoopDispatchGate(),
         )
 
     def run_once(self) -> list[dict[str, Any]]:
         self._ensure_open()
+        self.dispatch_gate.assert_can_dispatch()
         now = datetime.now(UTC)
         now_text = _timestamp(now)
         cutoff = _timestamp(now - timedelta(seconds=self.claim_timeout_seconds))
@@ -139,8 +148,15 @@ class LocalWorker:
         try:
             self.runner.close()
         finally:
-            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
-            self._lock_file.close()
+            try:
+                close_gate = getattr(self.dispatch_gate, "close", None)
+                if callable(close_gate):
+                    close_gate()
+            finally:
+                try:
+                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+                finally:
+                    self._lock_file.close()
 
     def _ensure_open(self) -> None:
         if self._closed:
