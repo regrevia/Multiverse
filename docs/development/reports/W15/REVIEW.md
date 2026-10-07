@@ -1,8 +1,8 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
-Implementation commit：`d162e23`。
-当前已审 manifest：`sha256:b430c264ad74b30bc30860246a10774ffddf4ac1d55a912beb8ab50b887c659d`
+Implementation commit：待本轮提交。
+当前已审 manifest：`sha256:039bb94bd29d34f9336bc83a068d17533a74494ae7ab96fccc45da6b4c428b2a`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
@@ -22,6 +22,8 @@ ServiceSettings gate injection reviewer task：`01a1160e-0fe2-7820-9cc8-4c4ea688
 Service profile boundary reviewer task：`01a116d4-587e-7273-89f9-9c13df416581`，初审 P1/P2 已关闭，最终复审 approved
 DispatchGate lifecycle reviewer task：`01a1169b-a536-7cd1-92a0-8bf3aa8e18b2`，初审 P1/P2 已关闭，最终复审 approved
 SQLite snapshot reviewer task：`01a116f6-338f-7832-b7d7-034b529fa19b`，初审 P1/P2/P3 已关闭，最终复审 approved
+SQLite import reviewer task：`01a11739-f92c-7f42-926c-1580e59ae067`，初审 P1/P2 已关闭，最终复审 approved
+SQLite import reviewer task：`01a11739-f92c-7f42-926c-1580e59ae067`，初审 P1/P2 已关闭，最终复审 approved
 
 已审阅范围：
 

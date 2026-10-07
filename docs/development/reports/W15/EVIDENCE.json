@@ -2,9 +2,9 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:b430c264ad74b30bc30860246a10774ffddf4ac1d55a912beb8ab50b887c659d",
-  "implementation_commit": "d162e23",
-  "ledger_schema_revision": "0004_ownership_foreign_keys",
+  "snapshot_manifest_digest": "sha256:039bb94bd29d34f9336bc83a068d17533a74494ae7ab96fccc45da6b4c428b2a",
+  "implementation_commit": null,
+  "ledger_schema_revision": "0006_sqlite_import_receipts",
   "checkpoint_scope": [
     "alembic.ini",
     "migrations/env.py",
@@ -13,6 +13,7 @@
     "migrations/versions/0003_ledger_completeness.py",
     "migrations/versions/0004_ownership_foreign_keys.py",
     "migrations/versions/0005_human_decision_contract.py",
+    "migrations/versions/0006_sqlite_import_receipts.py",
     "pyproject.toml",
     "uv.lock",
     "src/multiverse_workflow/storage/__init__.py",
@@ -33,6 +34,7 @@
     "tests/storage/test_postgres_lock.py",
     "tests/storage/test_postgres_migrations.py",
     "tests/storage/test_postgres_repository.py",
+    "tests/storage/test_postgres_import.py",
     "tests/storage/test_postgres_transaction.py",
     "tests/runtime/test_command_store.py",
     "tests/runtime/test_wait_store.py",
@@ -49,7 +51,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 59,
+    "passed": 62,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -89,9 +91,16 @@
     "skipped": 0,
     "exit_code": 0
   },
+  "sqlite_import_tests": {
+    "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage/test_postgres_import.py",
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 647,
+    "passed": 650,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -128,12 +137,13 @@
     "profile_boundary_reviewer": "01a116d4-587e-7273-89f9-9c13df416581",
     "dispatch_gate_lifecycle_reviewer": "01a1169b-a536-7cd1-92a0-8bf3aa8e18b2",
     "sqlite_snapshot_reviewer": "01a116f6-338f-7832-b7d7-034b529fa19b",
+    "sqlite_import_reviewer": "01a11739-f92c-7f42-926c-1580e59ae067",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [
     {
       "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
-      "message": "PostgreSQL Ledger DDL exists through revision 0004, but the PostgreSQL Repository is not wired to Ledger/Runner; Runtime scheduling, fencing, SQLite import and restore continuation remain incomplete."
+      "message": "PostgreSQL Ledger DDL exists through revision 0006, but the PostgreSQL Repository is not wired to Ledger/Runner; Runtime scheduling, fencing, SQLite import and restore continuation remain incomplete."
     },
     {
       "code": "REMOTE_PUSH_AUTH",

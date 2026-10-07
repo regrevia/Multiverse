@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -12,6 +14,7 @@ from sqlalchemy import Connection, text
 from sqlalchemy.exc import IntegrityError
 
 from multiverse_workflow.runtime.http_job import validate_artifact_metadata
+from multiverse_workflow.runtime.snapshot import export_sqlite_snapshot
 from multiverse_workflow.storage.sqlalchemy import PostgresTransactionStore
 
 
@@ -54,6 +57,559 @@ class PostgresLedgerRepository:
 
     def __init__(self, dsn: str) -> None:
         self._store = PostgresTransactionStore(dsn)
+
+    def import_sqlite_control_plane(
+        self,
+        source_path: Path,
+        *,
+        namespace: str,
+        snapshot_digest: str,
+    ) -> dict[str, Any]:
+        """Import stopped SQLite control facts into an empty PG namespace.
+
+        This intentionally excludes Artifact rows/bytes: a local storage_ref
+        cannot be treated as a service-readable artifact. The operation is
+        atomic and replay-safe for an already imported namespace.
+        """
+        source = source_path.expanduser().resolve()
+        connection = sqlite3.connect(source)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            actual = export_sqlite_snapshot(source)
+            if actual["snapshotDigest"] != snapshot_digest:
+                raise ValueError("SQLite snapshot digest does not match source")
+            source_tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+
+            def rows(
+                table: str,
+                where: str = "",
+                params: tuple[Any, ...] = (),
+            ) -> list[dict[str, Any]]:
+                if table not in source_tables:
+                    return []
+                quoted = '"' + table.replace('"', '""') + '"'
+                query = f"SELECT * FROM {quoted}"
+                if where:
+                    query += " WHERE " + where
+                return [dict(row) for row in connection.execute(query, params).fetchall()]
+
+            runs = rows("runs", "namespace = ?", (namespace,))
+            run_ids = {str(row["id"]) for row in runs}
+            commands = rows("commands", "namespace = ?", (namespace,))
+            waits = rows("waits", "namespace = ?", (namespace,))
+            outbox = rows("outbox", "namespace = ?", (namespace,))
+            inbox = rows("inbox", "namespace = ?", (namespace,))
+            host_sessions = rows("execution_host_sessions", "namespace = ?", (namespace,))
+            scopes = rows("scopes") if source_tables.intersection({"scopes"}) else []
+            invocations = rows("invocations") if "invocations" in source_tables else []
+            attempts = rows("attempts") if "attempts" in source_tables else []
+            human_requests = rows("human_requests") if "human_requests" in source_tables else []
+            request_ids = {str(row["id"]) for row in human_requests}
+            human_decisions = rows("human_decisions") if "human_decisions" in source_tables else []
+            codex_interactions = (
+                rows("codex_interactions") if "codex_interactions" in source_tables else []
+            )
+            progress_intents = (
+                rows("human_progress_intents")
+                if "human_progress_intents" in source_tables
+                else []
+            )
+            events = rows("run_events") if "run_events" in source_tables else []
+            source_artifacts = rows("artifacts") if "artifacts" in source_tables else []
+            source_external_artifacts = (
+                rows("external_artifact_sources")
+                if "external_artifact_sources" in source_tables
+                else []
+            )
+            if not run_ids:
+                if any(
+                    records
+                    for table, records in (
+                        ("commands", commands),
+                        ("waits", waits),
+                        ("outbox", outbox),
+                        ("inbox", inbox),
+                        ("execution_host_sessions", host_sessions),
+                        ("scopes", scopes),
+                        ("invocations", invocations),
+                        ("attempts", attempts),
+                        ("human_requests", human_requests),
+                        ("human_decisions", human_decisions),
+                        ("run_events", events),
+                        ("codex_interactions", codex_interactions),
+                        ("human_progress_intents", progress_intents),
+                        ("artifacts", source_artifacts),
+                        ("external_artifact_sources", source_external_artifacts),
+                    )
+                ):
+                    raise ValueError(
+                        "SQLite snapshot contains namespace facts without a Run"
+                    )
+                with self._store.transaction() as empty_target:
+                    empty_checks = {
+                        "runs": "SELECT COUNT(*) FROM runs WHERE namespace = :namespace",
+                        "commands": "SELECT COUNT(*) FROM commands WHERE namespace = :namespace",
+                        "waits": "SELECT COUNT(*) FROM waits WHERE namespace = :namespace",
+                        "outbox": "SELECT COUNT(*) FROM outbox WHERE namespace = :namespace",
+                        "artifacts": "SELECT COUNT(*) FROM artifacts WHERE namespace = :namespace",
+                        "inbox": "SELECT COUNT(*) FROM inbox WHERE namespace = :namespace",
+                        "execution_host_sessions": (
+                            "SELECT COUNT(*) FROM execution_host_sessions "
+                            "WHERE namespace = :namespace"
+                        ),
+                        "scopes": (
+                            "SELECT COUNT(*) FROM scopes JOIN runs ON runs.id = scopes.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "invocations": (
+                            "SELECT COUNT(*) FROM invocations "
+                            "JOIN runs ON runs.id = invocations.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "attempts": (
+                            "SELECT COUNT(*) FROM attempts JOIN runs ON runs.id = attempts.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "human_requests": (
+                            "SELECT COUNT(*) FROM human_requests "
+                            "JOIN runs ON runs.id = human_requests.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "human_decisions": (
+                            "SELECT COUNT(*) FROM human_decisions "
+                            "JOIN human_requests ON human_requests.id = human_decisions.request_id "
+                            "JOIN runs ON runs.id = human_requests.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "human_progress_intents": (
+                            "SELECT COUNT(*) FROM human_progress_intents "
+                            "JOIN runs ON runs.id = human_progress_intents.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "codex_interactions": (
+                            "SELECT COUNT(*) FROM codex_interactions "
+                            "JOIN runs ON runs.id = codex_interactions.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "run_events": (
+                            "SELECT COUNT(*) FROM run_events "
+                            "JOIN runs ON runs.id = run_events.run_id "
+                            "WHERE runs.namespace = :namespace"
+                        ),
+                        "sqlite_import_receipts": (
+                            "SELECT COUNT(*) FROM sqlite_import_receipts "
+                            "WHERE namespace = :namespace"
+                        ),
+                    }
+                    if any(
+                        empty_target.execute(
+                            text(query), {"namespace": namespace}
+                        ).scalar_one()
+                        for query in empty_checks.values()
+                    ):
+                        raise ValueError("target namespace is not empty")
+                return {
+                    "sourceSnapshotDigest": snapshot_digest,
+                    "namespace": namespace,
+                    "runCount": 0,
+                    "eventCount": 0,
+                    "waitCount": 0,
+                    "artifactCount": 0,
+                }
+            scopes = [row for row in scopes if row["run_id"] in run_ids]
+            invocations = [row for row in invocations if row["run_id"] in run_ids]
+            attempts = [row for row in attempts if row["run_id"] in run_ids]
+            attempt_ids = {str(row["id"]) for row in attempts}
+            scope_by_id = {str(row["id"]): row for row in scopes}
+            invocation_by_id = {str(row["id"]): row for row in invocations}
+            attempt_by_id = {str(row["id"]): row for row in attempts}
+            for record in scopes:
+                parent_scope = record.get("parent_scope_id")
+                if parent_scope is not None and (
+                    str(parent_scope) not in scope_by_id
+                    or scope_by_id[str(parent_scope)]["run_id"] != record["run_id"]
+                ):
+                    raise ValueError("SQLite scope parent ownership is invalid")
+            for record in invocations:
+                scope = invocation_by_id.get(str(record["id"]))
+                if (
+                    scope is None
+                    or str(record["scope_id"]) not in scope_by_id
+                    or scope_by_id[str(record["scope_id"])]["run_id"] != record["run_id"]
+                ):
+                    raise ValueError("SQLite invocation ownership is invalid")
+            for record in attempts:
+                invocation = invocation_by_id.get(str(record["invocation_id"]))
+                if (
+                    invocation is None
+                    or str(record["scope_id"]) not in scope_by_id
+                    or invocation["run_id"] != record["run_id"]
+                    or invocation["scope_id"] != record["scope_id"]
+                ):
+                    raise ValueError("SQLite attempt ownership is invalid")
+            for record in runs:
+                if record.get("rerun_of") is not None and str(record["rerun_of"]) not in run_ids:
+                    raise ValueError("SQLite rerun ownership is invalid")
+                if (
+                    record.get("current_scope_id") is not None
+                    and (
+                        str(record["current_scope_id"]) not in scope_by_id
+                        or scope_by_id[str(record["current_scope_id"])]["run_id"] != record["id"]
+                    )
+                ):
+                    raise ValueError("SQLite current scope ownership is invalid")
+                if (
+                    record.get("current_invocation_id") is not None
+                    and (
+                        str(record["current_invocation_id"]) not in invocation_by_id
+                        or invocation_by_id[str(record["current_invocation_id"])]["run_id"]
+                        != record["id"]
+                    )
+                ):
+                    raise ValueError("SQLite current invocation ownership is invalid")
+            human_requests = [row for row in human_requests if row["run_id"] in run_ids]
+            request_ids = {str(row["id"]) for row in human_requests}
+            human_decisions = [
+                row for row in human_decisions if row["request_id"] in request_ids
+            ]
+            codex_interactions = [
+                row for row in codex_interactions if row["run_id"] in run_ids
+            ]
+            progress_intents = [
+                row for row in progress_intents if row["request_id"] in request_ids
+            ]
+            waits = [row for row in waits if row["run_id"] in run_ids]
+            outbox = [row for row in outbox if row["run_id"] in run_ids]
+            events = [row for row in events if row["run_id"] in run_ids]
+            artifacts = [
+                row for row in source_artifacts if row["run_id"] in run_ids
+            ]
+            if artifacts:
+                raise ValueError(
+                    "SQLite import refuses Artifact rows until controlled byte "
+                    "transfer is configured"
+                )
+            external_sources = [
+                row
+                for row in source_external_artifacts
+                if row["attempt_id"] in attempt_ids
+            ]
+            if external_sources:
+                raise ValueError(
+                    "SQLite import refuses external Artifact sources until "
+                    "controlled byte transfer is configured"
+                )
+            for record in human_requests:
+                if (
+                    str(record["scope_id"]) not in scope_by_id
+                    or str(record["invocation_id"]) not in invocation_by_id
+                    or scope_by_id[str(record["scope_id"])]["run_id"] != record["run_id"]
+                    or invocation_by_id[str(record["invocation_id"])]["run_id"]
+                    != record["run_id"]
+                ):
+                    raise ValueError("SQLite human request ownership is invalid")
+            request_by_id = {str(row["id"]): row for row in human_requests}
+            for record in human_decisions:
+                if str(record["request_id"]) not in request_by_id:
+                    raise ValueError("SQLite human decision ownership is invalid")
+            for record in codex_interactions:
+                attempt = attempt_by_id.get(str(record["attempt_id"]))
+                invocation = invocation_by_id.get(str(record["invocation_id"]))
+                if (
+                    attempt is None
+                    or invocation is None
+                    or attempt["run_id"] != record["run_id"]
+                    or attempt["invocation_id"] != record["invocation_id"]
+                    or invocation["run_id"] != record["run_id"]
+                    or invocation["scope_id"] != record["scope_id"]
+                ):
+                    raise ValueError("SQLite Codex interaction ownership is invalid")
+            for record in progress_intents:
+                request = request_by_id.get(str(record["request_id"]))
+                if (
+                    request is None
+                    or request["run_id"] != record["run_id"]
+                    or request["scope_id"] != record["scope_id"]
+                    or request["invocation_id"] != record["invocation_id"]
+                ):
+                    raise ValueError("SQLite progress intent ownership is invalid")
+            for record in waits:
+                if str(record["run_id"]) not in run_ids:
+                    raise ValueError("SQLite wait ownership is invalid")
+                if record.get("scope_id") is not None and (
+                    str(record["scope_id"]) not in scope_by_id
+                    or scope_by_id[str(record["scope_id"])]["run_id"] != record["run_id"]
+                ):
+                    raise ValueError("SQLite wait scope ownership is invalid")
+                if record.get("invocation_id") is not None and (
+                    str(record["invocation_id"]) not in invocation_by_id
+                    or invocation_by_id[str(record["invocation_id"])]["run_id"]
+                    != record["run_id"]
+                ):
+                    raise ValueError("SQLite wait invocation ownership is invalid")
+            for record in outbox:
+                attempt = attempt_by_id.get(str(record["attempt_id"]))
+                if (
+                    attempt is None
+                    or attempt["run_id"] != record["run_id"]
+                    or attempt["invocation_id"] != record["invocation_id"]
+                    or attempt["scope_id"] != record["scope_id"]
+                ):
+                    raise ValueError("SQLite outbox ownership is invalid")
+            for record in events:
+                if str(record["run_id"]) not in run_ids:
+                    raise ValueError("SQLite event ownership is invalid")
+                scope = scope_by_id.get(str(record["scope_id"])) if record.get("scope_id") else None
+                invocation = (
+                    invocation_by_id.get(str(record["invocation_id"]))
+                    if record.get("invocation_id")
+                    else None
+                )
+                attempt = (
+                    attempt_by_id.get(str(record["attempt_id"]))
+                    if record.get("attempt_id")
+                    else None
+                )
+                if (
+                    record.get("scope_id") is not None
+                    and (
+                        scope is None
+                        or scope["run_id"] != record["run_id"]
+                    )
+                ) or (
+                    record.get("invocation_id") is not None
+                    and (
+                        invocation is None
+                        or invocation["run_id"] != record["run_id"]
+                    )
+                ) or (
+                    record.get("attempt_id") is not None
+                    and (
+                        attempt is None
+                        or attempt["run_id"] != record["run_id"]
+                    )
+                ):
+                    raise ValueError("SQLite event reference ownership is invalid")
+        finally:
+            connection.rollback()
+            connection.close()
+
+        summary = {
+            "sourceSnapshotDigest": snapshot_digest,
+            "namespace": namespace,
+            "runCount": len(runs),
+            "eventCount": len(events),
+            "waitCount": len(waits),
+            "artifactCount": 0,
+        }
+        run_links = {
+            str(record["id"]): (
+                record.get("current_scope_id"),
+                record.get("current_invocation_id"),
+            )
+            for record in runs
+        }
+        rerun_links = {
+            str(record["id"]): record.get("rerun_of") for record in runs
+        }
+        scope_parents = {
+            str(record["id"]): (
+                record.get("parent_scope_id"),
+                record.get("parent_invocation_id"),
+            )
+            for record in scopes
+        }
+        attempt_sessions = {
+            str(record["id"]): record.get("host_session_id")
+            for record in attempts
+        }
+        with self._store.transaction() as target:
+            receipt = target.execute(
+                text(
+                    "SELECT snapshot_digest, summary_json FROM sqlite_import_receipts "
+                    "WHERE namespace = :namespace"
+                ),
+                {"namespace": namespace},
+            ).mappings().first()
+            if receipt is not None:
+                if receipt["snapshot_digest"] != snapshot_digest:
+                    raise ValueError("target namespace was imported from a different snapshot")
+                replay_summary = json.loads(receipt["summary_json"])
+                if not isinstance(replay_summary, dict):
+                    raise ValueError("stored SQLite import receipt is invalid")
+                return replay_summary
+
+            existing_checks = {
+                "runs": "SELECT COUNT(*) FROM runs WHERE namespace = :namespace",
+                "commands": "SELECT COUNT(*) FROM commands WHERE namespace = :namespace",
+                "waits": "SELECT COUNT(*) FROM waits WHERE namespace = :namespace",
+                "outbox": "SELECT COUNT(*) FROM outbox WHERE namespace = :namespace",
+                "artifacts": "SELECT COUNT(*) FROM artifacts WHERE namespace = :namespace",
+                "inbox": "SELECT COUNT(*) FROM inbox WHERE namespace = :namespace",
+                "execution_host_sessions": (
+                    "SELECT COUNT(*) FROM execution_host_sessions "
+                    "WHERE namespace = :namespace"
+                ),
+                "scopes": (
+                    "SELECT COUNT(*) FROM scopes JOIN runs ON runs.id = scopes.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "invocations": (
+                    "SELECT COUNT(*) FROM invocations JOIN runs ON runs.id = invocations.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "attempts": (
+                    "SELECT COUNT(*) FROM attempts JOIN runs ON runs.id = attempts.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "human_requests": (
+                    "SELECT COUNT(*) FROM human_requests "
+                    "JOIN runs ON runs.id = human_requests.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "human_decisions": (
+                    "SELECT COUNT(*) FROM human_decisions "
+                    "JOIN human_requests ON human_requests.id = human_decisions.request_id "
+                    "JOIN runs ON runs.id = human_requests.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "human_progress_intents": (
+                    "SELECT COUNT(*) FROM human_progress_intents "
+                    "JOIN runs ON runs.id = human_progress_intents.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "codex_interactions": (
+                    "SELECT COUNT(*) FROM codex_interactions "
+                    "JOIN runs ON runs.id = codex_interactions.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "run_events": (
+                    "SELECT COUNT(*) FROM run_events JOIN runs ON runs.id = run_events.run_id "
+                    "WHERE runs.namespace = :namespace"
+                ),
+                "sqlite_import_receipts": (
+                    "SELECT COUNT(*) FROM sqlite_import_receipts "
+                    "WHERE namespace = :namespace"
+                ),
+            }
+            existing_counts = {
+                table: int(
+                    target.execute(text(query), {"namespace": namespace}).scalar_one()
+                )
+                for table, query in existing_checks.items()
+            }
+            if any(existing_counts.values()):
+                raise ValueError("target namespace is not empty")
+
+            tables = [
+                ("runs", runs),
+                ("commands", commands),
+                ("scopes", scopes),
+                ("execution_host_sessions", host_sessions),
+                ("invocations", invocations),
+                ("attempts", attempts),
+                ("human_requests", human_requests),
+                ("codex_interactions", codex_interactions),
+                ("human_decisions", human_decisions),
+                ("human_progress_intents", progress_intents),
+                ("waits", waits),
+                ("outbox", outbox),
+                ("run_events", events),
+                ("inbox", inbox),
+            ]
+            for table, records in tables:
+                for record in records:
+                    if table == "runs":
+                        record["current_scope_id"] = None
+                        record["current_invocation_id"] = None
+                        record["rerun_of"] = None
+                    if table == "scopes":
+                        record["parent_invocation_id"] = None
+                        record["parent_scope_id"] = None
+                    if table == "attempts":
+                        record["host_session_id"] = None
+                    if table == "human_decisions":
+                        record["namespace"] = namespace
+                    columns = list(record)
+                    placeholders = ", ".join(f":{column}" for column in columns)
+                    names = ", ".join(columns)
+                    target.execute(
+                        text(
+                            f"INSERT INTO {table} ({names}) "
+                            f"VALUES ({placeholders})"
+                        ),
+                        record,
+                    )
+            for record in runs:
+                target.execute(
+                    text(
+                        "UPDATE runs SET current_scope_id = :scope, "
+                        "current_invocation_id = :invocation "
+                        "WHERE id = :run_id"
+                    ),
+                    {
+                        "scope": run_links[str(record["id"])][0],
+                        "invocation": run_links[str(record["id"])][1],
+                        "run_id": record["id"],
+                    },
+                )
+                target.execute(
+                    text(
+                        "UPDATE runs SET rerun_of = :rerun_of "
+                        "WHERE id = :run_id"
+                    ),
+                    {
+                        "rerun_of": rerun_links[str(record["id"])],
+                        "run_id": record["id"],
+                    },
+                )
+            for record in scopes:
+                target.execute(
+                    text(
+                        "UPDATE scopes SET parent_scope_id = :parent_scope, "
+                        "parent_invocation_id = :parent_invocation "
+                        "WHERE id = :scope_id"
+                    ),
+                    {
+                        "parent_scope": scope_parents[str(record["id"])][0],
+                        "parent_invocation": scope_parents[str(record["id"])][1],
+                        "scope_id": record["id"],
+                    },
+                )
+            for record in attempts:
+                target.execute(
+                    text(
+                        "UPDATE attempts SET host_session_id = :session "
+                        "WHERE id = :attempt_id"
+                    ),
+                    {
+                        "session": attempt_sessions[str(record["id"])],
+                        "attempt_id": record["id"],
+                    },
+                )
+            target.execute(
+                text(
+                    """
+                    INSERT INTO sqlite_import_receipts (
+                        namespace, snapshot_digest, summary_json, created_at
+                    ) VALUES (:namespace, :snapshot_digest, :summary_json, :created_at)
+                    """
+                ),
+                {
+                    "namespace": namespace,
+                    "snapshot_digest": snapshot_digest,
+                    "summary_json": _json(summary),
+                    "created_at": _now(),
+                },
+            )
+        return summary
 
     def create_queued_run(
         self,

@@ -477,11 +477,11 @@
       "package": "../../工作包规划.md#w15",
       "report": "reports/W15/REPORT.md",
       "implementation_commit": null,
-      "checkpoint_snapshot_digest": "sha256:b430c264ad74b30bc30860246a10774ffddf4ac1d55a912beb8ab50b887c659d",
+      "checkpoint_snapshot_digest": "sha256:039bb94bd29d34f9336bc83a068d17533a74494ae7ab96fccc45da6b4c428b2a",
       "blockers": [
         {
           "code": "POSTGRES_LEDGER_BACKEND_INCOMPLETE",
-          "message": "0001-0004 PostgreSQL Ledger DDL and namespace-scoped queued-Run/Invocation/Attempt Repository slices pass, but the Repository is not wired to Ledger/Runner; Runtime scheduling, fencing, SQLite import and restore continuation remain incomplete."
+          "message": "0001-0006 PostgreSQL Ledger DDL and namespace-scoped Repository slices pass, but the Repository is not wired to Ledger/Runner; Runtime scheduling, fencing, SQLite import and restore continuation remain incomplete."
         },
         {
           "code": "REMOTE_PUSH_AUTH",
