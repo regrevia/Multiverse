@@ -6,7 +6,7 @@
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
 Manifest SHA256：`6d414134dc8633e42bf905286d09ce727e8ad204742e95a295f648f3c239a123`
-Implementation commit：待本轮提交。
+Implementation commit：`37fc221`。
 
 ## 已完成
 

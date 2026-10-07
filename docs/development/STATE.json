@@ -287,7 +287,7 @@
       "status": "blocked",
       "package": "../../工作包规划.md#w04",
       "report": "reports/W04/REPORT.md",
-      "implementation_commit": null,
+      "implementation_commit": "37fc221",
       "blockers": [
         {
           "code": "HUMAN_DECISION_REQUIRED",
