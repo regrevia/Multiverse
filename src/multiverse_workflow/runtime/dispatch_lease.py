@@ -22,7 +22,13 @@ class NoopDispatchGate:
     def assert_can_dispatch(self) -> None:
         return None
 
+    def acquire(self) -> bool:
+        return True
+
     def close(self) -> None:
+        return None
+
+    def release(self) -> None:
         return None
 
 

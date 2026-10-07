@@ -16,7 +16,11 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_noop_dispatch_gate_allows_local_dispatch() -> None:
-    NoopDispatchGate().assert_can_dispatch()
+    gate = NoopDispatchGate()
+    gate.assert_can_dispatch()
+    gate.acquire()
+    gate.release()
+    gate.close()
 
 
 def test_lost_dispatch_gate_fails_closed() -> None:
