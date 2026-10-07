@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from multiverse_workflow.runtime.catalog import load_executor_registry
+from multiverse_workflow.runtime.dispatch_lease import DispatchGate
 from multiverse_workflow.runtime.registry import ExecutorRegistry
 from multiverse_workflow.runtime.worker import LocalWorker
 from multiverse_workflow.service.application import RuntimeApplication
@@ -60,6 +61,7 @@ class ServiceSettings:
 
     registry_path: Path | None = None
     executor_registry: ExecutorRegistry | None = field(default=None, repr=False)
+    dispatch_gate: DispatchGate | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.registry_path is not None and self.executor_registry is not None:
@@ -114,4 +116,5 @@ class ServiceSettings:
             poll_interval=poll_interval,
             limit=limit,
             claim_timeout_seconds=claim_timeout_seconds,
+            dispatch_gate=self.dispatch_gate,
         )

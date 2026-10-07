@@ -5,8 +5,8 @@
 状态：`blocked`，PostgreSQL 目标分类、单活 advisory lease、事务边界和 0001–0004 Ledger DDL 已通过真实 PG 17 验证；Ledger Runtime backend 尚未完成。
 
 最终 checkpoint manifest：`final-tests/snapshot.sha256`
-Manifest SHA256：`fe4e90956a480a72b826615bff381964e809a09af066a74baf70430a6519d62d`
-Implementation commit：`1f7ca22`。
+Manifest SHA256：`38a4bb96d91a29459f5deb885122faff3f5ca362d415c439e84725edb137b349`
+Implementation commit：待本轮提交。
 
 ## 已完成
 
@@ -32,6 +32,7 @@ Implementation commit：`1f7ca22`。
 - PostgreSQL Artifact metadata/source 契约支持完整 W02 metadata 校验、终态观察、attempt/Run 锁、source-key 幂等和外部字节边界；当前不伪称中心 Artifact bytes 已存储。
 - PostgreSQL Run control 契约支持 pause/resume/cancel、版本 CAS、active attempt stopping、无 active attempt 时级联取消实体及 `RUN_CANCELLED` 错误。
 - DispatchLease/Worker gate bounded contract：Worker 每轮派发前检查 gate，PostgreSQL lease 丢失 fail-closed；gate 关闭异常也不阻塞本地 Worker lock 释放。
+- ServiceSettings Worker factory 可注入 DispatchGate，并在 Runner/Worker 构造失败、锁冲突和关闭路径清理 gate；仍须显式注入，默认 SQLite profile 不代表 PostgreSQL service profile 已完整配置。
 - Alembic `0001` storage metadata、`0002` 14 张核心 Ledger 表、`0003` inbox/host-session/FK/Outbox action-key 约束、`0004` ownership composite FK 约束。
 - 四个 Alembic revisions 建立 14 张核心 Ledger 表、Inbox、host/session 和 ownership 关联；Ledger 业务模型到表的 Repository 映射尚未接入。
 - 真实 schema parity 测试从当前 SQLite Ledger 初始化结构，与 PostgreSQL migration 逐表比较列覆盖；全部当前 Ledger 表列均被覆盖，PostgreSQL 扩展列和新增表单独声明。
@@ -51,7 +52,7 @@ Implementation commit：`1f7ca22`。
 - Transaction 子集：`3 passed`
 - Lock suite：`7 passed`，其中 3 个真实 PG case、4 个 fixture case。
 
-- 完整 Python，设置 PostgreSQL DSN 后：`630 passed, 15 skipped`
+- 完整 Python，设置 PostgreSQL DSN 后：`635 passed, 15 skipped`
 - Ruff：通过
 - mypy：通过
 - `git diff --check`：通过
@@ -71,6 +72,7 @@ Implementation commit：`1f7ca22`。
 - Runtime entity read bounded checkpoint：`01a115bf-b32f-7550-866e-5eed40eaa6e5`，覆盖 namespace-scoped Scope/Invocation/Attempt/Event 读取与 Artifact metadata；最终 approved。
 - Run control bounded checkpoint：`01a115d8-a3c4-7363-ba1d-3f5ac1d942a3`，初审发现 cancel 级联状态缺口；补齐 waiting entity 取消与 RUN_CANCELLED 错误后最终 approved。
 - DispatchLease/Worker gate bounded checkpoint：`01a115f7-3c2f-74a0-afb4-a315d7b20b8e`，初审 P2 为 gate 生命周期；补齐 Worker close 的异常安全释放和回归后最终 approved。
+- ServiceSettings gate injection bounded checkpoint：`01a1160e-0fe2-7820-9cc8-4c4ea688e7e3`，构造失败和 falsey gate findings 已修复，最终 approved；完整 PostgreSQL Runtime 接线仍是 scope limitation。
 
 ## W15 尚未完成
 

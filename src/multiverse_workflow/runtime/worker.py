@@ -67,17 +67,27 @@ class LocalWorker:
             raise ValueError("claim timeout must be non-negative")
 
         database_path = database_path.expanduser().resolve()
+        gate = dispatch_gate if dispatch_gate is not None else NoopDispatchGate()
         database_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = Path(f"{database_path}.worker.lock")
         lock_file = lock_path.open("a+", encoding="utf-8")
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            lock_file.close()
-            raise WorkerLockError(
+            lock_error = WorkerLockError(
                 f"worker lock is already held for database: {database_path}"
-            ) from exc
+            )
+            try:
+                close_gate = getattr(gate, "close", None)
+                if callable(close_gate):
+                    close_gate()
+            except BaseException as cleanup_error:
+                lock_error.add_note(f"dispatch gate cleanup failed: {cleanup_error}")
+            finally:
+                lock_file.close()
+            raise lock_error from exc
 
+        runner: Runner | None = None
         try:
             runner = Runner(
                 package_dir,
@@ -86,19 +96,35 @@ class LocalWorker:
                 namespace=namespace,
                 executor_registry=executor_registry,
             )
-        except Exception:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            lock_file.close()
+            return cls(
+                runner,
+                lock_file=lock_file,
+                worker_id=worker_id,
+                poll_interval=poll_interval,
+                limit=limit,
+                claim_timeout_seconds=claim_timeout_seconds,
+                dispatch_gate=gate,
+            )
+        except BaseException as construction_error:
+            if runner is not None:
+                try:
+                    runner.close()
+                except BaseException as cleanup_error:
+                    construction_error.add_note(
+                        f"runner cleanup failed: {cleanup_error}"
+                    )
+            try:
+                close_gate = getattr(gate, "close", None)
+                if callable(close_gate):
+                    close_gate()
+            except BaseException as cleanup_error:
+                construction_error.add_note(
+                    f"dispatch gate cleanup failed: {cleanup_error}"
+                )
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
             raise
-        return cls(
-            runner,
-            lock_file=lock_file,
-            worker_id=worker_id,
-            poll_interval=poll_interval,
-            limit=limit,
-            claim_timeout_seconds=claim_timeout_seconds,
-            dispatch_gate=dispatch_gate or NoopDispatchGate(),
-        )
 
     def run_once(self) -> list[dict[str, Any]]:
         self._ensure_open()

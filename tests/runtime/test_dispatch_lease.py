@@ -8,7 +8,11 @@ from multiverse_workflow.runtime.dispatch_lease import (
     DispatchLeaseLost,
     NoopDispatchGate,
 )
-from multiverse_workflow.runtime.worker import LocalWorker
+from multiverse_workflow.runtime.registry import local_executor_registry
+from multiverse_workflow.runtime.runner import RunError
+from multiverse_workflow.runtime.worker import LocalWorker, WorkerLockError
+
+ROOT = Path(__file__).parents[2]
 
 
 def test_noop_dispatch_gate_allows_local_dispatch() -> None:
@@ -78,3 +82,149 @@ def test_worker_releases_local_lock_when_gate_close_fails(tmp_path: Path) -> Non
     with pytest.raises(RuntimeError, match="gate close failed"):
         worker.close()
     assert lock_file.closed is True
+
+
+def test_worker_factory_preserves_falsey_dispatch_gate(tmp_path: Path) -> None:
+    class FalseyGate:
+        def __bool__(self) -> bool:
+            return False
+
+        def assert_can_dispatch(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    gate = FalseyGate()
+    worker = LocalWorker.from_paths(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+        worker_id="falsey-gate-worker",
+        dispatch_gate=gate,  # type: ignore[arg-type]
+        executor_registry=local_executor_registry(),
+    )
+    try:
+        assert worker.dispatch_gate is gate
+    finally:
+        worker.close()
+
+
+def test_worker_factory_closes_gate_and_releases_lock_on_runner_failure(
+    tmp_path: Path,
+) -> None:
+    class TrackingGate:
+        closed = False
+
+        def assert_can_dispatch(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    gate = TrackingGate()
+    database = tmp_path / "runtime.db"
+    with pytest.raises(RunError):
+        LocalWorker.from_paths(
+            package_dir=tmp_path / "missing-package",
+            binding_path=ROOT / "examples/bindings/content-local.yaml",
+            database_path=database,
+            worker_id="failed-runner-worker",
+            dispatch_gate=gate,  # type: ignore[arg-type]
+            executor_registry=local_executor_registry(),
+        )
+    assert gate.closed is True
+
+    worker = LocalWorker.from_paths(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+        worker_id="recovered-runner-worker",
+        executor_registry=local_executor_registry(),
+    )
+    worker.close()
+
+
+def test_worker_factory_closes_runner_gate_and_lock_on_worker_init_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TrackingGate:
+        closed = False
+
+        def assert_can_dispatch(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    gate = TrackingGate()
+    closed_runners: list[object] = []
+
+    class FakeRunner:
+        def __init__(self, *_: object, **__: object) -> None:
+            self.namespace = "local"
+
+        def close(self) -> None:
+            closed_runners.append(self)
+
+    def fail_worker_init(*_: object, **__: object) -> LocalWorker:
+        raise RuntimeError("worker recovery init failed")
+
+    monkeypatch.setattr("multiverse_workflow.runtime.worker.Runner", FakeRunner)
+    monkeypatch.setattr(LocalWorker, "__init__", fail_worker_init)
+    database = tmp_path / "runtime.db"
+    with pytest.raises(RuntimeError, match="worker recovery init failed"):
+        LocalWorker.from_paths(
+            package_dir=ROOT / "presets/content-delivery",
+            binding_path=ROOT / "examples/bindings/content-local.yaml",
+            database_path=database,
+            worker_id="failed-init-worker",
+            dispatch_gate=gate,  # type: ignore[arg-type]
+        )
+
+    assert gate.closed is True
+    assert len(closed_runners) == 1
+    monkeypatch.undo()
+    worker = LocalWorker.from_paths(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+        worker_id="recovered-init-worker",
+        executor_registry=local_executor_registry(),
+    )
+    worker.close()
+
+
+def test_worker_factory_closes_gate_when_local_lock_is_held(tmp_path: Path) -> None:
+    class TrackingGate:
+        closed = False
+
+        def assert_can_dispatch(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    database = tmp_path / "runtime.db"
+    first = LocalWorker.from_paths(
+        package_dir=ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=database,
+        worker_id="lock-owner",
+        executor_registry=local_executor_registry(),
+    )
+    gate = TrackingGate()
+    try:
+        with pytest.raises(WorkerLockError, match="already held"):
+            LocalWorker.from_paths(
+                package_dir=ROOT / "presets/content-delivery",
+                binding_path=ROOT / "examples/bindings/content-local.yaml",
+                database_path=database,
+                worker_id="lock-contender",
+                dispatch_gate=gate,  # type: ignore[arg-type]
+                executor_registry=local_executor_registry(),
+            )
+        assert gate.closed is True
+    finally:
+        first.close()
