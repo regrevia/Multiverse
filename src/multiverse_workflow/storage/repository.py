@@ -324,6 +324,160 @@ class PostgresLedgerRepository:
             raise RuntimeError("run disappeared after update")
         return updated
 
+    def control_run(
+        self,
+        *,
+        namespace: str,
+        run_id: str,
+        operation: str,
+        expected_version: int,
+        reason: str,
+    ) -> dict[str, Any]:
+        if operation not in {"pause", "resume", "cancel"}:
+            raise ValueError("unsupported run control operation")
+        if not reason.strip():
+            raise ValueError("control reason must not be empty")
+        with self._store.transaction() as connection:
+            run = connection.execute(
+                text(
+                    "SELECT * FROM runs "
+                    "WHERE id = :run_id AND namespace = :namespace "
+                    "FOR UPDATE"
+                ),
+                {"run_id": run_id, "namespace": namespace},
+            ).mappings().first()
+            if run is None:
+                raise KeyError(f"run not found: {run_id}")
+            if int(run["version"]) != expected_version:
+                raise ValueError("run version conflict")
+            if operation == "pause":
+                if run["status"] not in {"queued", "running", "waiting"}:
+                    raise ValueError(f"run cannot be paused from status: {run['status']}")
+                status, control_mode, event_type = "paused", "pause", "run.paused"
+            elif operation == "resume":
+                if run["status"] != "paused" or run["control_mode"] != "pause":
+                    raise ValueError("only a paused run can resume")
+                status, control_mode, event_type = "running", "run", "run.resumed"
+            else:
+                if run["status"] in {"succeeded", "failed", "cancelled"}:
+                    raise ValueError("run is already terminal")
+                active = connection.execute(
+                    text(
+                        "SELECT 1 FROM attempts WHERE run_id = :run_id "
+                        "AND status IN ('created', 'submitted', 'running', 'unknown') "
+                        "LIMIT 1"
+                    ),
+                    {"run_id": run_id},
+                ).first()
+                connection.execute(
+                    text(
+                        "UPDATE human_requests SET status = 'cancelled', "
+                        "version = version + 1, updated_at = :now "
+                        "WHERE run_id = :run_id AND status = 'pending'"
+                    ),
+                    {"run_id": run_id, "now": _now()},
+                )
+                connection.execute(
+                    text(
+                        "UPDATE waits SET status = 'cancelled', updated_at = :now "
+                        "WHERE run_id = :run_id AND status IN ('pending', 'claimed')"
+                    ),
+                    {"run_id": run_id, "now": _now()},
+                )
+                if active is None:
+                    cancellation_error = _json(
+                        {"code": "RUN_CANCELLED", "message": reason}
+                    )
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE attempts
+                            SET status = 'cancelled', error_json = :error_json,
+                                updated_at = :now
+                            WHERE run_id = :run_id
+                              AND status IN ('created', 'waiting')
+                            """
+                        ),
+                        {
+                            "error_json": cancellation_error,
+                            "now": _now(),
+                            "run_id": run_id,
+                        },
+                    )
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE invocations
+                            SET status = 'cancelled', error_json = :error_json,
+                                version = version + 1, updated_at = :now
+                            WHERE run_id = :run_id
+                              AND status IN ('planned', 'running', 'waiting')
+                            """
+                        ),
+                        {
+                            "error_json": cancellation_error,
+                            "now": _now(),
+                            "run_id": run_id,
+                        },
+                    )
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE scopes
+                            SET status = 'cancelled', error_json = :error_json
+                            WHERE run_id = :run_id AND status = 'active'
+                            """
+                        ),
+                        {"error_json": cancellation_error, "run_id": run_id},
+                    )
+                status = "stopping" if active is not None else "cancelled"
+                control_mode, event_type = "cancel", (
+                    "run.cancel_requested" if active is not None else "run.cancelled"
+                )
+            version = int(run["version"]) + 1
+            connection.execute(
+                text(
+                    """
+                    UPDATE runs
+                    SET status = :status, control_mode = :control_mode,
+                        version = :version, updated_at = :now,
+                        next_attempt_at = CASE
+                            WHEN :operation = 'cancel' THEN NULL
+                            ELSE next_attempt_at
+                        END
+                    WHERE id = :run_id AND namespace = :namespace
+                      AND version = :expected_version
+                    """
+                ),
+                {
+                    "status": status,
+                    "control_mode": control_mode,
+                    "version": version,
+                    "now": _now(),
+                    "operation": operation,
+                    "run_id": run_id,
+                    "namespace": namespace,
+                    "expected_version": expected_version,
+                },
+            )
+            self._insert_event(
+                connection,
+                run_id=run_id,
+                sequence=self._next_event_sequence(connection, run_id),
+                event_type=event_type,
+                payload={
+                    "operation": operation,
+                    "reason": reason,
+                    "status": status,
+                    "controlMode": control_mode,
+                    "version": version,
+                },
+            )
+        updated = self.get_run(namespace, run_id)
+        if updated is None:
+            raise RuntimeError("run disappeared after control")
+        return updated
+
     def create_command(
         self,
         *,

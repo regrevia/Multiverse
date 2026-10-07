@@ -803,6 +803,186 @@ def test_postgres_repository_reads_namespace_scoped_runtime_entities() -> None:
             repository.close()
 
 
+def test_postgres_repository_controls_run_with_versioned_pause_resume_cancel() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-control-contract",
+            )
+            paused = repository.control_run(
+                namespace="local",
+                run_id="run-control-contract",
+                operation="pause",
+                expected_version=1,
+                reason="operator pause",
+            )
+            assert paused["status"] == "paused"
+            assert paused["version"] == 2
+            with pytest.raises(ValueError, match="version"):
+                repository.control_run(
+                    namespace="local",
+                    run_id="run-control-contract",
+                    operation="resume",
+                    expected_version=1,
+                    reason="stale resume",
+                )
+            resumed = repository.control_run(
+                namespace="local",
+                run_id="run-control-contract",
+                operation="resume",
+                expected_version=2,
+                reason="operator resume",
+            )
+            assert resumed["status"] == "running"
+            cancelled = repository.control_run(
+                namespace="local",
+                run_id="run-control-contract",
+                operation="cancel",
+                expected_version=3,
+                reason="operator cancel",
+            )
+            assert cancelled["status"] == "cancelled"
+            assert cancelled["control_mode"] == "cancel"
+            assert [
+                event["type"]
+                for event in repository.list_event_records(
+                    "local", "run-control-contract"
+                )
+            ][-3:] == ["run.paused", "run.resumed", "run.cancelled"]
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_cancel_cascades_known_waiting_entities() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        repository = PostgresLedgerRepository(isolated)
+        try:
+            repository.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-cancel-cascade",
+            )
+            scope_id = repository.list_scope_ids("local", "run-cancel-cascade")[0]
+            invocation, attempt = repository.create_invocation_attempt(
+                namespace="local",
+                run_id="run-cancel-cascade",
+                scope_id=scope_id,
+                node_id="produce",
+                input_value={"goal": "write"},
+                dispatch_key="dispatch-cancel-cascade",
+                effect_key="effect-cancel-cascade",
+            )
+            with repository._store.transaction() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE invocations SET status = 'waiting' "
+                        "WHERE id = :invocation_id"
+                    ),
+                    {"invocation_id": invocation["id"]},
+                )
+                connection.execute(
+                    text(
+                        "UPDATE attempts SET status = 'waiting' "
+                        "WHERE id = :attempt_id"
+                    ),
+                    {"attempt_id": attempt["id"]},
+                )
+            cancelled = repository.control_run(
+                namespace="local",
+                run_id="run-cancel-cascade",
+                operation="cancel",
+                expected_version=1,
+                reason="cancel waiting entities",
+            )
+            assert cancelled["status"] == "cancelled"
+            stored_attempt = repository.get_attempt("local", attempt["id"])
+            stored_invocation = repository.get_invocation("local", invocation["id"])
+            stored_scope = repository.get_scope("local", scope_id)
+            assert stored_attempt["status"] == "cancelled"
+            assert json.loads(stored_attempt["error_json"])["code"] == "RUN_CANCELLED"
+            assert stored_invocation["status"] == "cancelled"
+            assert json.loads(stored_invocation["error_json"])["code"] == "RUN_CANCELLED"
+            assert stored_scope["status"] == "cancelled"
+            assert json.loads(stored_scope["error_json"])["code"] == "RUN_CANCELLED"
+        finally:
+            repository.close()
+
+
+def test_postgres_repository_control_run_has_one_concurrent_version_winner() -> None:
+    dsn = _dsn()
+    if not dsn:
+        pytest.skip("set MULTIVERSE_POSTGRES_DSN for the PostgreSQL repository test")
+
+    with _isolated_dsn(dsn) as isolated:
+        _migrate(isolated)
+        seed = PostgresLedgerRepository(isolated)
+        try:
+            seed.create_queued_run(
+                namespace="local",
+                deployment_id=None,
+                workflow_id="delivery",
+                package_digest="sha256:package",
+                binding_digest=None,
+                plan={"entry": "produce"},
+                input_value={"goal": "write"},
+                deadline_at="2099-01-01T00:00:00Z",
+                entry_node_id="produce",
+                run_id="run-control-race",
+            )
+        finally:
+            seed.close()
+
+        barrier = Barrier(2)
+
+        def control(operation: str) -> tuple[str, str]:
+            repository = PostgresLedgerRepository(isolated)
+            try:
+                barrier.wait(timeout=5)
+                result = repository.control_run(
+                    namespace="local",
+                    run_id="run-control-race",
+                    operation=operation,
+                    expected_version=1,
+                    reason="concurrent control",
+                )
+                return ("ok", str(result["status"]))
+            except ValueError:
+                return ("conflict", operation)
+            finally:
+                repository.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(control, ["pause", "cancel"]))
+        assert sorted(item[0] for item in results) == ["conflict", "ok"]
+
+
 def test_postgres_repository_run_update_has_one_concurrent_version_winner() -> None:
     dsn = _dsn()
     if not dsn:

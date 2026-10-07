@@ -2,8 +2,8 @@
   "package_id": "W15",
   "status": "blocked",
   "snapshot_manifest": "docs/development/reports/W15/final-tests/snapshot.sha256",
-  "snapshot_manifest_digest": "sha256:8267313c43440146cd17b9e3d60863b531b4ea8477ab96fccc45da6b4c428b2a",
-  "implementation_commit": "3a40bdf",
+  "snapshot_manifest_digest": "sha256:9983ec4504c6e62ccff22665c87f1990b6732b1aa83bf347ff774b035015dec5",
+  "implementation_commit": null,
   "ledger_schema_revision": "0004_ownership_foreign_keys",
   "checkpoint_scope": [
     "alembic.ini",
@@ -42,7 +42,7 @@
   },
   "storage_tests": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q tests/storage",
-    "passed": 55,
+    "passed": 58,
     "failed": 0,
     "skipped": 0,
     "exit_code": 0
@@ -84,7 +84,7 @@
   },
   "full_suite": {
     "command": "MULTIVERSE_POSTGRES_DSN='postgresql+psycopg:///postgres' uv run --python 3.12 --locked pytest -q",
-    "passed": 621,
+    "passed": 624,
     "failed": 0,
     "skipped": 15,
     "exit_code": 0
@@ -115,6 +115,7 @@
     "run_update_reviewer": "01a11527-5673-78a3-b1dd-e4f4689549ed",
     "human_request_reviewer": "01a11557-c252-7b72-a396-456bfdfdf3b3",
     "artifact_reviewer": "01a115bf-b32f-7550-866e-5eed40eaa6e5",
+    "run_control_reviewer": "01a115d8-a3c4-7363-ba1d-3f5ac1d942a3",
     "record": "docs/development/reports/W15/REVIEW.md"
   },
   "blockers": [

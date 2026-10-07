@@ -1,8 +1,8 @@
 # W15 Independent Review Record
 
 状态：`approved` for the manifest-bound Repository Outbox checkpoint only; not W15 completion.
-Implementation commit：`3a40bdf`。
-当前已审 manifest：`sha256:8267313c43440146cd17b9e3d60863b531b4ea8477ab96fccc45da6b4c428b2a`
+Implementation commit：待本轮提交。
+当前已审 manifest：`sha256:9983ec4504c6e62ccff22665c87f1990b6732b1aa83bf347ff774b035015dec5`
 
 Earlier target-parser reviewer task：`01a11195-a484-7c90-96ee-599fc32047b2`
 Lease checkpoint reviewer task：`01a11207-ccb1-7e21-bc1e-149f55727b31`
@@ -16,6 +16,7 @@ Command Receipt reviewer task：`01a11502-45ea-75a3-abce-a7de63b743d6`，初审 
 Run optimistic update reviewer task：`01a11527-5673-78a3-b1dd-e4f4689549ed`，初审 P2 已关闭，最终复审 approved
 HumanRequest/Decision reviewer task：`01a11557-c252-7b72-a396-456bfdfdf3b3`，初审 P1/P2 已关闭，最终复审 approved
 Artifact/Runtime read reviewer task：`01a115bf-b32f-7550-866e-5eed40eaa6e5`，初审 P1/P2/P3 已关闭，最终复审 approved
+Run control reviewer task：`01a115d8-a3c4-7363-ba1d-3f5ac1d942a3`，初审 P1 已关闭，最终复审 approved
 
 已审阅范围：
 
@@ -34,6 +35,7 @@ Artifact/Runtime read reviewer task：`01a115bf-b32f-7550-866e-5eed40eaa6e5`，�
 - Run optimistic update 的版本 CAS、事件原子性和 invocation 清空语义；
 - HumanRequest/Decision 的 Schema、expiry、授权、版本、namespace 幂等和 progress continuation；
 - Artifact metadata/source 的终态、完整字段、事务重核验和幂等边界；
+- Run control 的 pause/resume/cancel、级联取消和版本竞争；
 - payload conflict、namespace 隔离、事务回滚、重复事件/Wait 和并发测试。
 
 Earlier checkpoint reviewers approved lease and transaction boundaries; the final 0004 and Repository reviewers confirmed manifest hashes, storage/full-suite counts, ownership constraints, namespace-scoped queries, atomic queued Run write/rollback, and isolated schema migrations. The Outbox, Wait, Scheduler WaitStore, and Command Receipt reviewers reported P1 findings; all were fixed, retested, and approved. Complete PostgreSQL Runner/Worker and RuntimeApplication wiring remains a scope limitation. W15 remains blocked until the full Repository is wired to Ledger/Runner, plus lease integration, SQLite import/restore and remote push.
