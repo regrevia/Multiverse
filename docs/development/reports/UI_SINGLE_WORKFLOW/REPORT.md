@@ -49,4 +49,8 @@
 
 ## 远端
 
-待本轮实现提交后记录 push 与远端核验结果。本地提交不代表已同步至 `origin/dev`。
+实现提交：`a3ec0eb96974935832ff018c89b895dfc0f77617`。
+
+状态：`push_pending`。`git push origin HEAD:dev` 和
+`git ls-remote origin refs/heads/dev` 均以 exit code 128 失败，错误为
+`Connection closed by 127.0.0.1 port 7897`。远端提交未核验，本地提交不代表已同步。
