@@ -35,6 +35,10 @@ from multiverse_workflow.runtime.http_job import (
     HttpJobTransportError,
 )
 from multiverse_workflow.runtime.ledger import Ledger, LedgerConflict, error_output
+from multiverse_workflow.runtime.ledger_backend import (
+    LedgerBackendError,
+    validate_ledger_backend,
+)
 from multiverse_workflow.runtime.registry import ExecutorRegistry, local_executor_registry
 from multiverse_workflow.runtime.wait_store import LedgerWaitStore, WaitStore
 
@@ -47,86 +51,11 @@ class SchemaValidationError(RunError):
     """A runtime result does not satisfy its frozen schema."""
 
 
-_LEDGER_BACKEND_METHODS = (
-    "close",
-    "create_run",
-    "create_queued_run",
-    "create_scope",
-    "create_invocation",
-    "create_attempt",
-    "get_run",
-    "update_run",
-    "control_run",
-    "get_scope",
-    "get_invocation",
-    "get_invocation_for_node",
-    "get_attempt",
-    "latest_attempt",
-    "finish_scope",
-    "finish_invocation",
-    "finish_attempt",
-    "list_scopes",
-    "list_invocations",
-    "list_attempts",
-    "list_waits",
-    "list_due_waits",
-    "claim_wait",
-    "complete_wait",
-    "release_wait",
-    "get_wait_by_key",
-    "get_wait",
-    "list_queued_runs",
-    "record_event",
-    "get_human_request",
-    "list_human_requests",
-    "decide_human_request",
-    "claim_submit_outbox",
-    "complete_human_progress_intent",
-    "confirm_codex_interaction_delivery",
-    "create_codex_interaction",
-    "create_human_request",
-    "ensure_attempt_reconciliation_wait",
-    "ensure_external_observation_wait",
-    "ensure_human_progress_intent",
-    "ensure_submit_outbox",
-    "expire_codex_interactions",
-    "get_artifact",
-    "get_codex_interaction",
-    "get_codex_interaction_for_native_request",
-    "get_human_decision",
-    "get_human_decision_by_idempotency_key",
-    "get_human_progress_intent",
-    "get_outbox",
-    "invalidate_codex_interaction",
-    "invalidate_codex_interactions_for_attempt",
-    "list_child_scopes",
-    "list_scope_invocations",
-    "list_codex_interactions",
-    "mark_submit_outbox_retryable",
-    "mark_submit_outbox_submitted",
-    "mark_submit_outbox_unknown",
-    "reconcile_attempt",
-    "record_external_observation",
-    "register_artifact_content",
-    "register_external_artifacts",
-    "resolve_unknown_submit",
-    "schedule_retry",
-    "validate_artifact_refs",
-    "complete_wait_owned",
-    "release_wait_owned",
-    "reschedule_wait_owned",
-    "requeue_stale_waits",
-)
-
-
 def _validate_ledger_backend(ledger: Any) -> None:
-    missing = [
-        name for name in _LEDGER_BACKEND_METHODS if not callable(getattr(ledger, name, None))
-    ]
-    if missing:
-        raise RunError(
-            "ledger backend is incompatible; missing methods: " + ", ".join(missing)
-        )
+    try:
+        validate_ledger_backend(ledger)
+    except LedgerBackendError as exc:
+        raise RunError(str(exc)) from exc
 
 
 class Runner:

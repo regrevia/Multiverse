@@ -50,3 +50,25 @@ SQLite import reviewer task：`01a11739-f92c-7f42-926c-1580e59ae067`，初审 P1
 - payload conflict、namespace 隔离、事务回滚、重复事件/Wait 和并发测试。
 
 Earlier checkpoint reviewers approved lease and transaction boundaries; the final 0004 and Repository reviewers confirmed manifest hashes, storage/full-suite counts, ownership constraints, namespace-scoped queries, atomic queued Run write/rollback, and isolated schema migrations. The Outbox, Wait, Scheduler WaitStore, and Command Receipt reviewers reported P1 findings; all were fixed, retested, and approved. Complete PostgreSQL Runner/Worker and RuntimeApplication wiring remains a scope limitation. W15 remains blocked until the full Repository is wired to Ledger/Runner, plus lease integration, SQLite import/restore and remote push.
+
+## Runner Ledger backend contract checkpoint
+
+Reviewer task：`01a11925-ec51-7513-97a3-3fef81c2d5f2`
+
+本轮审阅范围：
+
+- `src/multiverse_workflow/runtime/ledger_backend.py`
+- `src/multiverse_workflow/runtime/runner.py`
+- `tests/runtime/test_ledger_backend.py`
+
+首次审阅发现 backend 签名检查会误放行无参数、`**kwargs`-only 和额外必填参数形状。
+修复后最终复审结论：`approved`。最终确认：
+
+- 68 项契约与 Runner 当前直接访问覆盖一致；
+- `inspect.Signature.bind` 检查 positional、keyword-only 与额外必填参数；
+- 明确拒绝 `**kwargs` 隐藏公共契约；
+- 属性探测和签名探测异常统一为 `LedgerBackendError`；
+- 最终定向测试 `68 passed`，Ruff、mypy 和 `git diff --check` 通过；
+- 未修改 `inspector/pnpm-lock.yaml`、`inspector/pnpm-workspace.yaml`。
+
+此审阅只批准该 bounded checkpoint，不批准 W15 整体完成。

@@ -97,3 +97,32 @@ Implementation commit：`4128e85`。
 - 真实旧等待 Run/Artifact/Decision/Event 导入后继续运行的验收。
 
 另外，`origin/dev` 推送继续受 GitHub SSH 名称解析 / 当前本机代理配置阻塞；因此 checkpoint commit 尚未远端核验，W15 仍保持 blocked，不解锁 W16。
+
+## 2026-10-08 bounded checkpoint：Runner Ledger backend contract
+
+本轮完成一个独立的 W15 子 checkpoint，不改变 W15 的整体状态：
+
+- 将 Runner 的 68 项 Ledger backend 方法清单抽取到
+  `src/multiverse_workflow/runtime/ledger_backend.py`，成为共享契约的唯一代码来源。
+- 构造 Runner 时 fail-closed 校验：缺失方法、属性探测异常、方法签名无法接受
+  Ledger 的公共调用形状，以及隐藏在 `**kwargs` 后的实现都会被拒绝。
+- `Runner` 保留原有 `RunError("ledger backend is incompatible...")` 外部错误边界；
+  SQLite `Ledger` 行为不变。
+- 新增测试锁定 SQLite 通过、部分 backend 拒绝、Runner 直接调用覆盖、位置/必填参数
+  形状、`**kwargs` 隐藏契约和属性异常边界。
+
+验证：
+
+- `.venv/bin/python -m pytest -q tests/runtime/test_ledger_backend.py tests/runtime/test_runner.py`
+  -> `68 passed`
+- `.venv/bin/python -m ruff check src tests`
+  -> passed
+- `.venv/bin/python -m mypy src`
+  -> passed
+- `git diff --check`
+  -> passed
+- 独立最终 reviewer：`01a11925-ec51-7513-97a3-3fef81c2d5f2`
+  -> approved；初审 P1（签名形状误放行）经过修复后关闭。
+
+该 checkpoint 仍不代表 PostgreSQL Repository 已接入 Runner，也不解锁 team profile；
+PostgreSQL 全量 Ledger 接线、租约整合和 SQLite 导入后恢复继续执行仍是 W15 阻塞项。
