@@ -19,6 +19,17 @@ export type RuntimeProjection = {
   artifacts: RuntimeArtifact[];
 };
 
+export type RuntimeViewSnapshot = {
+  format: "multiverse-view/v0.1";
+  exportedAt: string;
+  workflow: { name: string; version: string; runId: string };
+  graph: AuditGraph;
+  layout: Record<string, { x: number; y: number }>;
+  events: RuntimeEvent[];
+  humanRequests: RuntimeHumanRequest[];
+  artifacts: RuntimeArtifact[];
+};
+
 type RuntimeRun = {
   id: string;
   deploymentId: string;
@@ -155,6 +166,13 @@ export type RuntimeArtifact = {
 export function parseRuntimeProjection(value: unknown): RuntimeProjection {
   if (!isRuntimeProjection(value)) {
     throw new Error("不是有效的 Runtime 运行快照");
+  }
+  return value;
+}
+
+export function parseRuntimeViewSnapshot(value: unknown): RuntimeViewSnapshot {
+  if (!isRuntimeViewSnapshot(value)) {
+    throw new Error("不是有效的 Multiverse 运行视图");
   }
   return value;
 }
@@ -319,6 +337,130 @@ function isRuntimeProjection(value: unknown): value is RuntimeProjection {
     value.humanRequests.every(isHumanRequest) &&
     Array.isArray(value.artifacts) &&
     value.artifacts.every(isArtifact)
+  );
+}
+
+function isRuntimeViewSnapshot(value: unknown): value is RuntimeViewSnapshot {
+  if (
+    !isRecord(value) ||
+    value.format !== "multiverse-view/v0.1" ||
+    typeof value.exportedAt !== "string" ||
+    !isRecord(value.workflow) ||
+    !hasStrings(value.workflow, ["name", "version", "runId"]) ||
+    !isAuditGraph(value.graph) ||
+    !isRecord(value.layout) ||
+    !Array.isArray(value.events) ||
+    !value.events.every(isEvent) ||
+    !Array.isArray(value.humanRequests) ||
+    !value.humanRequests.every(isHumanRequest) ||
+    !Array.isArray(value.artifacts) ||
+    !value.artifacts.every(isArtifact)
+  ) {
+    return false;
+  }
+  return Object.values(value.layout).every(
+    (position) =>
+      isRecord(position) &&
+      typeof position.x === "number" &&
+      Number.isFinite(position.x) &&
+      typeof position.y === "number" &&
+      Number.isFinite(position.y),
+  );
+}
+
+function isAuditGraph(value: unknown): value is AuditGraph {
+  if (
+    !isRecord(value) ||
+    !hasStrings(value, [
+      "packageName",
+      "packageVersion",
+      "runId",
+      "controlMode",
+      "updatedAt",
+      "runStatus",
+    ]) ||
+    typeof value.runVersion !== "number" ||
+    typeof value.lastEventSeq !== "number" ||
+    !Array.isArray(value.nodes) ||
+    !value.nodes.every(isGraphNode) ||
+    !Array.isArray(value.groups) ||
+    !value.groups.every(isGraphGroup) ||
+    !Array.isArray(value.edges) ||
+    !value.edges.every(isGraphEdge)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isGraphNode(value: unknown): value is GraphNode {
+  return (
+    isRecord(value) &&
+    hasStrings(value, [
+      "id",
+      "title",
+      "type",
+      "status",
+      "subtitle",
+      "executor",
+      "detail",
+      "input",
+      "output",
+    ]) &&
+    ["call", "switch", "human", "end", "group"].includes(String(value.type)) &&
+    [
+      "succeeded",
+      "running",
+      "waiting",
+      "pending",
+      "failed",
+      "unknown",
+      "reconciling",
+      "blocked",
+      "paused",
+      "stopping",
+      "cancelled",
+      "skipped",
+    ].includes(String(value.status)) &&
+    (value.invocationId === undefined || typeof value.invocationId === "string") &&
+    (value.groupId === undefined || typeof value.groupId === "string") &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y) &&
+    typeof value.width === "number" &&
+    Number.isFinite(value.width) &&
+    typeof value.height === "number" &&
+    Number.isFinite(value.height) &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isGraphGroup(value: unknown): value is GraphGroup {
+  return (
+    isRecord(value) &&
+    hasStrings(value, ["id", "title", "subtitle"]) &&
+    (value.parentId === undefined || typeof value.parentId === "string") &&
+    Array.isArray(value.memberIds) &&
+    value.memberIds.every((id) => typeof id === "string") &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y) &&
+    typeof value.width === "number" &&
+    Number.isFinite(value.width) &&
+    typeof value.height === "number" &&
+    Number.isFinite(value.height)
+  );
+}
+
+function isGraphEdge(value: unknown): value is GraphEdge {
+  return (
+    isRecord(value) &&
+    hasStrings(value, ["id", "from", "to", "kind"]) &&
+    (value.label === undefined || typeof value.label === "string") &&
+    ["data", "control", "human"].includes(String(value.kind))
   );
 }
 

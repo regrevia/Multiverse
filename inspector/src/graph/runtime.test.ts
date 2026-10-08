@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mapRuntimeProjection, parseRuntimeProjection } from "./runtime";
+import {
+  mapRuntimeProjection,
+  parseRuntimeProjection,
+  parseRuntimeViewSnapshot,
+} from "./runtime";
 
 const snapshot = {
   protocolVersion: "multiverse/v0.1",
@@ -236,5 +240,94 @@ describe("runtime projection mapper", () => {
     expect(graph.nodes.find((node) => node.id === "scope_root:review")?.invocationId).toBe(
       "inv_review",
     );
+  });
+});
+
+describe("runtime view snapshot", () => {
+  it("parses an exported view snapshot with graph layout and run evidence", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    const view = parseRuntimeViewSnapshot({
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: { "scope_root:review": { x: 240, y: 180 } },
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    });
+
+    expect(view.workflow.runId).toBe("run_123");
+    expect(view.layout["scope_root:review"]).toEqual({ x: 240, y: 180 });
+    expect(view.graph.nodes).toHaveLength(2);
+  });
+
+  it("rejects malformed graph positions and unsupported view versions", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    const view = {
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: { "scope_root:review": { x: "bad", y: 180 } },
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    };
+
+    expect(() => parseRuntimeViewSnapshot(view)).toThrow("不是有效的 Multiverse 运行视图");
+    expect(() =>
+      parseRuntimeViewSnapshot({ ...view, format: "multiverse-view/v9" }),
+    ).toThrow("不是有效的 Multiverse 运行视图");
+  });
+
+  it("rejects graph node states that the Inspector cannot render", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    graph.nodes[0]!.status = "new-runtime-state" as typeof graph.nodes[number]["status"];
+    const view = {
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: {},
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    };
+
+    expect(() => parseRuntimeViewSnapshot(view)).toThrow("不是有效的 Multiverse 运行视图");
+  });
+
+  it("rejects non-string edge labels before rendering", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    graph.edges[0]!.label = { invalid: true } as unknown as string;
+    const view = {
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: {},
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    };
+
+    expect(() => parseRuntimeViewSnapshot(view)).toThrow("不是有效的 Multiverse 运行视图");
   });
 });

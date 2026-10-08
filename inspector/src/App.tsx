@@ -8,7 +8,7 @@ import {
   CircleDashed,
   Clock3,
   Code2,
-  Copy,
+  Download,
   Eye,
   FileText,
   GitBranch,
@@ -51,8 +51,11 @@ import {
 import {
   mapRuntimeProjection,
   parseRuntimeProjection,
+  parseRuntimeViewSnapshot,
   type RuntimeArtifact,
   type RuntimeHumanRequest,
+  type RuntimeProjection,
+  type RuntimeViewSnapshot,
 } from "./graph/runtime";
 import {
   RuntimeClient,
@@ -236,12 +239,11 @@ function App() {
   const [importState, setImportState] = useState<
     { kind: "demo" | "reading" | "success" | "error"; message: string }
   >({ kind: "demo", message: "演示数据" });
+  const [sourceLabel, setSourceLabel] = useState("演示数据");
   const [connection, setConnection] = useState<RuntimeConnectionDraft>(loadRuntimeConnection);
   const [connectionDraft, setConnectionDraft] = useState(connection);
   const [showConnection, setShowConnection] = useState(false);
   const [connectionEnabled, setConnectionEnabled] = useState(true);
-  const [showAuthoringGuide, setShowAuthoringGuide] = useState(false);
-  const [authoringNotice, setAuthoringNotice] = useState("");
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     connection.baseUrl && connection.runId && connection.token
       ? { kind: "loading", message: "正在连接 Runtime" }
@@ -269,6 +271,7 @@ function App() {
   const snapshotInputRef = useRef<HTMLInputElement>(null);
   const runtimeControllerRef = useRef<AbortController | null>(null);
   const fitCanvasRequestedRef = useRef(true);
+  const fitCanvasRef = useRef<() => void>(() => undefined);
   const nodePositionsRef = useRef(nodePositions);
   nodePositionsRef.current = nodePositions;
   const visible = useMemo(
@@ -322,6 +325,7 @@ function App() {
         const projectionCursor = projection.events.at(-1)?.seq ?? 0;
         fitCanvasRequestedRef.current = true;
         setGraph(nextGraph);
+        setSourceLabel(`Runtime · ${projection.run.workflowId}`);
         setRuntimeEvents(projection.events);
         setHumanRequests(projection.humanRequests);
         setArtifacts(projection.artifacts);
@@ -454,19 +458,6 @@ function App() {
     setCollapsedGroups((currentGroups) =>
       new Set([...currentGroups].filter((id) => !ancestorIds.has(id))),
     );
-  }
-
-  async function copyStarterCommand() {
-    const command = [
-      "cp -R presets/content-delivery ./my-workflow",
-      "uv run mverse validate ./my-workflow --binding examples/bindings/content-local.yaml --json",
-    ].join("\n");
-    try {
-      await navigator.clipboard.writeText(command);
-      setAuthoringNotice("起步命令已复制");
-    } catch {
-      setAuthoringNotice("请从下方命令块手动复制");
-    }
   }
 
   async function submitHumanDecision(choice?: string) {
@@ -636,6 +627,29 @@ function App() {
   function fitCanvas() {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    if (viewport.clientWidth <= 760) {
+      const focus =
+        graph.nodes.find((node) => node.id === graph.currentNodeId) ??
+        graph.nodes.find((node) => node.id === selectedId) ??
+        renderedNodes[0];
+      if (!focus) return;
+      if (focus.groupId) {
+        setCollapsedGroups((current) => {
+          if (!current.has(focus.groupId!)) return current;
+          const next = new Set(current);
+          next.delete(focus.groupId!);
+          return next;
+        });
+      }
+      const position = resolveGraphPosition(focus, nodePositionsRef.current);
+      const mobileZoom = 0.72;
+      setZoom(mobileZoom);
+      setPan({
+        x: Math.round(viewport.clientWidth / 2 - (position.x + focus.width / 2) * mobileZoom),
+        y: Math.round(viewport.clientHeight / 2 - (position.y + focus.height / 2) * mobileZoom),
+      });
+      return;
+    }
     const fit = fitGraphToViewport(renderedNodes, {
       width: viewport.clientWidth,
       height: viewport.clientHeight,
@@ -644,12 +658,21 @@ function App() {
     setZoom(fit.zoom);
     setPan(fit.pan);
   }
+  fitCanvasRef.current = fitCanvas;
 
   useEffect(() => {
     if (!fitCanvasRequestedRef.current) return;
     fitCanvasRequestedRef.current = false;
     fitCanvas();
   }, [renderedNodes]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fitCanvasRef.current());
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   function applyPatchText(nextText = patchText) {
     try {
@@ -692,8 +715,21 @@ function App() {
 
     setImportState({ kind: "reading", message: "读取中" });
     try {
-      const projection = parseRuntimeProjection(JSON.parse(await file.text()));
-      const nextGraph = mapRuntimeProjection(projection);
+      const raw = JSON.parse(await file.text()) as unknown;
+      let viewSnapshot: RuntimeViewSnapshot | undefined;
+      let projection: RuntimeProjection | undefined;
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        !Array.isArray(raw) &&
+        "format" in raw &&
+        raw.format === "multiverse-view/v0.1"
+      ) {
+        viewSnapshot = parseRuntimeViewSnapshot(raw);
+      } else {
+        projection = parseRuntimeProjection(raw);
+      }
+      const nextGraph = viewSnapshot?.graph ?? mapRuntimeProjection(projection!);
       runtimeControllerRef.current?.abort();
       runtimeControllerRef.current = null;
       setConnectionEnabled(false);
@@ -701,18 +737,20 @@ function App() {
       clearRuntimeConnection();
       fitCanvasRequestedRef.current = true;
       setGraph(nextGraph);
-      setRuntimeEvents(projection.events);
-      setHumanRequests(projection.humanRequests);
-      setArtifacts(projection.artifacts);
-      setLastEventSeq(projection.events.at(-1)?.seq ?? 0);
+      const events = viewSnapshot?.events ?? projection!.events;
+      setRuntimeEvents(events);
+      setHumanRequests(viewSnapshot?.humanRequests ?? projection!.humanRequests);
+      setArtifacts(viewSnapshot?.artifacts ?? projection!.artifacts);
+      setLastEventSeq(events.at(-1)?.seq ?? 0);
       setCollapsedGroups(new Set(nextGraph.groups.map((group) => group.id)));
       setSelectedId(nextGraph.groups[0]?.id ?? nextGraph.nodes[0]?.id ?? "");
       setPanelMode("audit");
       setZoom(0.84);
       setPan({ x: 24, y: 28 });
-      setNodePositions({});
+      setNodePositions(viewSnapshot?.layout ?? {});
       setNodeDrag(null);
       setImportState({ kind: "success", message: file.name });
+      setSourceLabel(file.name);
     } catch (error) {
       setImportState({
         kind: "error",
@@ -721,6 +759,33 @@ function App() {
     } finally {
       input.value = "";
     }
+  }
+
+  function exportCurrentView() {
+    const payload = {
+      format: "multiverse-view/v0.1",
+      exportedAt: new Date().toISOString(),
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: nodePositions,
+      events: runtimeEvents,
+      humanRequests,
+      artifacts,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${graph.packageName || "workflow"}-view.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImportState({ kind: "success", message: "当前工作流视图已导出" });
   }
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -798,19 +863,30 @@ function App() {
           <div className="brand-mark"><Workflow size={18} strokeWidth={2.5} /></div>
           <div>
             <strong>Multiverse</strong>
-            <span>审计查看器</span>
+            <span>工作流工作台</span>
           </div>
         </div>
-        <div className="crumb">
-          <span className="crumb-muted">运行</span>
-          <ChevronRight size={14} />
-          <span>{graph.packageName}</span>
-          <span className="version-tag">v{graph.packageVersion}</span>
+        <div className="workflow-identity">
+          <div className="workflow-title">
+            <strong>{graph.packageName}</strong>
+            <span>v{graph.packageVersion}</span>
+          </div>
+          <span className="workflow-source">{sourceLabel}</span>
         </div>
         <div className="topbar-actions">
           <div className="live-state">
             <span className={`live-dot ${connectionState.kind}`} /> {connectionState.message}
           </div>
+          <button
+            className="topbar-button"
+            onClick={() => snapshotInputRef.current?.click()}
+            title="导入 Runtime 运行快照 JSON"
+          >
+            <Upload size={15} /> 导入快照
+          </button>
+          <button className="topbar-button" onClick={exportCurrentView}>
+            <Download size={15} /> 导出视图
+          </button>
           <button
             className="icon-button"
             title="连接 Runtime"
@@ -826,76 +902,12 @@ function App() {
       </header>
 
       <div className="workspace">
-        <aside className="left-rail">
-          <div className="rail-actions">
-            <button
-              className="rail-action primary"
-              onClick={() => {
-                setAuthoringNotice("");
-                setShowAuthoringGuide(true);
-              }}
-            >
-              <Plus size={16} /> 新建工作流
-            </button>
-            <button
-              className="rail-action"
-              onClick={() => snapshotInputRef.current?.click()}
-            >
-              <Upload size={15} /> 打开 / 导入快照
-            </button>
-          </div>
-          <div className="rail-section">
-            <p className="rail-title">工作流 ID</p>
-            {graph.groups.map((group, index) => (
-              <button
-                key={group.id}
-                className={`rail-item ${selectedId === group.id ? "active" : ""}`}
-                title={`${group.subtitle} · ${group.title}`}
-                onClick={() => openWorkflow(group.id)}
-              >
-                <Workflow size={15} />
-                <span className="rail-item-copy">
-                  <strong>{group.title}</strong>
-                  <small>{index === 0 ? "主流程" : group.subtitle}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="rail-section rail-runs">
-            <p className="rail-title">运行</p>
-            <button
-              className="rail-item"
-              title={graph.runId}
-              onClick={openCurrentRun}
-            >
-              <Activity size={15} />
-              <span className="rail-item-copy">
-                <strong>{graph.runId}</strong>
-                <small>{statusLabels[statusForRun(graph.runStatus)]} · {graph.packageVersion}</small>
-              </span>
-            </button>
-            <button
-              className="rail-item"
-              onClick={openHumanInbox}
-              disabled={!graph.nodes.some((node) => node.type === "human")}
-            >
-              <UserRound size={15} />
-              <span className="rail-item-copy"><strong>人工处理</strong></span>
-              {pendingHumanRequestCount > 0 && (
-                <span className="rail-count">{pendingHumanRequestCount}</span>
-              )}
-            </button>
-          </div>
-          <div className="rail-bottom">
-            <span className={`live-dot ${connectionState.kind}`} />
-            <span>{connectionState.message}</span>
-          </div>
-        </aside>
-
         <section className="main-stage">
           <div className="stage-header">
             <div>
+              <div className="stage-kicker">当前工作流</div>
               <h1>{graph.packageName}</h1>
+              <p className="stage-description">查看流程结构、运行证据、人工任务与交付结果。</p>
               <div className="run-summary">
                 <span><StatusIcon status={statusForRun(graph.runStatus)} />{statusLabels[statusForRun(graph.runStatus)]}</span>
                 <code>{graph.runId}</code>
@@ -906,15 +918,20 @@ function App() {
               </div>
             </div>
             <div className="stage-actions">
+              {pendingHumanRequestCount > 0 && (
+                <button className="text-action review-action" onClick={openHumanInbox}>
+                  <UserRound size={15} /> 处理人工任务 <span>{pendingHumanRequestCount}</span>
+                </button>
+              )}
               {connectionState.kind !== "demo" && graph.controlMode === "pause" && (
                 <button
                   aria-label="恢复派发"
-                  className="icon-button action-button"
+                  className="text-action"
                   title="恢复派发"
                   onClick={() => submitControl("resume")}
                   disabled={controlState.kind === "submitting"}
                 >
-                  <Play size={16} />
+                  <Play size={15} /> 恢复
                 </button>
               )}
               {connectionState.kind !== "demo" &&
@@ -922,12 +939,12 @@ function App() {
                 !["succeeded", "failed", "cancelled"].includes(graph.runStatus) && (
                   <button
                     aria-label="暂停派发"
-                    className="icon-button action-button"
+                  className="text-action"
                     title="暂停派发"
                     onClick={() => submitControl("pause")}
                     disabled={controlState.kind === "submitting"}
                   >
-                    <PauseCircle size={16} />
+                    <PauseCircle size={15} /> 暂停
                   </button>
                 )}
               {connectionState.kind !== "demo" &&
@@ -935,12 +952,12 @@ function App() {
                 !["succeeded", "failed", "cancelled"].includes(graph.runStatus) && (
                   <button
                     aria-label="停止运行"
-                    className="icon-button action-button danger-action"
+                    className="text-action danger-action"
                     title="停止运行"
                     onClick={() => submitControl("cancel")}
                     disabled={controlState.kind === "submitting"}
                   >
-                    <Square size={16} />
+                    <Square size={15} /> 停止
                   </button>
                 )}
               <button
@@ -1044,7 +1061,10 @@ function App() {
           </div>
 
           <div className="timeline">
-            <div className="timeline-heading"><span><Clock3 size={15} /> 证据时间线</span></div>
+            <div className="timeline-heading">
+              <span><Clock3 size={15} /> 最近证据</span>
+              <button className="timeline-link" onClick={openCurrentRun}>查看当前运行</button>
+            </div>
             <div className="timeline-track">
               {(runtimeEvents.length ? runtimeEvents.slice(-3) : demoTimeline).map((event) => (
                 <TimelineEvent
@@ -1123,43 +1143,6 @@ function App() {
               <button type="submit" className="apply-button">连接并查看</button>
             </div>
           </form>
-        </div>
-      )}
-      {showAuthoringGuide && (
-        <div
-          className="connection-backdrop"
-          role="presentation"
-          onMouseDown={() => setShowAuthoringGuide(false)}
-        >
-          <section
-            className="connection-dialog authoring-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="authoring-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="panel-heading">
-              <div>
-                <h2 id="authoring-title">新建工作流</h2>
-                <p>从仓库模板复制后，由 Agent 编辑文件并通过 CLI 校验。</p>
-              </div>
-              <button
-                type="button"
-                className="icon-button small"
-                aria-label="关闭"
-                title="关闭"
-                onClick={() => setShowAuthoringGuide(false)}
-              >
-                <Square size={14} />
-              </button>
-            </div>
-            <pre><code>{"cp -R presets/content-delivery ./my-workflow\nuv run mverse validate ./my-workflow --binding examples/bindings/content-local.yaml --json"}</code></pre>
-            <p className="authoring-note">请在 Multiverse 仓库根目录运行，且确保 `my-workflow` 目录尚不存在。此查看器不会直接写入本地项目文件。</p>
-            <button className="apply-button" onClick={copyStarterCommand}>
-              <Copy size={15} /> 复制起步命令
-            </button>
-            {authoringNotice && <p className="authoring-notice" role="status">{authoringNotice}</p>}
-          </section>
         </div>
       )}
     </main>
