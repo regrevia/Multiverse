@@ -461,7 +461,7 @@ body,
 }
 
 .graph-viewport {
-  height: clamp(440px, calc(100vh - 280px), 760px);
+  height: clamp(450px, calc(100vh - 245px), 760px);
   margin-top: 9px;
   border-color: #cedbe4;
   border-radius: 8px;
@@ -631,4 +631,416 @@ body,
     height: 52vh;
     min-height: 330px;
   }
+}
+
+/* Readable fixed node proportions for the audit graph. */
+.node-card {
+  display: grid;
+  grid-template-rows: 18px 20px 18px 22px;
+  align-content: start;
+  gap: 7px;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.node-card:hover,
+.node-card.selected {
+  box-shadow: none;
+}
+
+.node-card.has-incoming::before,
+.node-card.has-outgoing::after {
+  position: absolute;
+  top: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  border: 2px solid #668a9d;
+  border-radius: 50%;
+  background: #f8fbfd;
+  content: "";
+}
+
+.node-card.has-incoming::before {
+  left: -6px;
+}
+
+.node-card.has-outgoing::after {
+  right: -6px;
+}
+
+.node-card.has-incoming-vertical::before {
+  top: -6px;
+  left: calc(50% - 5px);
+}
+
+.node-card.has-outgoing-vertical::after {
+  top: auto;
+  right: auto;
+  bottom: -6px;
+  left: calc(50% - 5px);
+}
+
+.node-card.selected.has-incoming::before,
+.node-card.selected.has-outgoing::after {
+  border-color: #24798a;
+  background: #d9eef0;
+}
+
+.node-card strong {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-topline {
+  min-width: 0;
+  height: 18px;
+}
+
+.node-type {
+  min-width: 0;
+  overflow: hidden;
+  color: #4f6a7b;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-type.participant-agent { color: #315f86; }
+.node-type.participant-human { color: #816126; }
+.node-type.participant-program,
+.node-type.participant-process { color: #3d6f62; }
+.node-type.participant-external_service { color: #665d8a; }
+.node-type.participant-unknown { color: #687985; }
+
+.node-state-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: #536c7c;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.node-state-text.running { color: #286d7a; }
+.node-state-text.waiting { color: #89662d; }
+.node-state-text.failed,
+.node-state-text.blocked,
+.node-state-text.unknown { color: #984d54; }
+
+.node-state-text .status-icon {
+  width: 12px;
+  height: 12px;
+  animation: none;
+}
+
+.node-target {
+  min-width: 0;
+  overflow: hidden;
+  color: #657d8c;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-io-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 5px;
+  border-top: 1px solid #e0e8ed;
+}
+
+.node-io-summary > span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: #425d70;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-io-summary small {
+  flex: 0 0 auto;
+  color: #8093a0;
+  font-size: 10px;
+}
+
+.scope-card.collapsed {
+  justify-content: center;
+  gap: 5px;
+  padding: 11px 13px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.scope-card.collapsed .scope-head {
+  font-size: 13px;
+}
+
+.scope-card.collapsed .scope-subtitle,
+.scope-card.collapsed .scope-state {
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.data-flow-facts {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0 2px;
+}
+
+.data-flow-facts > div {
+  display: grid;
+  gap: 5px;
+  color: #405b6d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.edge-group.active path {
+  animation: none;
+  stroke-dasharray: none;
+}
+
+.edge-group.related path {
+  stroke: #4e8495;
+  stroke-width: 2.4;
+}
+
+.status-icon.running,
+.status-icon.reconciling {
+  animation: none;
+}
+
+.graph-viewport,
+.node-card,
+.scope-card,
+.topbar-button,
+.text-action,
+.icon-button {
+  transition: none;
+}
+
+/* Inspector sidebar: quiet hierarchy for scanning audit facts. */
+.inspector-panel {
+  color: #3d586b;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-tabs {
+  height: 46px;
+  background: #f4f8fa;
+}
+
+.panel-tabs button {
+  height: 46px;
+  color: #748997;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.panel-tabs button.selected {
+  color: #245769;
+  font-weight: 600;
+}
+
+.panel-content {
+  padding: 24px 22px 30px;
+}
+
+.panel-heading {
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.panel-heading h2 {
+  margin: 0 0 7px;
+  color: #244356;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.panel-heading p {
+  max-width: 31ch;
+  color: #718795;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.panel-heading .icon-button {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.audit-status {
+  gap: 10px;
+  margin-top: 20px;
+  padding: 11px 12px;
+  border: 1px solid #d4e3e8;
+  border-radius: 5px;
+  background: #edf6f8;
+}
+
+.audit-status > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.audit-status span {
+  color: #728996;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  text-transform: none;
+}
+
+.audit-status strong {
+  margin-top: 3px;
+  color: #2a7180;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.info-disclosure {
+  margin-top: 8px;
+  border-top: 1px solid #e0e8ed;
+}
+
+.info-disclosure:first-of-type {
+  margin-top: 19px;
+}
+
+.info-disclosure > summary {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px 0;
+  color: #375466;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  list-style-position: outside;
+}
+
+.info-disclosure > summary::marker {
+  color: #7894a2;
+  font-size: 11px;
+}
+
+.info-disclosure[open] > summary {
+  color: #264b5d;
+  font-weight: 600;
+}
+
+.invocation-io {
+  gap: 16px;
+  padding: 3px 0 14px;
+}
+
+.invocation-io > div {
+  min-width: 0;
+}
+
+.detail-label,
+.execution-facts .detail-label,
+.data-flow-facts .detail-label {
+  color: #8296a2;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+
+.invocation-io strong,
+.execution-facts strong {
+  display: block;
+  margin-top: 4px;
+  color: #29495b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.payload-disclosure {
+  margin-top: 7px;
+}
+
+.payload-disclosure > summary {
+  color: #4c8291;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.data-flow-facts,
+.execution-facts,
+.evidence-list {
+  padding-bottom: 13px;
+}
+
+.data-flow-facts {
+  gap: 14px;
+  padding-top: 3px;
+}
+
+.data-flow-facts > div {
+  gap: 4px;
+  color: #526f80;
+  font-size: 11px;
+}
+
+.execution-facts {
+  display: grid;
+  gap: 12px;
+  padding-top: 3px;
+}
+
+.execution-facts > div {
+  min-width: 0;
+}
+
+.execution-facts code,
+.attempt-facts code {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #607c8b;
+  font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.evidence-list {
+  gap: 10px;
+  padding-top: 3px;
+}
+
+.evidence-row {
+  gap: 8px;
+  color: #587486;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.evidence-row svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }

@@ -34,10 +34,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyAgentPatch,
+  artifactsForNode,
   demoGraph,
   type AuditGraph,
   type AgentPatch,
   type GraphNode,
+  type NodeExecution,
   type NodeStatus,
   visibleGraph,
 } from "./graph/model";
@@ -45,6 +47,7 @@ import {
   fitGraphToViewport,
   preserveGraphPositions,
   resolveGraphPosition,
+  routeGraphEdge,
   translatePositions,
   type GraphPosition,
 } from "./graph/layout";
@@ -63,6 +66,7 @@ import {
   type RuntimeCommandReceipt,
   type RuntimeClientConfig,
   type RuntimeEvent,
+  type RuntimeInvocationDetail,
   type WatchStatus,
 } from "./runtime/client";
 import {
@@ -97,12 +101,56 @@ const statusLabels: Record<NodeStatus, string> = {
 };
 
 const nodeTypeLabels: Record<GraphNode["type"], string> = {
-  call: "调用",
+  call: "执行",
   switch: "分支",
   human: "人工",
   end: "结束",
-  group: "作用域",
+  group: "子流程",
+  input: "输入",
+  repeat: "循环",
+  parallel: "并行",
+  workflow: "子流程",
 };
+
+const participantLabels: Record<NodeExecution["participantType"], string> = {
+  agent: "Agent",
+  human: "人工",
+  program: "程序",
+  external_service: "外部服务",
+  process: "本机进程",
+  unknown: "执行者未核实",
+};
+
+const executionLocationLabels: Record<NodeExecution["location"], string> = {
+  runtime: "Runtime",
+  local: "本机",
+  external: "远程",
+  human: "人工入口",
+  unknown: "位置未核实",
+};
+
+function structureNodeSummary(node: GraphNode): string {
+  switch (node.type) {
+    case "input":
+      return "工作流输入";
+    case "switch":
+      return `条件分支${node.subtitle ? ` · ${node.subtitle}` : ""}`;
+    case "repeat":
+      return `循环${node.subtitle ? ` · ${node.subtitle}` : ""}`;
+    case "parallel":
+      return `并行${node.subtitle ? ` · ${node.subtitle}` : ""}`;
+    case "workflow":
+      return `子流程${node.subtitle ? ` · ${node.subtitle}` : ""}`;
+    case "end":
+      return "工作流结束";
+    case "group":
+      return node.detail;
+    case "human":
+      return "人工任务";
+    case "call":
+      return "执行目标未核实";
+  }
+}
 
 const statusIcons: Record<NodeStatus, typeof Check> = {
   succeeded: Check,
@@ -153,6 +201,12 @@ type ArtifactPreviewState = {
   text?: string;
   message?: string;
 };
+
+type InvocationDetailState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "loaded"; value: RuntimeInvocationDetail }
+  | { kind: "error"; message: string };
 
 function defaultRuntimeConnection(): RuntimeConnectionDraft {
   return {
@@ -266,6 +320,9 @@ function App() {
     artifactId: null,
     kind: "idle",
   });
+  const [invocationDetail, setInvocationDetail] = useState<InvocationDetailState>({
+    kind: "idle",
+  });
   const [lastEventSeq, setLastEventSeq] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const snapshotInputRef = useRef<HTMLInputElement>(null);
@@ -302,6 +359,43 @@ function App() {
     setDecisionValues({});
     setDecisionState({ kind: "idle", message: "" });
   }, [selectedHumanRequest?.id]);
+
+  useEffect(() => {
+    const invocationId = selectedNode?.invocationId;
+    if (
+      !invocationId ||
+      !connectionEnabled ||
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
+      setInvocationDetail({ kind: "idle" });
+      return;
+    }
+    const controller = new AbortController();
+    setInvocationDetail({ kind: "loading" });
+    new RuntimeClient(connection).getInvocation(invocationId, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) setInvocationDetail({ kind: "loaded", value });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setInvocationDetail({
+          kind: "error",
+          message: error instanceof Error ? error.message : "节点详情读取失败",
+        });
+      });
+    return () => controller.abort();
+  }, [
+    selectedNode?.invocationId,
+    selectedNode?.status,
+    connectionEnabled,
+    connection.baseUrl,
+    connection.namespace,
+    connection.runId,
+    connection.token,
+  ]);
 
   useEffect(() => {
     if (
@@ -438,7 +532,9 @@ function App() {
     const request = humanRequests.find((item) => item.status === "pending");
     const node = request
       ? graph.nodes.find((item) => item.invocationId === request.invocationId)
-      : graph.nodes.find((item) => item.type === "human");
+      : graph.nodes.find(
+        (item) => item.execution?.participantType === "human",
+      );
     if (!node) return;
     setPanelMode("audit");
     expandGroupPath(node.groupId);
@@ -658,6 +754,20 @@ function App() {
     setZoom(fit.zoom);
     setPan(fit.pan);
   }
+
+  function fitCanvasToViewport() {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const fit = fitGraphToViewport(
+      renderedNodes,
+      { width: viewport.clientWidth, height: viewport.clientHeight },
+      24,
+    );
+    if (!fit) return;
+    setZoom(fit.zoom);
+    setPan(fit.pan);
+  }
+
   fitCanvasRef.current = fitCanvas;
 
   useEffect(() => {
@@ -848,6 +958,8 @@ function App() {
   }
 
   const nodeMap = new Map(renderedNodes.map((node) => [node.id, node]));
+  const canvasWidth = Math.max(920, ...renderedNodes.map((node) => node.x + node.width + 80));
+  const canvasHeight = Math.max(650, ...renderedNodes.map((node) => node.y + node.height + 80));
 
   return (
     <main className="app-shell">
@@ -990,7 +1102,7 @@ function App() {
               <button className="icon-button small" title="缩小" onClick={() => setZoom((value) => Math.max(0.05, value - 0.1))}><Minus size={15} /></button>
               <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
               <button className="icon-button small" title="放大" onClick={() => setZoom((value) => Math.min(1.24, value + 0.1))}><Plus size={15} /></button>
-              <button className="icon-button small" title="适配画布" aria-label="适配画布" onClick={fitCanvas}><Maximize2 size={15} /></button>
+              <button className="icon-button small" title="适配全图" aria-label="适配全图" onClick={fitCanvasToViewport}><Maximize2 size={15} /></button>
               <button className="icon-button small" title="恢复自动布局" onClick={() => setNodePositions({})}><RotateCcw size={14} /></button>
             </div>
           </div>
@@ -1004,8 +1116,20 @@ function App() {
             onPointerCancel={onPointerUp}
             onWheel={onWheel}
           >
-            <div className="graph-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-              <svg className="edge-layer" viewBox="0 0 920 650" aria-hidden="true">
+            <div
+              className="graph-world"
+              style={{
+                width: canvasWidth,
+                height: canvasHeight,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              }}
+            >
+              <svg
+                className="edge-layer"
+                viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+                style={{ width: canvasWidth, height: canvasHeight }}
+                aria-hidden="true"
+              >
                 <defs>
                   <marker id="arrow-data" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#9ca39f" /></marker>
                   <marker id="arrow-active" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#36aab0" /></marker>
@@ -1014,14 +1138,13 @@ function App() {
                   const from = nodeMap.get(edge.from);
                   const to = nodeMap.get(edge.to);
                   if (!from || !to) return null;
-                  const start = { x: from.x + from.width, y: from.y + from.height / 2 };
-                  const end = { x: to.x, y: to.y + to.height / 2 };
-                  const curve = Math.max(50, Math.abs(end.x - start.x) * 0.48);
+                  const route = routeGraphEdge(from, to);
                   const active = from.status === "running" || to.status === "running";
+                  const related = edge.from === selectedId || edge.to === selectedId;
                   return (
-                    <g key={edge.id} className={`edge-group ${active ? "active" : ""}`}>
-                      <path d={`M ${start.x} ${start.y} C ${start.x + curve} ${start.y}, ${end.x - curve} ${end.y}, ${end.x} ${end.y}`} markerEnd={`url(#arrow-${active ? "active" : "data"})`} />
-                      {edge.label && <text x={(start.x + end.x) / 2} y={(start.y + end.y) / 2 - 9}>{edge.label}</text>}
+                    <g key={edge.id} className={`edge-group ${route.direction} ${active ? "active" : ""} ${related ? "related" : ""}`}>
+                      <path d={route.path} markerEnd={`url(#arrow-${active ? "active" : "data"})`} />
+                      {edge.label && <text x={(from.x + from.width / 2 + to.x + to.width / 2) / 2} y={(from.y + from.height / 2 + to.y + to.height / 2) / 2 - 9}>{edge.label}</text>}
                     </g>
                   );
                 })}
@@ -1053,6 +1176,16 @@ function App() {
                   key={node.id}
                   node={node}
                   selected={selectedId === node.id}
+                  hasIncoming={visible.edges.some((edge) => edge.to === node.id)}
+                  hasOutgoing={visible.edges.some((edge) => edge.from === node.id)}
+                  verticalIncoming={visible.edges.some((edge) => {
+                    const from = nodeMap.get(edge.from);
+                    return edge.to === node.id && !!from && routeGraphEdge(from, node).direction === "vertical";
+                  })}
+                  verticalOutgoing={visible.edges.some((edge) => {
+                    const to = nodeMap.get(edge.to);
+                    return edge.from === node.id && !!to && routeGraphEdge(node, to).direction === "vertical";
+                  })}
                   onClick={() => setSelectedId(node.id)}
                   onPointerDown={(event) => startNodeDrag(event, node)}
                 />
@@ -1088,6 +1221,7 @@ function App() {
               <AuditPanel
                 node={selectedNode}
                 humanRequest={selectedHumanRequest}
+                invocationDetail={invocationDetail}
                 decisionComment={decisionComment}
                 setDecisionComment={setDecisionComment}
                 decisionValues={decisionValues}
@@ -1152,26 +1286,73 @@ function App() {
 function NodeCard({
   node,
   selected,
+  hasIncoming,
+  hasOutgoing,
+  verticalIncoming,
+  verticalOutgoing,
   onClick,
   onPointerDown,
 }: {
   node: GraphNode;
   selected: boolean;
+  hasIncoming: boolean;
+  hasOutgoing: boolean;
+  verticalIncoming: boolean;
+  verticalOutgoing: boolean;
   onClick: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
 }) {
-  const Icon = node.type === "human" ? UserRound : node.type === "end" ? Check : node.type === "switch" ? GitBranch : Box;
+  const execution = node.execution;
+  const category = execution
+    ? participantLabels[execution.participantType]
+    : nodeTypeLabels[node.type];
+  const Icon = execution?.participantType === "human"
+    ? UserRound
+    : execution?.participantType === "agent"
+      ? Activity
+      : execution?.participantType === "external_service"
+        ? SquareDashedMousePointer
+        : node.type === "input"
+          ? FileText
+          : node.type === "end"
+            ? Check
+            : node.type === "switch"
+              ? GitBranch
+              : node.type === "repeat"
+                ? RotateCcw
+                : node.type === "parallel"
+                  ? Layers3
+                  : node.type === "workflow"
+                    ? Workflow
+                    : Code2;
   return (
     <button
-      className={`node-card ${selected ? "selected" : ""} status-${node.status}`}
+      className={`node-card ${selected ? "selected" : ""} status-${node.status} ${hasIncoming ? "has-incoming" : ""} ${hasOutgoing ? "has-outgoing" : ""} ${verticalIncoming ? "has-incoming-vertical" : ""} ${verticalOutgoing ? "has-outgoing-vertical" : ""}`}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onClick={onClick}
       onPointerDown={onPointerDown}
     >
-      <span className="node-topline"><span className="node-type"><Icon size={14} /> {nodeTypeLabels[node.type]}</span><StatusIcon status={node.status} /></span>
+      <span className="node-topline">
+        <span className={`node-type participant-${execution?.participantType ?? node.type}`}>
+          <Icon size={14} /> {category}
+        </span>
+        <span className={`node-state-text ${node.status}`}>
+          <StatusIcon status={node.status} />
+          {statusLabels[node.status]}
+        </span>
+      </span>
       <strong>{node.title}</strong>
-      <span className="node-subtitle">{node.subtitle}</span>
-      <span className="node-footer"><span className="node-executor">{node.executor}</span><ChevronRight size={14} /></span>
+      <span className="node-target">
+        {execution
+          ? `${executionLocationLabels[execution.location]} · ${execution.target}`
+          : node.type === "call"
+            ? "Binding 未核实"
+            : structureNodeSummary(node)}
+      </span>
+      <span className="node-io-summary">
+        <span><small>入</small>{node.input}</span>
+        <span><small>出</small>{node.output}</span>
+      </span>
     </button>
   );
 }
@@ -1179,6 +1360,7 @@ function NodeCard({
 function AuditPanel({
   node,
   humanRequest,
+  invocationDetail,
   decisionComment,
   setDecisionComment,
   decisionValues,
@@ -1192,6 +1374,7 @@ function AuditPanel({
 }: {
   node: GraphNode;
   humanRequest?: RuntimeHumanRequest;
+  invocationDetail: InvocationDetailState;
   decisionComment: string;
   setDecisionComment: (value: string) => void;
   decisionValues: Record<string, string>;
@@ -1203,18 +1386,102 @@ function AuditPanel({
   onDecision: (choice?: string) => void;
   onFocus: () => void;
 }) {
+  const execution = node.execution;
+  const detail = invocationDetail.kind === "loaded" ? invocationDetail.value : undefined;
+  const actor = execution
+    ? `${participantLabels[execution.participantType]} · ${executionLocationLabels[execution.location]}`
+    : nodeTypeLabels[node.type];
   return (
     <div className="panel-content">
       <div className="panel-heading">
         <div><h2>{node.title}</h2><p>{node.detail}</p></div>
         <button className="icon-button small" title="聚焦节点" onClick={onFocus}><Maximize2 size={15} /></button>
       </div>
-      <div className="audit-status"><StatusIcon status={node.status} /><div><span>当前状态</span><strong>{statusLabels[node.status]}</strong></div></div>
-      <div className="detail-block"><span className="detail-label">执行器</span><strong>{node.executor}</strong></div>
-      <div className="contract-grid"><div><span className="detail-label">输入</span><strong>{node.input}</strong></div><div><span className="detail-label">输出</span><strong>{node.output}</strong></div></div>
-      <div className="evidence-list"><div className="detail-label">证据</div>{node.evidence.map((item) => <div className="evidence-row" key={item}><Check size={14} /> {item}</div>)}</div>
+      <div className="audit-status">
+        <StatusIcon status={node.status} />
+        <div>
+          <span>{actor}</span>
+          <strong>{node.waitingReason ?? statusLabels[node.status]}</strong>
+        </div>
+      </div>
+      {node.type !== "group" && (
+      <details className="info-disclosure" open>
+        <summary>本次输入与输出</summary>
+        {invocationDetail.kind === "loading" && <p className="detail-load-state">正在读取节点执行详情</p>}
+        {invocationDetail.kind === "error" && (
+          <div className="detail-load-error" role="alert">{invocationDetail.message}</div>
+        )}
+        <div className="invocation-io">
+          <div>
+            <span className="detail-label">输入</span>
+            <strong>{node.input}</strong>
+            {detail && <details className="payload-disclosure"><summary>查看实际输入</summary><pre>{formatJson(detail.input)}</pre></details>}
+          </div>
+          <div>
+            <span className="detail-label">输出</span>
+            <strong>{node.output}</strong>
+            {detail && <details className="payload-disclosure"><summary>查看实际输出</summary><pre>{formatJson(detail.output)}</pre></details>}
+          </div>
+        </div>
+      </details>
+      )}
+      {(node.dataSources?.length || node.dataTargets?.length) ? (
+        <details className="info-disclosure">
+          <summary>数据交接</summary>
+          <div className="data-flow-facts">
+            <div>
+              <span className="detail-label">数据来源</span>
+              <span>{node.dataSources?.length ? node.dataSources.join(" · ") : "无显式上游引用"}</span>
+            </div>
+            <div>
+              <span className="detail-label">下游使用</span>
+              <span>{node.dataTargets?.length ? node.dataTargets.join(" · ") : "暂无显式下游引用"}</span>
+            </div>
+          </div>
+        </details>
+      ) : null}
+      {execution && (
+        <details className="info-disclosure">
+          <summary>执行信息</summary>
+          <div className="execution-facts">
+            <div><span className="detail-label">执行器</span><strong>{execution.executorRef ?? "未核实"}</strong></div>
+            <div><span className="detail-label">接入方式</span><strong>{execution.adapter ?? "未核实"}</strong></div>
+            {execution.model && <div><span className="detail-label">模型</span><strong>{execution.model}</strong></div>}
+            {execution.workspace && <div><span className="detail-label">工作区</span><strong>{execution.workspace}</strong></div>}
+            {detail && <div><span className="detail-label">Invocation</span><code>{detail.id}</code></div>}
+          </div>
+          {detail && detail.attempts.length > 0 && (
+            <div className="attempt-list">
+              <span className="detail-label">尝试记录</span>
+              {detail.attempts.map((attempt) => (
+                <details className="attempt-row" key={attempt.id}>
+                  <summary>
+                    第 {attempt.attemptNo} 次 · {statusLabels[statusForRun(attempt.status)]}
+                  </summary>
+                  <div className="attempt-facts">
+                    <span>{formatEventTime(attempt.createdAt)}</span>
+                    {attempt.externalRef && <code>外部引用：{attempt.externalRef}</code>}
+                    {attempt.error != null && <pre>{formatJson(attempt.error)}</pre>}
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+          {detail?.error != null && (
+            <div className="detail-load-error">错误：{formatJson(detail.error)}</div>
+          )}
+        </details>
+      )}
+      {node.evidence.length > 0 && (
+        <details className="info-disclosure">
+          <summary>审计证据 · {node.evidence.length}</summary>
+          <div className="evidence-list">
+            {node.evidence.map((item) => <div className="evidence-row" key={item}><Check size={14} /> {item}</div>)}
+          </div>
+        </details>
+      )}
       <ArtifactList
-        artifacts={artifacts.filter((artifact) => !node.invocationId || artifact.invocationId === node.invocationId)}
+        artifacts={artifactsForNode(node, artifacts)}
         preview={artifactPreview}
         onPreview={onPreviewArtifact}
       />
@@ -1314,16 +1581,31 @@ function HumanRequestPanel({
         <code>v{request.version}</code>
       </div>
       {request.instructions && <p className="request-instructions">{request.instructions}</p>}
-      {request.input !== undefined && (
-        <div className="request-material">
-          <span className="detail-label">冻结材料</span>
-          <pre>{formatJson(request.input)}</pre>
+      <details className="info-disclosure audit-material-disclosure">
+        <summary>审计材料</summary>
+        {request.input !== undefined && (
+          <div className="request-material">
+            <span className="detail-label">冻结材料</span>
+            <pre>{formatJson(request.input)}</pre>
+          </div>
+        )}
+        <div className="request-subject">
+          <span className="detail-label">主题摘要</span>
+          <code>{request.subjectDigest}</code>
         </div>
-      )}
-      <div className="request-subject">
-        <span className="detail-label">主题摘要</span>
-        <code>{request.subjectDigest}</code>
-      </div>
+        {request.authorizedSubjects && (
+          <div className="request-subject">
+            <span className="detail-label">授权处理人</span>
+            <span>{request.authorizedSubjects.join(" · ")}</span>
+          </div>
+        )}
+        {request.expiresAt && (
+          <div className="request-subject">
+            <span className="detail-label">截止时间</span>
+            <span>{new Date(request.expiresAt).toLocaleString("zh-CN")}</span>
+          </div>
+        )}
+      </details>
       {pending ? (
         <>
           {request.requestType === "input" ? (

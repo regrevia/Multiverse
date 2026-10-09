@@ -3,6 +3,7 @@ import type {
   GraphEdge,
   GraphGroup,
   GraphNode,
+  NodeExecution,
   NodeStatus,
 } from "./model";
 
@@ -108,6 +109,12 @@ type RuntimeNode = {
   title: string;
   type: string;
   status: RuntimeStatus;
+  execution?: NodeExecution | null;
+  waitingReason?: string | null;
+  inputSummary?: string;
+  outputSummary?: string;
+  dataSources?: string[];
+  dataTargets?: string[];
   invocation: RuntimeInvocation | null;
   latestAttempt: RuntimeAttempt | null;
   attempts: RuntimeAttemptHistory[];
@@ -187,10 +194,13 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
     nodesByScope.set(runtimeNode.scopeId, members);
   });
 
-  projection.scopes.forEach((scope, scopeIndex) => {
+  let nextScopeY = 132;
+  projection.scopes.forEach((scope) => {
     const members = nodesByScope.get(scope.id) ?? [];
-    const width = Math.max(420, Math.min(760, members.length * 208 + 46));
-    const height = 132;
+    const columnCount = Math.max(1, Math.min(3, members.length));
+    const rowCount = Math.max(1, Math.ceil(members.length / columnCount));
+    const width = Math.max(420, columnCount * 282 + 40);
+    const height = Math.max(194, rowCount * 174 + 70);
     const pathLabel = scope.path.slice(1).join(" / ");
     scopeGroups.set(scope.id, {
       id: scope.id,
@@ -201,10 +211,11 @@ export function mapRuntimeProjection(projection: RuntimeProjection): AuditGraph 
         : `流程 ID · 子流程 · ${pathLabel} · ${scope.status}`,
       memberIds: members.map((member) => member.id),
       x: 40,
-      y: 132 + scopeIndex * 178,
+      y: nextScopeY,
       width,
       height,
     });
+    nextScopeY += height + 44;
   });
 
   const nodes = projection.nodes.map((runtimeNode) =>
@@ -277,20 +288,24 @@ function toGraphNode(
     id: runtimeNode.id,
     invocationId: runtimeNode.invocation?.id,
     title: runtimeNode.title,
-    type: toNodeType(runtimeNode.type, humanRequest),
+    type: toNodeType(runtimeNode.type),
     status,
+    execution: runtimeNode.execution ?? undefined,
+    waitingReason: runtimeNode.waitingReason,
     groupId: group?.id,
-    x: (group?.x ?? 40) + 22 + memberIndex * 208,
-    y: (group?.y ?? 132) + 22,
-    width: 190,
-    height: 94,
-    subtitle: `${runtimeNode.nodeId} · ${runtimeNode.type}`,
-    executor: runtimeNode.latestAttempt?.externalRef ?? "Runtime",
+    x: (group?.x ?? 40) + 20 + (memberIndex % 3) * 282,
+    y: (group?.y ?? 132) + 50 + Math.floor(memberIndex / 3) * 174,
+    width: 258,
+    height: 134,
+    subtitle: runtimeNode.nodeId,
+    executor: runtimeNode.execution?.target ?? "Binding 未核实",
     detail: humanRequest?.status === "pending"
       ? `${humanRequest.title} · 等待授权处理`
       : "从本地 Runtime 台账导入的只读事实。",
-    input: runtimeNode.invocation?.inputDigest ?? "未创建",
-    output: runtimeNode.invocation?.hasOutput ? "已校验输出" : "未产生",
+    input: runtimeNode.inputSummary ?? (runtimeNode.invocation ? "查看实际输入" : "尚无输入"),
+    output: runtimeNode.outputSummary ?? (runtimeNode.invocation?.hasOutput ? "查看实际输出" : "尚无输出"),
+    dataSources: runtimeNode.dataSources ?? [],
+    dataTargets: runtimeNode.dataTargets ?? [],
     evidence,
   };
 }
@@ -314,8 +329,11 @@ function toNodeStatus(status: RuntimeStatus): NodeStatus {
   return "unknown";
 }
 
-function toNodeType(type: string, humanRequest: RuntimeHumanRequest | undefined): GraphNode["type"] {
-  if (humanRequest || type === "human") return "human";
+function toNodeType(type: string): GraphNode["type"] {
+  if (type === "input") return "input";
+  if (type === "repeat") return "repeat";
+  if (type === "parallel") return "parallel";
+  if (type === "workflow") return "workflow";
   if (type === "switch") return "switch";
   if (type === "end") return "end";
   return "call";
@@ -407,7 +425,17 @@ function isGraphNode(value: unknown): value is GraphNode {
       "input",
       "output",
     ]) &&
-    ["call", "switch", "human", "end", "group"].includes(String(value.type)) &&
+    [
+      "call",
+      "switch",
+      "human",
+      "end",
+      "group",
+      "input",
+      "repeat",
+      "parallel",
+      "workflow",
+    ].includes(String(value.type)) &&
     [
       "succeeded",
       "running",
@@ -424,6 +452,17 @@ function isGraphNode(value: unknown): value is GraphNode {
     ].includes(String(value.status)) &&
     (value.invocationId === undefined || typeof value.invocationId === "string") &&
     (value.groupId === undefined || typeof value.groupId === "string") &&
+    (value.memberInvocationIds === undefined ||
+      (Array.isArray(value.memberInvocationIds) &&
+        value.memberInvocationIds.every((id) => typeof id === "string"))) &&
+    (value.dataSources === undefined ||
+      (Array.isArray(value.dataSources) &&
+        value.dataSources.every((name) => typeof name === "string"))) &&
+    (value.dataTargets === undefined ||
+      (Array.isArray(value.dataTargets) &&
+        value.dataTargets.every((name) => typeof name === "string"))) &&
+    (value.waitingReason === undefined || value.waitingReason === null || typeof value.waitingReason === "string") &&
+    (value.execution === undefined || value.execution === null || isNodeExecution(value.execution)) &&
     typeof value.x === "number" &&
     Number.isFinite(value.x) &&
     typeof value.y === "number" &&
@@ -434,6 +473,21 @@ function isGraphNode(value: unknown): value is GraphNode {
     Number.isFinite(value.height) &&
     Array.isArray(value.evidence) &&
     value.evidence.every((item) => typeof item === "string")
+  );
+}
+
+function isNodeExecution(value: unknown): value is NodeExecution {
+  return (
+    isRecord(value) &&
+    hasStrings(value, ["participantType", "location", "target"]) &&
+    ["agent", "human", "program", "external_service", "process", "unknown"].includes(
+      String(value.participantType),
+    ) &&
+    ["runtime", "local", "external", "human", "unknown"].includes(String(value.location)) &&
+    (value.adapter === undefined || value.adapter === null || typeof value.adapter === "string") &&
+    (value.executorRef === undefined || value.executorRef === null || typeof value.executorRef === "string") &&
+    (value.model === undefined || value.model === null || typeof value.model === "string") &&
+    (value.workspace === undefined || value.workspace === null || typeof value.workspace === "string")
   );
 }
 

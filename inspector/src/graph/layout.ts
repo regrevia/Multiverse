@@ -2,6 +2,37 @@ export type GraphPosition = { x: number; y: number };
 
 type PositionedItem = { id: string; x: number; y: number };
 
+export function routeGraphEdge(
+  from: { x: number; y: number; width: number; height: number },
+  to: { x: number; y: number; width: number; height: number },
+): { path: string; direction: "horizontal" | "vertical" } {
+  const fromCenter = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  const toCenter = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+  const horizontal = Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y);
+
+  if (horizontal) {
+    const forward = toCenter.x >= fromCenter.x;
+    const start = { x: forward ? from.x + from.width : from.x, y: fromCenter.y };
+    const end = { x: forward ? to.x : to.x + to.width, y: toCenter.y };
+    const curve = Math.max(24, Math.abs(end.x - start.x) * 0.48);
+    const bend = forward ? curve : -curve;
+    return {
+      path: `M ${start.x} ${start.y} C ${start.x + bend} ${start.y}, ${end.x - bend} ${end.y}, ${end.x} ${end.y}`,
+      direction: "horizontal",
+    };
+  }
+
+  const forward = toCenter.y >= fromCenter.y;
+  const start = { x: fromCenter.x, y: forward ? from.y + from.height : from.y };
+  const end = { x: toCenter.x, y: forward ? to.y : to.y + to.height };
+  const curve = Math.max(24, Math.abs(end.y - start.y) * 0.48);
+  const bend = forward ? curve : -curve;
+  return {
+    path: `M ${start.x} ${start.y} C ${start.x} ${start.y + bend}, ${end.x} ${end.y - bend}, ${end.x} ${end.y}`,
+    direction: "vertical",
+  };
+}
+
 export function resolveGraphPosition<T extends PositionedItem>(
   item: T | undefined,
   localPositions: Record<string, GraphPosition>,

@@ -3,9 +3,10 @@ import {
   mapRuntimeProjection,
   parseRuntimeProjection,
   parseRuntimeViewSnapshot,
+  type RuntimeProjection,
 } from "./runtime";
 
-const snapshot = {
+const snapshot: RuntimeProjection = {
   protocolVersion: "multiverse/v0.1",
   run: {
     id: "run_123",
@@ -44,6 +45,8 @@ const snapshot = {
       title: "Produce deliverable",
       type: "call",
       status: "succeeded",
+      dataSources: ["工作流输入"],
+      dataTargets: ["Agent review", "Validate deliverable contract"],
       invocation: {
         id: "inv_produce",
         status: "succeeded",
@@ -73,8 +76,20 @@ const snapshot = {
       scopeId: "scope_root",
       nodeId: "review",
       title: "Human review",
-      type: "human",
+      type: "call",
       status: "waiting",
+      dataSources: ["Produce deliverable", "Validate deliverable contract"],
+      dataTargets: [],
+      execution: {
+        participantType: "human",
+        adapter: "human",
+        executorRef: "builtin.human-review.v1",
+        location: "human",
+        target: "Runtime 人工任务",
+        model: null,
+        workspace: null,
+      },
+      waitingReason: "等待人工处理",
       invocation: {
         id: "inv_review",
         status: "waiting",
@@ -161,6 +176,28 @@ describe("runtime projection mapper", () => {
     expect(graph.controlMode).toBe("run");
     expect(graph.currentNodeId).toBe("scope_root:review");
     expect(graph.currentScopeId).toBe("scope_root");
+    expect(graph.nodes.find((node) => node.id === "scope_root:review")?.type).toBe("call");
+    expect(
+      graph.nodes.find((node) => node.id === "scope_root:review")?.execution?.participantType,
+    ).toBe("human");
+    expect(
+      graph.nodes.find((node) => node.id === "scope_root:review")?.waitingReason,
+    ).toBe("等待人工处理");
+    expect(graph.nodes.find((node) => node.id === "scope_root:produce")?.executor).toBe(
+      "Binding 未核实",
+    );
+    expect(graph.nodes.find((node) => node.id === "scope_root:produce")?.dataSources).toEqual([
+      "工作流输入",
+    ]);
+    expect(graph.nodes.find((node) => node.id === "scope_root:produce")?.dataTargets).toContain(
+      "Agent review",
+    );
+    expect(graph.nodes.find((node) => node.id === "scope_root:review")?.dataSources).toContain(
+      "Produce deliverable",
+    );
+    expect(
+      graph.nodes.find((node) => node.id === "scope_root:produce")?.execution?.executorRef,
+    ).toBeUndefined();
     expect(graph.nodes.find((node) => node.id === "scope_root:review")?.status).toBe(
       "waiting",
     );
@@ -329,5 +366,116 @@ describe("runtime view snapshot", () => {
     };
 
     expect(() => parseRuntimeViewSnapshot(view)).toThrow("不是有效的 Multiverse 运行视图");
+  });
+
+  it("rejects malformed data dependency labels in exported views", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    graph.nodes[0]!.dataSources = [42 as unknown as string];
+    const view = {
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: {},
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    };
+
+    expect(() => parseRuntimeViewSnapshot(view)).toThrow("不是有效的 Multiverse 运行视图");
+  });
+
+  it("accepts the structural node types exported by the current graph model", () => {
+    const graph = mapRuntimeProjection(snapshot);
+    graph.nodes[0]!.type = "input";
+    const view = {
+      format: "multiverse-view/v0.1",
+      exportedAt: "2026-10-08T00:00:00Z",
+      workflow: {
+        name: graph.packageName,
+        version: graph.packageVersion,
+        runId: graph.runId,
+      },
+      graph,
+      layout: {},
+      events: snapshot.events,
+      humanRequests: snapshot.humanRequests,
+      artifacts: snapshot.artifacts,
+    };
+
+    expect(parseRuntimeViewSnapshot(view).graph.nodes[0]?.type).toBe("input");
+  });
+
+  it("sizes a workflow group to contain every horizontally arranged member", () => {
+    const expanded = structuredClone(snapshot) as RuntimeProjection;
+    const base = expanded.nodes[0]!;
+    for (let index = 0; index < 5; index += 1) {
+      expanded.nodes.push({
+        ...base,
+        id: `scope_root:extra-${index}`,
+        nodeId: `extra-${index}`,
+        title: `Extra ${index}`,
+        invocation: null,
+        latestAttempt: null,
+        attempts: [],
+      });
+    }
+
+    const graph = mapRuntimeProjection(expanded);
+    const group = graph.groups[0]!;
+    const rightmostMember = Math.max(
+      ...graph.nodes
+        .filter((node) => node.groupId === group.id)
+        .map((node) => node.x + node.width),
+    );
+
+    expect(group.x + group.width).toBeGreaterThanOrEqual(rightmostMember + 20);
+  });
+
+  it("stacks scopes after the full height of a multi-row scope", () => {
+    const nested = structuredClone(snapshot) as RuntimeProjection;
+    nested.scopes.push({
+      id: "scope_child",
+      workflowId: "quality-check",
+      parentScopeId: "scope_root",
+      parentInvocationId: "inv_produce",
+      path: ["root", "quality-check"],
+      inputDigest: "sha256:child",
+      status: "active",
+    });
+    const rootNodes = nested.nodes.filter((node) => node.scopeId === "scope_root");
+    for (let index = 0; index < 5; index += 1) {
+      nested.nodes.push({
+        ...rootNodes[index % rootNodes.length]!,
+        id: `scope_root:extra-${index}`,
+        scopeId: "scope_root",
+        nodeId: `extra-${index}`,
+        title: `Extra ${index}`,
+      });
+    }
+    nested.nodes.push({
+      ...rootNodes[0]!,
+      id: "scope_child:child",
+      scopeId: "scope_child",
+      nodeId: "child",
+    });
+
+    const graph = mapRuntimeProjection(nested);
+    const root = graph.groups.find((group) => group.id === "scope_root")!;
+    const child = graph.groups.find((group) => group.id === "scope_child")!;
+    const rightAndBottomOfRootNodes = graph.nodes.filter((node) => node.groupId === root.id);
+
+    expect(child.y).toBeGreaterThanOrEqual(root.y + root.height + 44);
+    expect(
+      rightAndBottomOfRootNodes.every(
+        (node) =>
+          node.x + node.width <= root.x + root.width &&
+          node.y + node.height <= root.y + root.height,
+      ),
+    ).toBe(true);
   });
 });

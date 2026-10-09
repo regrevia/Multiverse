@@ -120,6 +120,10 @@ class Runner:
         self._closed = True
         self.ledger.close()
 
+    @property
+    def binding_snapshot(self) -> BindingSet:
+        return self._binding.model_copy(deep=True)
+
     def resume_due(
         self,
         run_id: str,

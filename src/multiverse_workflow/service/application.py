@@ -312,7 +312,11 @@ class RuntimeApplication:
 
     def get_graph(self, namespace: str, run_id: str) -> dict[str, Any]:
         self._require_run(namespace, run_id)
-        return build_run_projection(self.runner.ledger, run_id)
+        return build_run_projection(
+            self.runner.ledger,
+            run_id,
+            binding=self.runner.binding_snapshot,
+        )
 
     def list_invocations(
         self,

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { demoGraph, visibleGraph } from "./model";
 import {
   fitGraphToViewport,
   preserveGraphPositions,
   resolveGraphPosition,
+  routeGraphEdge,
   translatePositions,
 } from "./layout";
 
@@ -31,6 +33,70 @@ describe("local graph layout", () => {
     ).toEqual({
       zoom: 0.42,
       pan: { x: 40, y: 53 },
+    });
+  });
+
+  it("keeps the workflow readable when its scope is represented by a compact collapsed node", () => {
+    const fit = fitGraphToViewport(
+      [
+        { x: 40, y: 25, width: 258, height: 134 },
+        { x: 40, y: 185, width: 304, height: 116 },
+        { x: 710, y: 235, width: 258, height: 134 },
+        { x: 710, y: 375, width: 258, height: 134 },
+        { x: 710, y: 515, width: 258, height: 134 },
+      ],
+      { width: 1015, height: 620 },
+    );
+
+    expect(fit?.zoom).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it("keeps the default workflow readable in a 1280 by 720 desktop window", () => {
+    const nodes = visibleGraph(demoGraph, new Set(["production"])).nodes;
+    const fit = fitGraphToViewport(nodes, { width: 845, height: 475 }, 24);
+
+    expect(fit?.zoom).toBeGreaterThanOrEqual(0.78);
+  });
+
+  it("routes edges through the nearest facing ports for horizontal and vertical neighbors", () => {
+    expect(
+      routeGraphEdge(
+        { x: 40, y: 20, width: 258, height: 134 },
+        { x: 40, y: 180, width: 304, height: 116 },
+      ),
+    ).toEqual({
+      path: "M 169 154 C 169 178, 192 156, 192 180",
+      direction: "vertical",
+    });
+    expect(
+      routeGraphEdge(
+        { x: 670, y: 180, width: 258, height: 134 },
+        { x: 670, y: 340, width: 258, height: 134 },
+      ),
+    ).toMatchObject({
+      path: "M 799 314 C 799 338, 799 316, 799 340",
+      direction: "vertical",
+    });
+  });
+
+  it("keeps the default collapsed workflow on horizontal ports when nodes share a row", () => {
+    const visible = visibleGraph(demoGraph, new Set(["production"]));
+    const byId = new Map(visible.nodes.map((node) => [node.id, node]));
+    const horizontalEdges = visible.edges.filter((edge) =>
+      [
+        ["production", "verify"],
+        ["verify", "review"],
+      ].some(([from, to]) => edge.from === from && edge.to === to),
+    );
+
+    expect(horizontalEdges).toHaveLength(2);
+    horizontalEdges.forEach((edge) => {
+      const from = byId.get(edge.from)!;
+      const to = byId.get(edge.to)!;
+      const route = routeGraphEdge(from, to);
+      expect(route.direction).toBe("horizontal");
+      expect(route.path.startsWith(`M ${from.x + from.width} `)).toBe(true);
+      expect(route.path.endsWith(` ${to.x} ${to.y + to.height / 2}`)).toBe(true);
     });
   });
 
