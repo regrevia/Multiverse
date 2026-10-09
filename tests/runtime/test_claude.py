@@ -80,6 +80,42 @@ def test_claude_cli_replaces_conflicting_mode_flags() -> None:
     assert "--no-session-persistence" in args
 
 
+def test_claude_cli_can_start_and_resume_a_persistent_session() -> None:
+    args = ClaudeCli._with_options(
+        ("claude", "--print", "--no-session-persistence"),
+        None,
+        "dontAsk",
+        session_persistence=True,
+        session_id="11111111-1111-4111-8111-111111111111",
+    )
+    assert "--no-session-persistence" not in args
+    assert args[args.index("--session-id") + 1] == "11111111-1111-4111-8111-111111111111"
+
+    resumed = ClaudeCli._with_options(
+        ("claude",),
+        None,
+        "dontAsk",
+        session_persistence=True,
+        resume_session_id="11111111-1111-4111-8111-111111111111",
+        fork_session=True,
+    )
+    assert resumed[resumed.index("--resume") + 1] == "11111111-1111-4111-8111-111111111111"
+    assert "--fork-session" in resumed
+
+
+def test_claude_cli_rejects_invalid_session_combinations() -> None:
+    with pytest.raises(ValueError, match="requires resumeSessionId"):
+        ClaudeCli(session_persistence=True, fork_session=True)
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ClaudeCli(
+            session_persistence=True,
+            session_id="11111111-1111-4111-8111-111111111111",
+            resume_session_id="11111111-1111-4111-8111-111111111111",
+        )
+    with pytest.raises(ValueError, match="must be a UUID"):
+        ClaudeCli(session_persistence=True, resume_session_id="session-1")
+
+
 def test_claude_cli_replaces_equals_form_managed_flags() -> None:
     args = ClaudeCli._with_options(
         (

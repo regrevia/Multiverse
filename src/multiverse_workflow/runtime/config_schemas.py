@@ -47,6 +47,8 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
             "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
+            "sessionMode": {"enum": ["new", "resume", "fork"]},
+            "nativeSessionId": text,
             "artifactName": text,
             "artifactMediaType": text,
         }
@@ -73,6 +75,10 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
                 "enum": ["default", "dontAsk", "plan", "acceptEdits"]
             },
             "outputFormat": {"enum": ["json", "stream-json"]},
+            "sessionPersistence": {"type": "boolean"},
+            "sessionId": {"type": "string", "format": "uuid"},
+            "resumeSessionId": {"type": "string", "format": "uuid"},
+            "forkSession": {"type": "boolean"},
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
             "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
@@ -132,10 +138,43 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
                     },
                 }
             )
-    return {
+    schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": properties,
         "required": required,
         "additionalProperties": False,
     }
+    if adapter == "claude":
+        schema["allOf"] = [
+            {
+                "if": {
+                    "required": ["sessionId"],
+                },
+                "then": {
+                    "properties": {"sessionPersistence": {"const": True}},
+                    "required": ["sessionPersistence"],
+                },
+            },
+            {
+                "if": {
+                    "required": ["resumeSessionId"],
+                },
+                "then": {
+                    "properties": {"sessionPersistence": {"const": True}},
+                    "required": ["sessionPersistence"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"forkSession": {"const": True}},
+                    "required": ["forkSession"],
+                },
+                "then": {"required": ["resumeSessionId"]},
+            },
+            {
+                "if": {"required": ["sessionId", "resumeSessionId"]},
+                "then": {"not": {}},
+            },
+        ]
+    return schema

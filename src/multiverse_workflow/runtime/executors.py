@@ -176,6 +176,12 @@ def execute_codex(
             approval_policy=approval_policy,
             sandbox_mode=sandbox_mode,
             max_output_bytes=max_output_bytes,
+            session_mode=str(config.get("sessionMode", "new")),
+            native_session_id=(
+                config["nativeSessionId"]
+                if isinstance(config.get("nativeSessionId"), str)
+                else None
+            ),
         ).run(
             prompt=request,
             cwd=cwd_path,
@@ -315,6 +321,16 @@ def execute_claude(
             expected_version=expected_version,
             output_format=str(config.get("outputFormat", "json")),
             environment=provider_config.environment if provider_config else None,
+            session_persistence=bool(config.get("sessionPersistence", False)),
+            session_id=(
+                config["sessionId"] if isinstance(config.get("sessionId"), str) else None
+            ),
+            resume_session_id=(
+                config["resumeSessionId"]
+                if isinstance(config.get("resumeSessionId"), str)
+                else None
+            ),
+            fork_session=bool(config.get("forkSession", False)),
         ).run(
             prompt=request,
             cwd=cwd_path,

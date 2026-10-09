@@ -27,7 +27,7 @@ def _write_fake_codex(path: Path, messages: list[dict[str, object]]) -> None:
         "        print(json.dumps(messages[0]), flush=True)\n"
         "    elif request.get('id') == 2:\n"
         "        print(json.dumps(messages[1]), flush=True)\n"
-        "    elif request.get('id') == 3:\n"
+        + "    elif request.get('id') == 3:\n"
         "        print(json.dumps(messages[2]), flush=True)\n"
         "        print(json.dumps(messages[3]), flush=True)\n"
         "        print(json.dumps(messages[4]), flush=True)\n"
@@ -66,6 +66,66 @@ def test_codex_app_server_round_trips_structured_output(tmp_path: Path) -> None:
     assert result.output == {"text": "ok", "artifact_refs": []}
     assert result.observation["threadId"] == "thread-1"
     assert result.observation["turnId"] == "turn-1"
+
+
+@pytest.mark.parametrize(
+    ("session_mode", "expected_method", "native_session_id"),
+    [
+        ("new", "thread/start", None),
+        ("resume", "thread/resume", "thread-previous"),
+        ("fork", "thread/fork", "thread-previous"),
+    ],
+)
+def test_codex_app_server_uses_explicit_session_mode(
+    tmp_path: Path,
+    session_mode: str,
+    expected_method: str,
+    native_session_id: str | None,
+) -> None:
+    fake = tmp_path / f"fake_codex_{session_mode}.py"
+    thread_assertion = (
+        "        assert request['params']['threadId'] == 'thread-previous'\n"
+        if native_session_id
+        else "        assert 'threadId' not in request['params']\n"
+    )
+    fake.write_text(
+        "".join(
+            [
+                "import json, sys\n",
+                "for line in sys.stdin:\n",
+                "    request = json.loads(line)\n",
+                "    if request.get('id') == 1:\n",
+                "        print(json.dumps({'id':1,'result':{}}), flush=True)\n",
+                "    elif request.get('id') == 2:\n",
+                f"        assert request['method'] == {expected_method!r}, request\n",
+                thread_assertion,
+                "        print(json.dumps({'id':2,'result':"
+                "{'thread':{'id':'thread-next'}}}), flush=True)\n",
+                "    elif request.get('id') == 3:\n",
+                "        print(json.dumps({'id':3,'result':"
+                "{'turn':{'id':'turn-1'}}}), flush=True)\n",
+                "        print(json.dumps({'method':'item/agentMessage/delta',"
+                "'params':{'delta':'{\"text\":\"ok\",\"artifact_refs\":[]}'}}),"
+                " flush=True)\n",
+                "        print(json.dumps({'method':'turn/completed',"
+                "'params':{'turn':{'status':'completed'}}}), flush=True)\n",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=2,
+        session_mode=session_mode,
+        native_session_id=native_session_id,
+    ).run(
+        prompt="return JSON",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+    )
+
+    assert result.observation["sessionMode"] == session_mode
 
 
 def test_codex_app_server_rejects_non_json_final_message(tmp_path: Path) -> None:

@@ -266,3 +266,38 @@ def test_codex_binding_controls_approval_policy_and_sandbox(monkeypatch, tmp_pat
         },
     )
     assert result.output["text"] == "approved workflow"
+
+
+def test_claude_executor_passes_explicit_native_session_options(monkeypatch, tmp_path) -> None:
+    class PersistentClaude:
+        def __init__(self, **kwargs):
+            assert kwargs["session_persistence"] is True
+            assert kwargs["resume_session_id"] == "session-1"
+            assert kwargs["fork_session"] is True
+
+        def run(self, **kwargs):
+            return ClaudeResult(
+                output={"text": "continued", "artifact_refs": []},
+                observation={
+                    "provider": "claude",
+                    "protocol": "json",
+                    "sessionId": "session-2",
+                    "status": "completed",
+                },
+            )
+
+    monkeypatch.setattr(executors, "ClaudeCli", PersistentClaude)
+    result = executors.execute_claude(
+        {"goal": "continue"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "expectedVersion": "fixture",
+            "sessionPersistence": True,
+            "resumeSessionId": "session-1",
+            "forkSession": True,
+        },
+    )
+
+    assert result.observations[0]["sessionId"] == "session-2"

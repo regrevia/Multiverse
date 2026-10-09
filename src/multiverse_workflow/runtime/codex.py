@@ -80,6 +80,8 @@ class CodexAppServer:
         approval_policy: str = "never",
         sandbox_mode: str = "workspace-write",
         max_output_bytes: int = 262144,
+        session_mode: str = "new",
+        native_session_id: str | None = None,
     ) -> None:
         if not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("codex command must be a non-empty argument array")
@@ -95,10 +97,18 @@ class CodexAppServer:
             raise ValueError("unsupported Codex sandboxMode")
         if max_output_bytes < 1:
             raise ValueError("codex maxOutputBytes must be positive")
+        if session_mode not in {"new", "resume", "fork"}:
+            raise ValueError("unsupported Codex sessionMode")
+        if session_mode in {"resume", "fork"} and not native_session_id:
+            raise ValueError("Codex resume/fork requires nativeSessionId")
+        if session_mode == "new" and native_session_id:
+            raise ValueError("Codex new session cannot include nativeSessionId")
         self.command, self.model, self.timeout_seconds = command, model, timeout_seconds
         self.approval_policy = approval_policy
         self.sandbox_mode = sandbox_mode
         self.max_output_bytes = max_output_bytes
+        self.session_mode = session_mode
+        self.native_session_id = native_session_id
         self._read_buffer = bytearray()
         self._pending_messages: deque[dict[str, Any]] = deque()
         self._last_terminal_error: str | None = None
@@ -151,17 +161,20 @@ class CodexAppServer:
             )
             self._send_notification(process, "initialized", {})
             request_id = 2
-            self._send(
-                process,
-                request_id,
-                "thread/start",
-                {
-                    "cwd": str(cwd),
-                    "approvalPolicy": self.approval_policy,
-                    "sandbox": self.sandbox_mode,
-                    **({"model": self.model} if self.model else {}),
-                },
-            )
+            thread_method = {
+                "new": "thread/start",
+                "resume": "thread/resume",
+                "fork": "thread/fork",
+            }[self.session_mode]
+            thread_params = {
+                "cwd": str(cwd),
+                "approvalPolicy": self.approval_policy,
+                "sandbox": self.sandbox_mode,
+                **({"model": self.model} if self.model else {}),
+            }
+            if self.session_mode != "new":
+                thread_params["threadId"] = self.native_session_id
+            self._send(process, request_id, thread_method, thread_params)
             thread_id = self._read_response(
                 process,
                 request_id,
@@ -334,6 +347,7 @@ class CodexAppServer:
                     "protocol": "app-server",
                     "threadId": thread_id,
                     "turnId": turn_id,
+                    "sessionMode": self.session_mode,
                     "model": self.model,
                     "status": "completed",
                 },

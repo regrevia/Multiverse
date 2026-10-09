@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 from multiverse_workflow.protocol.models import BindingSet
 from multiverse_workflow.runtime.config_schemas import executor_config_schema
@@ -194,7 +194,9 @@ class ExecutorRegistry:
                 )
                 continue
             seen: set[tuple[str, str]] = set()
-            for error in Draft202012Validator(descriptor.config_schema()).iter_errors(slot.config):
+            for error in Draft202012Validator(
+                descriptor.config_schema(), format_checker=FormatChecker()
+            ).iter_errors(slot.config):
                 path = list(error.absolute_path)
                 paths = [path]
                 if error.validator == "required":

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 
 class ClaudeProtocolError(RuntimeError):
@@ -64,6 +65,10 @@ class ClaudeCli:
         expected_version: str | None = None,
         output_format: str = "json",
         environment: Mapping[str, str] | None = None,
+        session_persistence: bool = False,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
+        fork_session: bool = False,
     ) -> None:
         if not command or any(not isinstance(item, str) for item in command):
             raise ValueError("claude command must be a non-empty argument array")
@@ -93,12 +98,42 @@ class ClaudeCli:
             raise ValueError("Claude command contains a forbidden extension or permission flag")
         if output_format not in {"json", "stream-json"}:
             raise ValueError("unsupported Claude outputFormat")
-        self.command = self._with_options(command, model, permission_mode, output_format)
         self.timeout_seconds = timeout_seconds
         self.max_output_bytes = max_output_bytes
         self.expected_version = expected_version
         self.output_format = output_format
         self.environment = dict(environment or {})
+        self.session_persistence = session_persistence
+        self.session_id = session_id
+        self.resume_session_id = resume_session_id
+        self.fork_session = fork_session
+        if (session_id or resume_session_id or fork_session) and not session_persistence:
+            raise ValueError("Claude native session options require sessionPersistence")
+        if session_id and resume_session_id:
+            raise ValueError("Claude sessionId and resumeSessionId are mutually exclusive")
+        if fork_session and not resume_session_id:
+            raise ValueError("Claude forkSession requires resumeSessionId")
+        if fork_session and session_id:
+            raise ValueError("Claude forkSession cannot be combined with sessionId")
+        for value, name in (
+            (session_id, "sessionId"),
+            (resume_session_id, "resumeSessionId"),
+        ):
+            if value:
+                try:
+                    UUID(value)
+                except ValueError as exc:
+                    raise ValueError(f"Claude {name} must be a UUID") from exc
+        self.command = self._with_options(
+            command,
+            model,
+            permission_mode,
+            output_format,
+            session_persistence=session_persistence,
+            session_id=session_id,
+            resume_session_id=resume_session_id,
+            fork_session=fork_session,
+        )
 
     @staticmethod
     def _with_options(
@@ -106,14 +141,26 @@ class ClaudeCli:
         model: str | None,
         permission_mode: str,
         output_format: str = "json",
+        *,
+        session_persistence: bool = False,
+        session_id: str | None = None,
+        resume_session_id: str | None = None,
+        fork_session: bool = False,
     ) -> tuple[str, ...]:
         args: list[str] = []
         managed_with_value = {
             "--output-format",
             "--tools",
             "--permission-mode",
+            "--session-id",
+            "--resume",
         }
-        managed_flags = {"--print", "--no-session-persistence", *managed_with_value}
+        managed_flags = {
+            "--print",
+            "--no-session-persistence",
+            "--fork-session",
+            *managed_with_value,
+        }
         index = 0
         while index < len(command):
             item = command[index]
@@ -135,13 +182,20 @@ class ClaudeCli:
                 "--print",
                 "--output-format",
                 output_format,
-                "--no-session-persistence",
                 "--tools",
                 "",
                 "--permission-mode",
                 permission_mode,
             ]
         )
+        if not session_persistence:
+            args.append("--no-session-persistence")
+        if session_id:
+            args.extend(["--session-id", session_id])
+        if resume_session_id:
+            args.extend(["--resume", resume_session_id])
+        if fork_session:
+            args.append("--fork-session")
         if model and "--model" not in args:
             args.extend(["--model", model])
         if "--permission-mode" not in args:
@@ -257,6 +311,7 @@ class ClaudeCli:
                     "provider": "claude",
                     "protocol": self.output_format,
                     "sessionId": envelope.get("session_id"),
+                    "sessionPersistence": self.session_persistence,
                     "status": "completed",
                     "outputSchema": output_schema,
                 },
