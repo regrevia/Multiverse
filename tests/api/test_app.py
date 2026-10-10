@@ -616,6 +616,111 @@ async def test_command_can_be_queried_after_create(settings: ServiceSettings) ->
 
 
 @pytest.mark.anyio
+async def test_agent_sessions_are_namespace_scoped_and_native_bindings_are_versioned(
+    settings: ServiceSettings,
+) -> None:
+    application = create_app(settings)
+    transport = httpx.ASGITransport(app=application)
+    headers = {"Authorization": "Bearer test-token", "Idempotency-Key": "session-create-1"}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/api/v1/namespaces/local/agent-sessions",
+            headers=headers,
+            json={
+                "agentId": "reviewer",
+                "scope": {"projectId": "multiverse", "purpose": "review"},
+                "profileRevision": "sha256:profile-1",
+            },
+        )
+        assert created.status_code == 201, created.text
+        session_id = created.json()["id"]
+        binding = await client.post(
+            f"/api/v1/namespaces/local/agent-sessions/{session_id}/native-bindings",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "session-bind-1",
+            },
+            json={
+                "expectedVersion": 1,
+                "providerId": "codex",
+                "installationId": "mac-mini-codex",
+                "storageId": "codex-home",
+                "nativeSessionId": "thread-1",
+                "providerVersion": "0.156.1",
+                "capabilities": {"resume": True, "fork": True},
+                "source": "new",
+                "workspaceRevision": "sha256:workspace-1",
+                "policyRevision": "sha256:policy-1",
+            },
+        )
+        listed = await client.get(
+            "/api/v1/namespaces/local/agent-sessions",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        hidden = await client.get(
+            f"/api/v1/namespaces/other/agent-sessions/{session_id}",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        repeated = await client.post(
+            f"/api/v1/namespaces/local/agent-sessions/{session_id}/native-bindings",
+            headers={
+                "Authorization": "Bearer test-token",
+                "Idempotency-Key": "session-bind-repeat",
+            },
+            json={
+                "expectedVersion": 2,
+                "providerId": "codex",
+                "installationId": "mac-mini-codex",
+                "storageId": "codex-home",
+                "nativeSessionId": "thread-1",
+                "providerVersion": "0.156.1",
+                "capabilities": {"resume": True, "fork": True},
+                "source": "new",
+                    "workspaceRevision": "sha256:workspace-1",
+                    "policyRevision": "sha256:policy-1",
+            },
+        )
+
+    assert binding.status_code == 201, binding.text
+    assert binding.json()["nativeSessionId"] == "thread-1"
+    assert repeated.status_code == 201, repeated.text
+    assert repeated.json()["capabilities"]["resume"] is True
+    assert listed.status_code == 200
+    assert listed.json()["sessions"][0]["id"] == session_id
+    assert hidden.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_agent_session_write_requires_session_manage_scope(
+    settings: ServiceSettings,
+) -> None:
+    restricted = ServiceSettings(
+        database_path=settings.database_path,
+        package_dir=settings.package_dir,
+        binding_path=settings.binding_path,
+        bearer_token="read-only",
+        subject="viewer",
+        scopes=frozenset({"read"}),
+    )
+    application = create_app(restricted)
+    transport = httpx.ASGITransport(app=application)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/namespaces/local/agent-sessions",
+            headers={
+                "Authorization": "Bearer read-only",
+                "Idempotency-Key": "read-only-session",
+            },
+            json={
+                "agentId": "reviewer",
+                "scope": {},
+                "profileRevision": "sha256:profile-1",
+            },
+        )
+    assert response.status_code == 403
+
+
+@pytest.mark.anyio
 async def test_run_create_rejects_a_namespace_different_from_authenticated_subject(
     settings: ServiceSettings,
 ) -> None:

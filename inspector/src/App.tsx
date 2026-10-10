@@ -62,6 +62,8 @@ import {
 } from "./graph/runtime";
 import {
   RuntimeClient,
+  type RuntimeAgentSession,
+  type RuntimeCodexInteraction,
   type HumanDecisionPayload,
   type RuntimeCommandReceipt,
   type RuntimeClientConfig,
@@ -304,6 +306,9 @@ function App() {
       : { kind: "demo", message: "演示数据" },
   );
   const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
+  const [agentSessions, setAgentSessions] = useState<RuntimeAgentSession[]>([]);
+  const [nativeInteractions, setNativeInteractions] = useState<RuntimeCodexInteraction[]>([]);
+  const [sessionState, setSessionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [humanRequests, setHumanRequests] = useState<RuntimeHumanRequest[]>([]);
   const [artifacts, setArtifacts] = useState<RuntimeArtifact[]>([]);
   const [decisionComment, setDecisionComment] = useState("");
@@ -395,6 +400,45 @@ function App() {
     connection.namespace,
     connection.runId,
     connection.token,
+  ]);
+
+  useEffect(() => {
+    if (
+      !connectionEnabled ||
+      !connection.baseUrl ||
+      !connection.namespace ||
+      !connection.runId ||
+      !connection.token
+    ) {
+      setAgentSessions([]);
+      setNativeInteractions([]);
+      setSessionState("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setSessionState("loading");
+    const client = new RuntimeClient(connection);
+    Promise.all([
+      client.listAgentSessions(controller.signal),
+      client.listCodexInteractions("pending", controller.signal),
+    ])
+      .then(([sessions, interactions]) => {
+        if (controller.signal.aborted) return;
+        setAgentSessions(sessions.sessions);
+        setNativeInteractions(interactions.interactions);
+        setSessionState("ready");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSessionState("error");
+      });
+    return () => controller.abort();
+  }, [
+    connectionEnabled,
+    connection.baseUrl,
+    connection.namespace,
+    connection.runId,
+    connection.token,
+    graph.runVersion,
   ]);
 
   useEffect(() => {
@@ -1244,6 +1288,9 @@ function App() {
               onApply={() => applyPatchText()}
               onSimulate={simulateAgentUpdate}
               events={agentEvents}
+              sessions={agentSessions}
+              nativeInteractions={nativeInteractions}
+              sessionState={sessionState}
             />
           )}
         </aside>
@@ -1811,6 +1858,9 @@ function AgentPanel({
   onApply,
   onSimulate,
   events,
+  sessions,
+  nativeInteractions,
+  sessionState,
 }: {
   patchText: string;
   setPatchText: (value: string) => void;
@@ -1818,6 +1868,9 @@ function AgentPanel({
   onApply: () => void;
   onSimulate: () => void;
   events: string[];
+  sessions: RuntimeAgentSession[];
+  nativeInteractions: RuntimeCodexInteraction[];
+  sessionState: "idle" | "loading" | "ready" | "error";
 }) {
   return (
     <div className="panel-content agent-panel">
@@ -1834,6 +1887,41 @@ function AgentPanel({
       >
         <Play size={15} /> 演示下一条事件
       </button>
+      <div className="session-workbench">
+        <div className="detail-label">原生会话</div>
+        {sessionState === "loading" && <div className="session-empty">正在读取会话关联</div>}
+        {sessionState === "error" && <div className="session-empty warning">会话列表读取失败</div>}
+        {sessionState === "ready" && sessions.length === 0 && (
+          <div className="session-empty">当前运行没有持久会话关联</div>
+        )}
+        {sessions.map((session) => (
+          <div className="session-row" key={session.id}>
+            <div className="session-row-heading">
+              <strong>{session.agentId}</strong>
+              <span>v{session.version}</span>
+            </div>
+            <div className="session-row-meta">
+              {session.bindings.length
+                ? session.bindings.map((binding) =>
+                  `${binding.providerId} · ${binding.status} · ${binding.nativeSessionId}`,
+                ).join(" / ")
+                : "尚未绑定原生会话"}
+            </div>
+          </div>
+        ))}
+        <div className="detail-label">待处理原生交互</div>
+        {nativeInteractions.length === 0 ? (
+          <div className="session-empty">没有待处理的 Codex 原生交互</div>
+        ) : (
+          nativeInteractions.map((interaction) => (
+            <div className="interaction-row" key={interaction.id}>
+              <strong>{interaction.kind}</strong>
+              <span>线程 {interaction.threadId} · 版本 {interaction.version}</span>
+              <code>{JSON.stringify(interaction.payload)}</code>
+            </div>
+          ))
+        )}
+      </div>
       <div className="agent-events"><div className="detail-label">最近智能体活动</div>{events.map((event) => <div className="agent-event" key={event}><span />{event}</div>)}</div>
       <div className="panel-callout warning"><AlertCircle size={16} /><span>预览不会发布。</span></div>
     </div>

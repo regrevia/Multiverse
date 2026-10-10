@@ -1044,3 +1044,59 @@ body,
   height: 13px;
   flex: 0 0 auto;
 }
+
+.session-workbench {
+  display: grid;
+  gap: 9px;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid #dce6eb;
+}
+
+.session-row,
+.interaction-row {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid #d9e5ea;
+  border-radius: 5px;
+  background: #f2f7f9;
+}
+
+.session-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-row-heading strong,
+.interaction-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #34576a;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-row-heading span,
+.session-row-meta,
+.interaction-row span,
+.session-empty {
+  color: #718997;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.session-row-meta,
+.interaction-row code {
+  overflow-wrap: anywhere;
+  color: #607b8a;
+  font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.session-empty.warning {
+  color: #9a7143;
+}

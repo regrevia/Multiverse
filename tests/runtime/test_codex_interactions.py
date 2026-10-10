@@ -51,6 +51,21 @@ def test_codex_interaction_is_versioned_authorized_and_idempotent(tmp_path) -> N
         authorized_subjects=["operator"],
         expires_at="2099-01-01T00:01:00Z",
     )
+    repeated_interaction = ledger.create_codex_interaction(
+        run_id=run["id"],
+        scope_id=scope["id"],
+        invocation_id=invocation["id"],
+        attempt_id=attempt["id"],
+        native_request_id="req-1",
+        thread_id="thread-1",
+        turn_id="turn-1",
+        kind="item/tool/requestUserInput",
+        payload={"questions": [{"id": "choice", "question": "Continue?"}]},
+        authorized_subjects=["operator"],
+        expires_at="2099-01-01T00:01:00Z",
+    )
+    assert repeated_interaction["id"] == interaction["id"]
+    assert repeated_interaction["kind"] == "item/tool/requestUserInput"
 
     replied = ledger.respond_codex_interaction(
         interaction["id"],

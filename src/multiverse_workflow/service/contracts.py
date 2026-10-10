@@ -51,6 +51,40 @@ class CodexInteractionResponseRequest(ServiceModel):
     response: dict[str, Any]
 
 
+class AgentSessionCreateRequest(ServiceModel):
+    agent_id: str = Field(alias="agentId", min_length=1)
+    scope: dict[str, Any]
+    profile_revision: str = Field(alias="profileRevision", min_length=1)
+    session_id: str | None = Field(default=None, alias="sessionId", min_length=1)
+    run_id: str | None = Field(default=None, alias="runId", min_length=1)
+    scope_id: str | None = Field(default=None, alias="scopeId", min_length=1)
+    invocation_id: str | None = Field(default=None, alias="invocationId", min_length=1)
+
+    _validate_ids = field_validator("agent_id", "profile_revision")(_non_empty)
+
+
+class NativeSessionBindingRequest(ServiceModel):
+    expected_version: int = Field(alias="expectedVersion", ge=1)
+    provider_id: str = Field(alias="providerId", min_length=1)
+    installation_id: str = Field(alias="installationId", min_length=1)
+    storage_id: str = Field(alias="storageId", min_length=1)
+    native_session_id: str = Field(alias="nativeSessionId", min_length=1)
+    provider_version: str = Field(alias="providerVersion", min_length=1)
+    capabilities: dict[str, Any]
+    source: Literal["new", "resume", "fork", "handoff"]
+    workspace_revision: str | None = Field(default=None, alias="workspaceRevision")
+    policy_revision: str | None = Field(default=None, alias="policyRevision")
+
+    _validate_ids = field_validator(
+        "provider_id",
+        "installation_id",
+        "storage_id",
+        "native_session_id",
+        "provider_version",
+        "source",
+    )(_non_empty)
+
+
 ReconcileConclusion = Literal[
     "confirmed_succeeded",
     "confirmed_failed",

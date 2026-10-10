@@ -11,13 +11,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 
+from multiverse_workflow.runtime.ledger import LedgerConflict
 from multiverse_workflow.service.application import RuntimeApplication
 from multiverse_workflow.service.contracts import (
+    AgentSessionCreateRequest,
     AttemptReconcileRequest,
     CodexInteractionResponseRequest,
     ErrorBody,
     ErrorResponse,
     HumanDecisionRequest,
+    NativeSessionBindingRequest,
     RunControlRequest,
     RunCreateRequest,
 )
@@ -449,6 +452,115 @@ def create_app(settings: ServiceSettings) -> FastAPI:
         )
         return _present_codex_interaction(interaction)
 
+    @app.get("/api/v1/namespaces/{namespace}/agent-sessions")
+    async def list_agent_sessions(
+        namespace: str,
+        run_id: str | None = Query(default=None, alias="runId"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        sessions = runtime.runner.ledger.list_agent_sessions(
+            namespace, owner_subject=principal.subject, run_id=run_id
+        )
+        return {"sessions": [_present_agent_session(item) for item in sessions]}
+
+    @app.get("/api/v1/namespaces/{namespace}/agent-sessions/{session_id}")
+    async def get_agent_session(
+        namespace: str,
+        session_id: str,
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "read")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        session = runtime.runner.ledger.get_agent_session(
+            namespace, session_id, owner_subject=principal.subject
+        )
+        if session is None:
+            raise ServiceError("NOT_FOUND", "agent session not found", status_code=404)
+        return _present_agent_session(session)
+
+    @app.post(
+        "/api/v1/namespaces/{namespace}/agent-sessions",
+        status_code=201,
+    )
+    async def create_agent_session(
+        namespace: str,
+        payload: AgentSessionCreateRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "session:manage")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        if not idempotency_key:
+            raise ServiceError(
+                "INVALID_ARGUMENT",
+                "Idempotency-Key header is required",
+                status_code=422,
+            )
+        try:
+            session = runtime.runner.ledger.create_agent_session(
+                namespace=namespace,
+                agent_id=payload.agent_id,
+                owner_subject=principal.subject,
+                scope=payload.scope,
+                profile_revision=payload.profile_revision,
+                session_id=payload.session_id,
+                idempotency_key=idempotency_key,
+                run_id=payload.run_id,
+                scope_id=payload.scope_id,
+                invocation_id=payload.invocation_id,
+            )
+        except LedgerConflict as exc:
+            raise ServiceError("STATE_CONFLICT", str(exc), status_code=409) from exc
+        return _present_agent_session(session)
+
+    @app.post(
+        "/api/v1/namespaces/{namespace}/agent-sessions/{session_id}/native-bindings",
+        status_code=201,
+    )
+    async def bind_native_session(
+        namespace: str,
+        session_id: str,
+        payload: NativeSessionBindingRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        principal: LocalPrincipal = Depends(authorize),  # noqa: B008
+    ) -> dict[str, Any]:
+        require_scope(principal, "session:manage")
+        if namespace != principal.namespace:
+            raise ServiceError("NOT_FOUND", f"namespace not found: {namespace}", status_code=404)
+        if not idempotency_key:
+            raise ServiceError(
+                "INVALID_ARGUMENT",
+                "Idempotency-Key header is required",
+                status_code=422,
+            )
+        if runtime.runner.ledger.get_agent_session(
+            namespace, session_id, owner_subject=principal.subject
+        ) is None:
+            raise ServiceError("NOT_FOUND", "agent session not found", status_code=404)
+        try:
+            binding = runtime.runner.ledger.bind_native_session(
+                session_id,
+                expected_version=payload.expected_version,
+                provider_id=payload.provider_id,
+                installation_id=payload.installation_id,
+                storage_id=payload.storage_id,
+                native_session_id=payload.native_session_id,
+                provider_version=payload.provider_version,
+                capabilities=payload.capabilities,
+                source=payload.source,
+                workspace_revision=payload.workspace_revision,
+                policy_revision=payload.policy_revision,
+                idempotency_key=idempotency_key,
+            )
+        except LedgerConflict as exc:
+            raise ServiceError("STATE_CONFLICT", str(exc), status_code=409) from exc
+        return _present_native_session_binding(binding)
+
     return app
 
 
@@ -545,6 +657,48 @@ def _present_codex_interaction(interaction: dict[str, Any]) -> dict[str, Any]:
         "actor": interaction["actor"],
         "createdAt": interaction["created_at"],
         "updatedAt": interaction["updated_at"],
+    }
+
+
+def _present_agent_session(session: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": session["id"],
+        "namespace": session["namespace"],
+        "agentId": session["agent_id"],
+        "ownerSubject": session["owner_subject"],
+        "scope": session["scope"],
+        "profileRevision": session["profile_revision"],
+        "runId": session["run_id"],
+        "scopeId": session["scope_id"],
+        "invocationId": session["invocation_id"],
+        "activeBindingId": session["active_binding_id"],
+        "version": session["version"],
+        "status": session["status"],
+        "bindings": [
+            _present_native_session_binding(binding)
+            for binding in session["bindings"]
+        ],
+        "createdAt": session["created_at"],
+        "updatedAt": session["updated_at"],
+    }
+
+
+def _present_native_session_binding(binding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": binding["id"],
+        "agentSessionId": binding["agent_session_id"],
+        "providerId": binding["provider_id"],
+        "installationId": binding["installation_id"],
+        "storageId": binding["storage_id"],
+        "nativeSessionId": binding["native_session_id"],
+        "providerVersion": binding["provider_version"],
+        "capabilities": binding["capabilities"],
+        "source": binding["source"],
+        "workspaceRevision": binding["workspace_revision"],
+        "policyRevision": binding["policy_revision"],
+        "status": binding["status"],
+        "createdAt": binding["created_at"],
+        "updatedAt": binding["updated_at"],
     }
 
 

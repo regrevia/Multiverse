@@ -50,6 +50,55 @@ export type RuntimeCommandReceipt = {
   resourceVersion: number | null;
 };
 
+export type RuntimeNativeSessionBinding = {
+  id: string;
+  agentSessionId: string;
+  providerId: string;
+  installationId: string;
+  storageId: string;
+  nativeSessionId: string;
+  providerVersion: string;
+  capabilities: Record<string, unknown>;
+  source: string;
+  workspaceRevision: string | null;
+  policyRevision: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuntimeAgentSession = {
+  id: string;
+  namespace: string;
+  agentId: string;
+  ownerSubject: string;
+  scope: Record<string, unknown>;
+  profileRevision: string;
+  runId: string | null;
+  scopeId: string | null;
+  invocationId: string | null;
+  activeBindingId: string | null;
+  version: number;
+  status: string;
+  bindings: RuntimeNativeSessionBinding[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuntimeCodexInteraction = {
+  id: string;
+  kind: string;
+  threadId: string;
+  turnId: string;
+  payload: unknown;
+  authorizedSubjects: string[];
+  expiresAt: string;
+  version: number;
+  status: string;
+  deliveryStatus: string;
+  response: unknown;
+};
+
 export type HumanDecisionPayload = {
   expectedVersion: number;
   subjectDigest: string;
@@ -117,6 +166,24 @@ export class RuntimeClient {
   async getRun(signal?: AbortSignal): Promise<RuntimeRun> {
     return this.request<RuntimeRun>(
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}`,
+      { signal },
+    );
+  }
+
+  async listAgentSessions(signal?: AbortSignal): Promise<{ sessions: RuntimeAgentSession[] }> {
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/agent-sessions?runId=${encodeURIComponent(this.config.runId)}`,
+      { signal },
+    );
+  }
+
+  async listCodexInteractions(
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<{ interactions: RuntimeCodexInteraction[] }> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}/codex-interactions${query}`,
       { signal },
     );
   }
