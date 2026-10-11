@@ -53,7 +53,7 @@ def test_contract_matches_every_direct_runner_ledger_call() -> None:
         and node.value.value.id == "self"
     }
     assert runner_calls <= set(LEDGER_BACKEND_METHODS)
-    assert len(LEDGER_BACKEND_METHODS) == 70
+    assert len(LEDGER_BACKEND_METHODS) == 76
 
 
 def test_backend_methods_must_accept_ledger_public_parameters() -> None:

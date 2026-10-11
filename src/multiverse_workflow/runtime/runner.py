@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from collections.abc import Callable
@@ -1064,6 +1065,7 @@ class Runner:
             output=output,
             enqueue_wait=not resume,
         )
+        self.ledger.release_native_session_turn_for_attempt(attempt_id)
         if not resume:
             return reconciled
         return self._apply_reconciled_attempt(reconciled)
@@ -2032,6 +2034,31 @@ class Runner:
             self._fail_scope(run_id, scope_id, node_id, error)
             return None
         remaining = min(run_remaining, (attempt_deadline - now).total_seconds())
+        session_lease: dict[str, Any] | None = None
+        session_lease_owner_token = uuid.uuid4().hex
+
+        def release_session_lease() -> None:
+            nonlocal session_lease
+            if session_lease is None:
+                return
+            try:
+                self.ledger.release_native_session_turn(
+                    session_lease["id"],
+                    attempt_id=attempt["id"],
+                    owner_token=session_lease_owner_token,
+                    fencing_token=int(session_lease["fencing_token"]),
+                )
+                session_lease = None
+            except (LedgerConflict, sqlite3.Error, TypeError, ValueError):
+                self.ledger.record_event(
+                    run_id,
+                    "agent.session.lease_release_failed",
+                    {"code": "SESSION_LEASE_RELEASE_UNCONFIRMED"},
+                    scope_id=scope_id,
+                    invocation_id=attempt["invocation_id"],
+                    attempt_id=attempt["id"],
+                )
+
         if binding.adapter == "http_job":
             if attempt["external_ref"]:
                 self.ledger.ensure_external_observation_wait(
@@ -2123,6 +2150,61 @@ class Runner:
                             interaction["id"]
                         )
 
+                configured_native_id: str | None = None
+                if binding.adapter == "codex" and agent_config.get("sessionMode") in {
+                    "resume",
+                    "fork",
+                }:
+                    candidate = agent_config.get("nativeSessionId")
+                    configured_native_id = candidate if isinstance(candidate, str) else None
+                elif (
+                    binding.adapter == "claude"
+                    and agent_config.get("sessionPersistence") is True
+                ):
+                    candidate = agent_config.get(
+                        "resumeSessionId", agent_config.get("sessionId")
+                    )
+                    configured_native_id = candidate if isinstance(candidate, str) else None
+                if isinstance(configured_native_id, str) and configured_native_id:
+                    provider_id = str(agent_config.get("providerId", binding.adapter))
+                    storage_identity = (
+                        str(Path(agent_config.get("homeDir", "local")).resolve())
+                        + "\0"
+                        + str(Path(agent_config.get("cwd", "local")).resolve())
+                    )
+                    storage_default = (
+                        f"{provider_id}-store:"
+                        f"{hashlib.sha256(storage_identity.encode()).hexdigest()[:24]}"
+                    )
+                    installation_id = str(
+                        agent_config.get(
+                            "installationId",
+                            f"{provider_id}-local",
+                        )
+                    )
+                    storage_id = str(
+                        agent_config.get(
+                            "storageId",
+                            storage_default,
+                        )
+                    )
+                    try:
+                        session_lease = self.ledger.acquire_native_session_turn(
+                            provider_id=provider_id,
+                            installation_id=installation_id,
+                            storage_id=storage_id,
+                            native_session_id=configured_native_id,
+                            attempt_id=attempt["id"],
+                            owner_token=session_lease_owner_token,
+                        )
+                    except LedgerConflict as exc:
+                        error = {
+                            "code": "NATIVE_SESSION_BUSY",
+                            "message": str(exc),
+                        }
+                        self._record_call_failure(attempt, invocation, error)
+                        self._fail_scope(run_id, scope_id, node_id, error)
+                        return None
                 result = execute_agent(
                     binding.adapter,
                     input_value,
@@ -2149,6 +2231,7 @@ class Runner:
                 )
                 return None
             except ExecutorCancelledError as exc:
+                release_session_lease()
                 error = {"code": exc.code, "message": str(exc)}
                 self.ledger.finish_attempt(attempt["id"], status="cancelled", error=error)
                 invocation = self.ledger.get_invocation(attempt["invocation_id"])
@@ -2165,6 +2248,7 @@ class Runner:
                     return None
                 return self._fail_scope(run_id, scope_id, node_id, error)
             except ExecutorError as exc:
+                release_session_lease()
                 error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
                 self._record_call_failure(attempt, invocation, error)
                 if self._schedule_retry(
@@ -2199,20 +2283,41 @@ class Runner:
                     return None
                 self._fail_scope(run_id, scope_id, node_id, error)
                 return None
+        safe_observations = self._json_safe_agent_observations(
+            run_id=run_id,
+            scope_id=scope_id,
+            invocation_id=invocation["id"],
+            attempt_id=attempt["id"],
+            observations=result.observations or [],
+        )
         if any(
             isinstance(observation, dict)
             and observation.get("nativeSession") is not None
-            for observation in result.observations or []
+            for observation in safe_observations
         ):
-            self._persist_agent_session(
-                run_id=run_id,
-                scope_id=scope_id,
-                invocation=invocation,
-                attempt=attempt,
-                binding=binding,
-                observations=result.observations or [],
-            )
-        for observation in result.observations or []:
+            try:
+                self._persist_agent_session(
+                    run_id=run_id,
+                    scope_id=scope_id,
+                    invocation=invocation,
+                    attempt=attempt,
+                    binding=binding,
+                    observations=safe_observations,
+                )
+            except (LedgerConflict, sqlite3.Error):
+                self.ledger.record_event(
+                    run_id,
+                    "agent.session.binding_failed",
+                    {
+                        "code": "SESSION_BINDING_FAILED",
+                        "message": "Native session metadata could not be associated; "
+                        "the completed execution result is retained.",
+                    },
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt["id"],
+                )
+        for observation in safe_observations:
             self.ledger.record_event(
                 run_id,
                 "agent.model.completed",
@@ -2257,6 +2362,7 @@ class Runner:
                     current_node_id=node_id,
                     current_invocation_id=invocation["id"],
                 )
+                release_session_lease()
                 return None
             output = result.output
             self._validate_schema(output, definition["outputSchema"])
@@ -2282,6 +2388,7 @@ class Runner:
                 self._validate_schema(output, definition["outputSchema"])
             self._validate_artifact_refs(run_id, output)
         except (LedgerConflict, OSError, RunError, TypeError) as exc:
+            release_session_lease()
             error = {"code": "EXECUTOR_OUTPUT_INVALID", "message": str(exc)}
             self.ledger.record_event(
                 run_id,
@@ -2306,6 +2413,7 @@ class Runner:
             return None
         self.ledger.finish_attempt(attempt["id"], status="succeeded", output=output)
         self.ledger.finish_invocation(invocation["id"], status="succeeded", output=output)
+        release_session_lease()
         current_run = self.ledger.get_run(run_id)
         if current_run is not None and current_run["control_mode"] == "cancel":
             self._cancel_scope(
@@ -2341,6 +2449,7 @@ class Runner:
             provider_version = native.get("providerVersion")
             source = native.get("source")
             capabilities = native.get("capabilities")
+            capability_evidence = native.get("capabilityEvidence")
             if (
                 not isinstance(provider_id, str)
                 or not provider_id.strip()
@@ -2355,11 +2464,27 @@ class Runner:
                 or not isinstance(source, str)
                 or not source.strip()
                 or not isinstance(capabilities, dict)
+                or capability_evidence not in {
+                    "protocol_declared_unverified",
+                    "live_verified",
+                }
             ):
                 self.ledger.record_event(
                     run_id,
                     "agent.session.binding_rejected",
                     {"reason": "invalid nativeSession observation contract"},
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt["id"],
+                )
+                continue
+            try:
+                json.dumps(native, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                self.ledger.record_event(
+                    run_id,
+                    "agent.session.binding_rejected",
+                    {"reason": "nativeSession metadata is not JSON serializable"},
                     scope_id=scope_id,
                     invocation_id=invocation["id"],
                     attempt_id=attempt["id"],
@@ -2373,6 +2498,62 @@ class Runner:
             profile_revision = str(
                 config.get("profileRevision", native.get("profileRevision", "local-v1"))
             )
+            existing = self.ledger.get_agent_session_by_native_identity(
+                namespace=self.namespace,
+                owner_subject=owner_subject,
+                provider_id=provider_id,
+                installation_id=installation_id,
+                storage_id=storage_id,
+                native_session_id=native_session_id,
+            )
+            if existing is not None:
+                active_binding = next(
+                    (
+                        item
+                        for item in existing["bindings"]
+                        if item["status"] == "active"
+                    ),
+                    None,
+                )
+                if (
+                    existing["agent_id"] != agent_id
+                    or existing["profile_revision"] != profile_revision
+                    or source not in {"resume", "fork", "handoff"}
+                    or active_binding is None
+                    or not isinstance(native.get("workspaceRevision"), str)
+                    or not isinstance(native.get("policyRevision"), str)
+                    or active_binding["workspace_revision"]
+                    != native["workspaceRevision"]
+                    or active_binding["policy_revision"] != native["policyRevision"]
+                ):
+                    raise LedgerConflict(
+                        "native session is already bound; reuse requires the same "
+                        "Agent/profile/workspace/policy and an explicit resume, fork, "
+                        "or handoff source"
+                    )
+                self.ledger.attach_agent_session_use(
+                    existing["id"],
+                    namespace=self.namespace,
+                    owner_subject=owner_subject,
+                    run_id=run_id,
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt["id"],
+                )
+                self.ledger.record_event(
+                    run_id,
+                    "agent.session.reused",
+                    {
+                        "agentSessionId": existing["id"],
+                        "providerId": provider_id,
+                        "nativeSessionId": native_session_id,
+                        "source": source,
+                    },
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt["id"],
+                )
+                continue
             session = self.ledger.create_agent_session(
                 namespace=self.namespace,
                 agent_id=agent_id,
@@ -2392,7 +2573,10 @@ class Runner:
                 storage_id=storage_id,
                 native_session_id=native_session_id,
                 provider_version=provider_version,
-                capabilities=capabilities,
+                capabilities={
+                    **capabilities,
+                },
+                capability_evidence=capability_evidence,
                 source=source,
                 workspace_revision=(
                     str(config["workspaceRevision"])
@@ -2419,6 +2603,41 @@ class Runner:
                 invocation_id=invocation["id"],
                 attempt_id=attempt["id"],
             )
+
+    def _json_safe_agent_observations(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        invocation_id: str,
+        attempt_id: str,
+        observations: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        safe: list[dict[str, object]] = []
+        for index, observation in enumerate(observations):
+            try:
+                json.dumps(observation, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                self.ledger.record_event(
+                    run_id,
+                    "agent.model.observation_rejected",
+                    {
+                        "index": index,
+                        "reason": "observation is not JSON serializable",
+                    },
+                    scope_id=scope_id,
+                    invocation_id=invocation_id,
+                    attempt_id=attempt_id,
+                )
+                safe.append(
+                    {
+                        "observationStatus": "rejected",
+                        "reason": "not_json_serializable",
+                    }
+                )
+            else:
+                safe.append(observation)
+        return safe
 
     def _build_http_execution_request(
         self,

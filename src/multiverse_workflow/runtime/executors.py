@@ -86,6 +86,7 @@ def _native_session_contract(
     home_dir: Path,
     cwd: Path,
     capabilities: dict[str, object],
+    capability_evidence: str,
 ) -> dict[str, object]:
     storage_identity = f"{home_dir.resolve()}\0{cwd.resolve()}"
     storage_digest = hashlib.sha256(storage_identity.encode("utf-8")).hexdigest()[:24]
@@ -111,6 +112,17 @@ def _native_session_contract(
             else "unverified"
         ),
         "capabilities": capabilities,
+        "capabilityEvidence": capability_evidence,
+        "workspaceRevision": (
+            config["workspaceRevision"]
+            if isinstance(config.get("workspaceRevision"), str)
+            else None
+        ),
+        "policyRevision": (
+            config["policyRevision"]
+            if isinstance(config.get("policyRevision"), str)
+            else None
+        ),
         "source": source,
     }
 
@@ -270,6 +282,7 @@ def execute_codex(
             home_dir=home_path,
             cwd=cwd_path,
             capabilities={"resume": True, "fork": True},
+            capability_evidence="protocol_declared_unverified",
         )
     return ExecutionResult(
         output=output,
@@ -417,11 +430,9 @@ def execute_claude(
     if provider_config is not None:
         result.observation["configSource"] = provider_config.metadata
     session_id = result.observation.get("sessionId")
-    if (
-        config.get("sessionPersistence") is True
-        and isinstance(session_id, str)
-        and session_id.strip()
-    ):
+    if config.get("sessionPersistence") is not True:
+        result.observation.pop("sessionId", None)
+    elif isinstance(session_id, str) and session_id.strip():
         source = (
             "fork"
             if config.get("forkSession") is True
@@ -437,6 +448,7 @@ def execute_claude(
             home_dir=home_path,
             cwd=cwd_path,
             capabilities={"resume": True, "fork": True},
+            capability_evidence="protocol_declared_unverified",
         )
     return ExecutionResult(
         output=output,

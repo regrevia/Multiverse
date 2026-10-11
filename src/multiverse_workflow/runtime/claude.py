@@ -314,7 +314,13 @@ class ClaudeCli:
                 observation={
                     "provider": "claude",
                     "protocol": self.output_format,
-                    "sessionId": envelope.get("session_id"),
+                    **(
+                        {
+                            "sessionId": envelope.get("session_id")
+                        }
+                        if self.session_persistence
+                        else {}
+                    ),
                     "sessionPersistence": self.session_persistence,
                     "status": "completed",
                     "outputSchema": output_schema,

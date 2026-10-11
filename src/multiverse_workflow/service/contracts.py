@@ -71,6 +71,9 @@ class NativeSessionBindingRequest(ServiceModel):
     native_session_id: str = Field(alias="nativeSessionId", min_length=1)
     provider_version: str = Field(alias="providerVersion", min_length=1)
     capabilities: dict[str, Any]
+    capability_evidence: Literal[
+        "protocol_declared_unverified", "live_verified"
+    ] = Field(default="protocol_declared_unverified", alias="capabilityEvidence")
     source: Literal["new", "resume", "fork", "handoff"]
     workspace_revision: str | None = Field(default=None, alias="workspaceRevision")
     policy_revision: str | None = Field(default=None, alias="policyRevision")

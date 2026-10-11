@@ -80,8 +80,11 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
                 "installationId": "codex-test-install",
                 "storageId": "codex-home",
                 "nativeSessionId": "thread-1",
+                "workspaceRevision": None,
+                "policyRevision": None,
                 "providerVersion": "0.156.1",
                 "capabilities": {"resume": True, "fork": True},
+                "capabilityEvidence": "protocol_declared_unverified",
                 "source": "new",
             },
         }
@@ -121,6 +124,7 @@ def test_claude_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None
     assert result.generated_artifact is not None
     assert result.generated_artifact.content == b"claude-shaped output"
     assert result.observations[0]["provider"] == "claude"
+    assert "sessionId" not in result.observations[0]
     assert "nativeSession" not in result.observations[0]
 
 
@@ -189,8 +193,11 @@ def test_claude_persistent_session_emits_generic_native_session_contract(
         "installationId": "claude-workstation",
         "storageId": "claude-project-multiverse",
         "nativeSessionId": "11111111-1111-4111-8111-111111111111",
+        "workspaceRevision": None,
+        "policyRevision": None,
         "providerVersion": "2.1.197",
         "capabilities": {"resume": True, "fork": True},
+        "capabilityEvidence": "protocol_declared_unverified",
         "source": "fork",
     }
 

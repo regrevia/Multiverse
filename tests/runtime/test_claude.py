@@ -38,7 +38,7 @@ def test_claude_cli_parses_structured_json_result(tmp_path: Path) -> None:
     )
 
     assert result.output == {"text": "ok", "artifact_refs": []}
-    assert result.observation["sessionId"] == "session-1"
+    assert "sessionId" not in result.observation
     assert result.observation["status"] == "completed"
 
 
@@ -352,7 +352,7 @@ def test_claude_stream_json_reassembles_fragmented_assistant_output(
     )
 
     assert result.output == {"text": "streamed", "artifact_refs": []}
-    assert result.observation["sessionId"] == "stream-session"
+    assert "sessionId" not in result.observation
 
 
 def test_claude_stream_json_fails_closed_on_native_request(tmp_path: Path) -> None:

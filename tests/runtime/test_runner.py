@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from ruamel.yaml import YAML
 
 from multiverse_workflow.runtime.executors import (
     ExecutionResult,
@@ -94,6 +95,7 @@ def test_runner_persists_native_agent_session_binding_from_observation(tmp_path:
                         "nativeSessionId": "session-visible",
                         "providerVersion": "1.2.3",
                         "capabilities": {"resume": True, "fork": False},
+                        "capabilityEvidence": "protocol_declared_unverified",
                         "source": "new",
                     },
                 }
@@ -107,7 +109,356 @@ def test_runner_persists_native_agent_session_binding_from_observation(tmp_path:
         assert sessions[0]["agent_id"] == "hermes-reviewer"
         assert sessions[0]["bindings"][0]["provider_id"] == "hermes"
         assert sessions[0]["bindings"][0]["native_session_id"] == "session-visible"
+        assert sessions[0]["bindings"][0]["capability_evidence"] == (
+            "protocol_declared_unverified"
+        )
     finally:
+        runner.close()
+
+
+def test_runner_reuses_explicit_native_session_across_runs(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    try:
+        first_run = runner.start({"goal": "first run"})
+        first_invocation = runner.ledger.list_invocations(first_run["id"])[0]
+        first_attempt = runner.ledger.latest_attempt(first_invocation["id"])
+        assert first_attempt is not None
+        session = runner.ledger.create_agent_session(
+            namespace="local",
+            agent_id="shared-reviewer",
+            owner_subject="local-user",
+            scope={"providerId": "hermes"},
+            profile_revision="profile-v1",
+            run_id=first_run["id"],
+            scope_id=first_invocation["scope_id"],
+            invocation_id=first_invocation["id"],
+        )
+        runner.ledger.bind_native_session(
+            session["id"],
+            expected_version=session["version"],
+            provider_id="hermes",
+            installation_id="hermes-host",
+            storage_id="hermes-workspace",
+            native_session_id="reusable-session",
+            provider_version="1.2.3",
+            capabilities={"resume": True, "fork": False},
+            source="new",
+            workspace_revision="workspace-v1",
+            policy_revision="policy-v1",
+        )
+
+        second_run = runner.start({"goal": "continue the same project"})
+        second_invocation = runner.ledger.list_invocations(second_run["id"])[0]
+        second_attempt = runner.ledger.latest_attempt(second_invocation["id"])
+        assert second_attempt is not None
+        binding = type(
+            "Binding",
+            (),
+            {
+                "adapter": "hermes",
+                "config": {
+                    "agentId": "shared-reviewer",
+                    "profileRevision": "profile-v1",
+                    "sessionOwnerSubject": "local-user",
+                    "workspaceRevision": "workspace-v1",
+                    "policyRevision": "policy-v1",
+                },
+            },
+        )()
+        with pytest.raises(LedgerConflict, match="workspace/policy"):
+            mismatched_binding = type(
+                "Binding",
+                (),
+                {
+                    "adapter": "hermes",
+                    "config": {
+                        "agentId": "shared-reviewer",
+                        "profileRevision": "profile-v1",
+                        "sessionOwnerSubject": "local-user",
+                        "workspaceRevision": "workspace-v2",
+                        "policyRevision": "policy-v1",
+                    },
+                },
+            )()
+            runner._persist_agent_session(
+                run_id=second_run["id"],
+                scope_id=second_invocation["scope_id"],
+                invocation=second_invocation,
+                attempt=second_attempt,
+                binding=mismatched_binding,
+                observations=[
+                    {
+                        "nativeSession": {
+                            "providerId": "hermes",
+                            "installationId": "hermes-host",
+                            "storageId": "hermes-workspace",
+                            "nativeSessionId": "reusable-session",
+                            "providerVersion": "1.2.3",
+                            "capabilities": {"resume": True, "fork": False},
+                            "capabilityEvidence": "live_verified",
+                            "workspaceRevision": "workspace-v2",
+                            "policyRevision": "policy-v1",
+                            "source": "resume",
+                        }
+                    }
+                ],
+            )
+        runner._persist_agent_session(
+            run_id=second_run["id"],
+            scope_id=second_invocation["scope_id"],
+            invocation=second_invocation,
+            attempt=second_attempt,
+            binding=binding,
+            observations=[
+                {
+                    "nativeSession": {
+                        "providerId": "hermes",
+                        "installationId": "hermes-host",
+                        "storageId": "hermes-workspace",
+                        "nativeSessionId": "reusable-session",
+                        "providerVersion": "1.2.3",
+                        "capabilities": {"resume": True, "fork": False},
+                        "capabilityEvidence": "live_verified",
+                        "workspaceRevision": "workspace-v1",
+                        "policyRevision": "policy-v1",
+                        "source": "resume",
+                    }
+                }
+            ],
+        )
+
+        for run in (first_run, second_run):
+            sessions = runner.ledger.list_agent_sessions(
+                "local", owner_subject="local-user", run_id=run["id"]
+            )
+            assert [item["id"] for item in sessions] == [session["id"]]
+    finally:
+        runner.close()
+
+
+@pytest.mark.parametrize("failure_kind", ["binding", "observation_serialization"])
+def test_session_metadata_failure_does_not_leave_completed_attempt_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    import multiverse_workflow.runtime.runner as runner_module
+
+    binding = ROOT / "examples/bindings/content-local.yaml"
+    binding_data = YAML(typ="safe").load(binding.read_text(encoding="utf-8"))
+    producer = binding_data["spec"]["slots"]["producer"]
+    producer.update(
+        {
+            "adapter": "codex",
+            "executorRef": "builtin.codex-deliverable.v1",
+            "config": {
+                "cwd": str(tmp_path),
+                "workspaceRoot": str(tmp_path),
+                "homeDir": str(tmp_path),
+                "model": "fixture",
+                "interactionAuthorizedSubjects": ["example-reviewer"],
+            },
+        }
+    )
+    binding_path = tmp_path / "codex-binding.yaml"
+    with binding_path.open("w", encoding="utf-8") as stream:
+        YAML().dump(binding_data, stream)
+    registry = ExecutorRegistry(
+        [
+            replace(item, verified=True)
+            if item.executor_ref == "builtin.codex-deliverable.v1"
+            else item
+            for item in local_executor_registry().descriptors()
+        ]
+    )
+    observation = {
+        "nativeSession": {
+            "providerId": "codex",
+            "installationId": "codex-host",
+            "storageId": "codex-store",
+            "nativeSessionId": "thread-1",
+            "providerVersion": "0.156.1",
+            "capabilities": {"resume": True, "fork": True},
+            "capabilityEvidence": "protocol_declared_unverified",
+            "source": "new",
+        }
+    }
+    if failure_kind == "observation_serialization":
+        observation["nativeSession"]["capabilities"] = {"opaque": object()}
+    monkeypatch.setattr(
+        runner_module,
+        "execute_agent",
+        lambda *args, **kwargs: ExecutionResult(
+            output={"text": "completed", "artifact_refs": []},
+            observations=[observation],
+        ),
+    )
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=tmp_path / "runtime.db",
+        executor_registry=registry,
+    )
+    if failure_kind == "binding":
+        monkeypatch.setattr(
+            runner,
+            "_persist_agent_session",
+            lambda **_: (_ for _ in ()).throw(
+                LedgerConflict("simulated binding conflict")
+            ),
+        )
+    try:
+        run = runner.start({"goal": "produce a release note"})
+        attempts = runner.ledger.list_attempts(run["id"])
+        assert attempts[0]["status"] == "succeeded"
+        assert run["status"] == "waiting"
+        event_types = [event["type"] for event in runner.ledger.list_events(run["id"])]
+        if failure_kind == "binding":
+            assert "agent.session.binding_failed" in event_types
+        else:
+            next(
+                event
+                for event in runner.ledger.list_events(run["id"])
+                if event["type"] == "agent.model.observation_rejected"
+            )
+            persisted_model_events = [
+                json.loads(event["payload_json"])
+                for event in runner.ledger.list_events(run["id"])
+                if event["type"] == "agent.model.completed"
+            ]
+            assert "nativeSession" not in persisted_model_events[0]
+    finally:
+        runner.close()
+
+
+def test_unserializable_native_session_metadata_is_rejected_without_stranding_attempt(
+    tmp_path: Path,
+) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    try:
+        run = runner.start({"goal": "write a release note"})
+        invocation = runner.ledger.list_invocations(run["id"])[0]
+        attempt = runner.ledger.latest_attempt(invocation["id"])
+        assert attempt is not None
+        binding = type(
+            "Binding",
+            (),
+            {
+                "adapter": "custom-agent",
+                "config": {"agentId": "custom-agent"},
+            },
+        )()
+
+        runner._persist_agent_session(
+            run_id=run["id"],
+            scope_id=invocation["scope_id"],
+            invocation=invocation,
+            attempt=attempt,
+            binding=binding,
+            observations=[
+                {
+                    "nativeSession": {
+                        "providerId": "custom-agent",
+                        "installationId": "host-a",
+                        "storageId": "store-a",
+                        "nativeSessionId": "session-a",
+                        "providerVersion": "v1",
+                        "capabilities": {"opaque": object()},
+                        "capabilityEvidence": "protocol_declared_unverified",
+                        "source": "new",
+                    }
+                }
+            ],
+        )
+
+        events = runner.ledger.list_events(run["id"])
+        assert any(event["type"] == "agent.session.binding_rejected" for event in events)
+        assert runner.ledger.get_attempt(attempt["id"])["status"] == "succeeded"
+    finally:
+        runner.close()
+
+
+def test_runner_refuses_a_second_writer_for_an_explicit_native_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import multiverse_workflow.runtime.runner as runner_module
+
+    database = tmp_path / "runtime.db"
+    binding_data = YAML(typ="safe").load(
+        (ROOT / "examples/bindings/content-local.yaml").read_text(encoding="utf-8")
+    )
+    binding_data["spec"]["slots"]["producer"].update(
+        {
+            "adapter": "codex",
+            "executorRef": "builtin.codex-deliverable.v1",
+            "config": {
+                "cwd": str(tmp_path),
+                "workspaceRoot": str(tmp_path),
+                "homeDir": str(tmp_path),
+                "model": "fixture",
+                "interactionAuthorizedSubjects": ["example-reviewer"],
+                "sessionMode": "resume",
+                "nativeSessionId": "thread-single-writer",
+                "installationId": "codex-host",
+                "storageId": "codex-store",
+            },
+        }
+    )
+    binding_path = tmp_path / "codex-resume-binding.yaml"
+    with binding_path.open("w", encoding="utf-8") as stream:
+        YAML().dump(binding_data, stream)
+    registry = ExecutorRegistry(
+        [
+            replace(item, verified=True)
+            if item.executor_ref == "builtin.codex-deliverable.v1"
+            else item
+            for item in local_executor_registry().descriptors()
+        ]
+    )
+    lease_owner = Ledger(database)
+    held = lease_owner.acquire_native_session_turn(
+        provider_id="codex",
+        installation_id="codex-host",
+        storage_id="codex-store",
+        native_session_id="thread-single-writer",
+        attempt_id="already-running-attempt",
+        owner_token="lease-owner-token",
+    )
+    dispatches: list[bool] = []
+    monkeypatch.setattr(
+        runner_module,
+        "execute_agent",
+        lambda *args, **kwargs: dispatches.append(True),
+    )
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=database,
+        executor_registry=registry,
+    )
+    try:
+        run = runner.start({"goal": "continue a shared native session"})
+        attempts = runner.ledger.list_attempts(run["id"])
+        assert dispatches == []
+        assert attempts[0]["status"] == "failed"
+        assert run["status"] == "failed"
+    finally:
+        lease_owner.release_native_session_turn(
+            held["id"],
+            attempt_id="already-running-attempt",
+            owner_token="lease-owner-token",
+            fencing_token=held["fencing_token"],
+        )
+        lease_owner.close()
         runner.close()
 
 

@@ -2419,6 +2419,18 @@ class Ledger:
                     now,
                 ),
             )
+            if run_id is not None:
+                self._record_agent_session_use(
+                    connection,
+                    session_id=session_id,
+                    namespace=namespace,
+                    owner_subject=owner_subject,
+                    run_id=run_id,
+                    scope_id=scope_id,
+                    invocation_id=invocation_id,
+                    attempt_id=None,
+                    idempotency_key=f"create:{idempotency_key or session_id}",
+                )
             self._agent_session_event(
                 connection,
                 session_id,
@@ -2429,6 +2441,109 @@ class Ledger:
         return self.get_agent_session(
             namespace, session_id, owner_subject=owner_subject
         )  # type: ignore[return-value]
+
+    def get_agent_session_by_native_identity(
+        self,
+        *,
+        namespace: str,
+        owner_subject: str,
+        provider_id: str,
+        installation_id: str,
+        storage_id: str,
+        native_session_id: str,
+    ) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT sessions.id
+            FROM agent_sessions AS sessions
+            JOIN native_session_bindings AS bindings
+                ON bindings.agent_session_id = sessions.id
+            WHERE sessions.namespace = ?
+                AND sessions.owner_subject = ?
+                AND bindings.provider_id = ?
+                AND bindings.installation_id = ?
+                AND bindings.storage_id = ?
+                AND bindings.native_session_id = ?
+                AND bindings.status = 'active'
+            """,
+            (
+                namespace,
+                owner_subject,
+                provider_id,
+                installation_id,
+                storage_id,
+                native_session_id,
+            ),
+        ).fetchone()
+        if row is None:
+            return None
+        return self.get_agent_session(
+            namespace, str(row["id"]), owner_subject=owner_subject
+        )
+
+    def attach_agent_session_use(
+        self,
+        session_id: str,
+        *,
+        namespace: str,
+        owner_subject: str,
+        run_id: str,
+        scope_id: str,
+        invocation_id: str,
+        attempt_id: str,
+    ) -> dict[str, Any]:
+        idempotency_key = f"{attempt_id}:{invocation_id}"
+        with self._transaction() as connection:
+            session = connection.execute(
+                """
+                SELECT id, agent_id, namespace, owner_subject
+                FROM agent_sessions WHERE id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            if (
+                session is None
+                or session["namespace"] != namespace
+                or session["owner_subject"] != owner_subject
+            ):
+                raise LedgerConflict("agent session is not accessible to this owner")
+            self._validate_agent_session_association(
+                connection,
+                namespace=namespace,
+                run_id=run_id,
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+            )
+            created = self._record_agent_session_use(
+                connection,
+                session_id=session_id,
+                namespace=namespace,
+                owner_subject=owner_subject,
+                run_id=run_id,
+                scope_id=scope_id,
+                invocation_id=invocation_id,
+                attempt_id=attempt_id,
+                idempotency_key=idempotency_key,
+            )
+            if created:
+                self._agent_session_event(
+                    connection,
+                    session_id,
+                    namespace,
+                    "agent_session.used",
+                    {
+                        "runId": run_id,
+                        "scopeId": scope_id,
+                        "invocationId": invocation_id,
+                        "attemptId": attempt_id,
+                    },
+                )
+        result = self.get_agent_session(
+            namespace, session_id, owner_subject=owner_subject, run_id=run_id
+        )
+        if result is None:
+            raise LedgerConflict("agent session use was not persisted")
+        return result
 
     def bind_native_session(
         self,
@@ -2441,6 +2556,7 @@ class Ledger:
         native_session_id: str,
         provider_version: str,
         capabilities: dict[str, Any],
+        capability_evidence: str = "protocol_declared_unverified",
         source: str,
         workspace_revision: str | None,
         policy_revision: str | None,
@@ -2461,6 +2577,11 @@ class Ledger:
             )
         if not isinstance(capabilities, dict):
             raise LedgerConflict("native session capabilities must be an object")
+        if capability_evidence not in {
+            "protocol_declared_unverified",
+            "live_verified",
+        }:
+            raise LedgerConflict("native session capability evidence is invalid")
         binding_id = _new_id("native_binding")
         now = _now()
         identity = (
@@ -2475,6 +2596,7 @@ class Ledger:
                 {
                     "agentSessionId": session_id,
                     "capabilities": capabilities,
+                    "capabilityEvidence": capability_evidence,
                     "installationId": installation_id,
                     "nativeSessionId": native_session_id,
                     "policyRevision": policy_revision,
@@ -2514,6 +2636,7 @@ class Ledger:
                 """
                 SELECT * FROM native_session_bindings
                 WHERE provider_id = ? AND installation_id = ? AND storage_id = ?
+                    AND status = 'active'
                     AND native_session_id = ?
                 """,
                 identity,
@@ -2526,15 +2649,34 @@ class Ledger:
                 identical = (
                     existing["provider_version"] == provider_version
                     and existing["capabilities_json"] == capabilities_json
+                    and existing["capability_evidence"] == capability_evidence
                     and existing["source"] == source
                     and existing["workspace_revision"] == workspace_revision
                     and existing["policy_revision"] == policy_revision
                 )
                 if not identical:
-                    raise LedgerConflict(
-                        "native session identity conflicts with its persisted binding"
+                    can_reactivate = (
+                        existing["provider_version"] == provider_version
+                        and existing["capabilities_json"] == capabilities_json
+                        and existing["capability_evidence"] == capability_evidence
+                        and existing["workspace_revision"] == workspace_revision
+                        and existing["policy_revision"] == policy_revision
+                        and source in {"resume", "fork", "handoff"}
                     )
-                return self._present_native_session_binding(existing)
+                    if not can_reactivate:
+                        raise LedgerConflict(
+                            "native session identity conflicts with its persisted binding"
+                        )
+                    connection.execute(
+                        """
+                        UPDATE native_session_bindings
+                        SET status = 'superseded', updated_at = ?
+                        WHERE id = ? AND status = 'active'
+                        """,
+                        (now, existing["id"]),
+                    )
+                else:
+                    return self._present_native_session_binding(existing)
 
             if session["active_binding_id"] is not None:
                 connection.execute(
@@ -2549,10 +2691,11 @@ class Ledger:
                 """
                 INSERT INTO native_session_bindings (
                     id, agent_session_id, provider_id, installation_id, storage_id,
-                    native_session_id, provider_version, capabilities_json, source,
-                    workspace_revision, policy_revision, status, idempotency_key,
+                    native_session_id, provider_version, capabilities_json,
+                    capability_evidence, source, workspace_revision, policy_revision,
+                    status, idempotency_key,
                     request_fingerprint, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
                 """,
                 (
                     binding_id,
@@ -2563,6 +2706,7 @@ class Ledger:
                     native_session_id,
                     provider_version,
                     capabilities_json,
+                    capability_evidence,
                     source,
                     workspace_revision,
                     policy_revision,
@@ -2612,7 +2756,14 @@ class Ledger:
             """
             SELECT * FROM agent_sessions
             WHERE namespace = ? AND id = ? AND owner_subject = ?
-                AND (? IS NULL OR run_id = ?)
+                AND (
+                    ? IS NULL
+                    OR EXISTS (
+                        SELECT 1 FROM agent_session_uses AS uses
+                        WHERE uses.agent_session_id = agent_sessions.id
+                            AND uses.run_id = ?
+                    )
+                )
             """,
             (namespace, session_id, owner_subject, run_id, run_id),
         ).fetchone()
@@ -2630,7 +2781,14 @@ class Ledger:
             """
             SELECT id FROM agent_sessions
             WHERE namespace = ? AND owner_subject = ?
-                AND (? IS NULL OR run_id = ?)
+                AND (
+                    ? IS NULL
+                    OR EXISTS (
+                        SELECT 1 FROM agent_session_uses AS uses
+                        WHERE uses.agent_session_id = agent_sessions.id
+                            AND uses.run_id = ?
+                    )
+                )
             ORDER BY created_at, id
             """,
             (namespace, owner_subject, run_id, run_id),
@@ -2658,6 +2816,174 @@ class Ledger:
         ).fetchone()
         return self._present_native_session_binding(row) if row is not None else None
 
+    def acquire_native_session_turn(
+        self,
+        *,
+        provider_id: str,
+        installation_id: str,
+        storage_id: str,
+        native_session_id: str,
+        attempt_id: str,
+        owner_token: str,
+    ) -> dict[str, Any]:
+        identity = (provider_id, installation_id, storage_id, native_session_id)
+        if any(not isinstance(part, str) or not part.strip() for part in identity):
+            raise LedgerConflict("native session lease identity is incomplete")
+        if not isinstance(attempt_id, str) or not attempt_id.strip():
+            raise LedgerConflict("native session lease attempt ID is required")
+        if not isinstance(owner_token, str) or not owner_token.strip():
+            raise LedgerConflict("native session lease owner token is required")
+        now = _now()
+        lease_id = _digest(_json(identity))
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM native_session_turn_leases WHERE id = ?",
+                (lease_id,),
+            ).fetchone()
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO native_session_turn_leases (
+                        id, provider_id, installation_id, storage_id, native_session_id,
+                        fencing_token, owner_attempt_id, owner_token, status,
+                        acquired_at, released_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 'active', ?, NULL)
+                    """,
+                    (lease_id, *identity, attempt_id, owner_token, now),
+                )
+            else:
+                if row["status"] == "active":
+                    if (
+                        row["owner_attempt_id"] == attempt_id
+                        and row["owner_token"] == owner_token
+                    ):
+                        return dict(row)
+                    owner_attempt = connection.execute(
+                        "SELECT status FROM attempts WHERE id = ?",
+                        (row["owner_attempt_id"],),
+                    ).fetchone()
+                    if owner_attempt is None or owner_attempt["status"] not in {
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                    }:
+                        raise LedgerConflict("native session is held by another single writer")
+                    connection.execute(
+                        """
+                        UPDATE native_session_turn_leases
+                        SET status = 'released', released_at = ?
+                        WHERE id = ? AND status = 'active'
+                            AND fencing_token = ? AND owner_token = ?
+                        """,
+                        (now, lease_id, row["fencing_token"], row["owner_token"]),
+                    )
+                token = int(row["fencing_token"]) + 1
+                connection.execute(
+                    """
+                    UPDATE native_session_turn_leases
+                    SET fencing_token = ?, owner_attempt_id = ?, owner_token = ?,
+                        status = 'active',
+                        acquired_at = ?, released_at = NULL
+                    WHERE id = ? AND status = 'released'
+                    """,
+                    (token, attempt_id, owner_token, now, lease_id),
+                )
+            result = connection.execute(
+                "SELECT * FROM native_session_turn_leases WHERE id = ?",
+                (lease_id,),
+            ).fetchone()
+            if result is None:
+                raise LedgerConflict("native session lease was not persisted")
+            return dict(result)
+
+    def release_native_session_turn(
+        self,
+        lease_id: str,
+        *,
+        attempt_id: str,
+        owner_token: str,
+        fencing_token: int,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM native_session_turn_leases WHERE id = ?",
+                (lease_id,),
+            ).fetchone()
+            if row is None:
+                raise LedgerConflict("native session lease not found")
+            if (
+                row["status"] != "active"
+                or row["owner_attempt_id"] != attempt_id
+                or row["owner_token"] != owner_token
+                or int(row["fencing_token"]) != fencing_token
+            ):
+                raise LedgerConflict("native session lease fencing token is stale")
+            connection.execute(
+                """
+                UPDATE native_session_turn_leases
+                SET status = 'released', released_at = ?
+                WHERE id = ? AND status = 'active'
+                    AND owner_attempt_id = ? AND owner_token = ?
+                    AND fencing_token = ?
+                """,
+                (now, lease_id, attempt_id, owner_token, fencing_token),
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM native_session_turn_leases WHERE id = ?",
+                    (lease_id,),
+                ).fetchone()
+            )
+
+    def release_native_session_turn_for_attempt(
+        self, attempt_id: str
+    ) -> dict[str, Any] | None:
+        now = _now()
+        with self._transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM native_session_turn_leases
+                WHERE owner_attempt_id = ? AND status = 'active'
+                """,
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            connection.execute(
+                """
+                UPDATE native_session_turn_leases
+                SET status = 'released', released_at = ?
+                WHERE id = ? AND owner_attempt_id = ? AND fencing_token = ?
+                    AND status = 'active'
+                """,
+                (now, row["id"], attempt_id, row["fencing_token"]),
+            )
+            released = connection.execute(
+                "SELECT * FROM native_session_turn_leases WHERE id = ?",
+                (row["id"],),
+            ).fetchone()
+            return dict(released) if released is not None else None
+
+    def list_native_session_turn_leases(
+        self,
+        *,
+        provider_id: str,
+        installation_id: str,
+        storage_id: str,
+        native_session_id: str,
+    ) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM native_session_turn_leases
+            WHERE provider_id = ? AND installation_id = ?
+                AND storage_id = ? AND native_session_id = ?
+            ORDER BY fencing_token
+            """,
+            (provider_id, installation_id, storage_id, native_session_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_native_session_bindings(self, session_id: str) -> list[dict[str, Any]]:
         rows = self._connection.execute(
             """
@@ -2674,6 +3000,95 @@ class Ledger:
         result = dict(row)
         result["capabilities"] = json.loads(result.pop("capabilities_json"))
         return result
+
+    @staticmethod
+    def _validate_agent_session_association(
+        connection: sqlite3.Connection,
+        *,
+        namespace: str,
+        run_id: str,
+        scope_id: str,
+        invocation_id: str,
+    ) -> None:
+        run = connection.execute(
+            "SELECT namespace FROM runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        scope = connection.execute(
+            "SELECT run_id FROM scopes WHERE id = ?",
+            (scope_id,),
+        ).fetchone()
+        invocation = connection.execute(
+            "SELECT run_id, scope_id FROM invocations WHERE id = ?",
+            (invocation_id,),
+        ).fetchone()
+        if run is None or run["namespace"] != namespace:
+            raise LedgerConflict("agent session run association is invalid")
+        if scope is None or scope["run_id"] != run_id:
+            raise LedgerConflict("agent session scope association is invalid")
+        if (
+            invocation is None
+            or invocation["run_id"] != run_id
+            or invocation["scope_id"] != scope_id
+        ):
+            raise LedgerConflict("agent session invocation association is invalid")
+
+    @staticmethod
+    def _record_agent_session_use(
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        namespace: str,
+        owner_subject: str,
+        run_id: str,
+        scope_id: str | None,
+        invocation_id: str | None,
+        attempt_id: str | None,
+        idempotency_key: str,
+    ) -> bool:
+        existing = connection.execute(
+            """
+            SELECT * FROM agent_session_uses
+            WHERE agent_session_id = ? AND idempotency_key = ?
+            """,
+            (session_id, idempotency_key),
+        ).fetchone()
+        expected = (namespace, owner_subject, run_id, scope_id, invocation_id, attempt_id)
+        if existing is not None:
+            actual = (
+                existing["namespace"],
+                existing["owner_subject"],
+                existing["run_id"],
+                existing["scope_id"],
+                existing["invocation_id"],
+                existing["attempt_id"],
+            )
+            if actual != expected:
+                raise LedgerConflict(
+                    "agent session use idempotency key conflicts with a different association"
+                )
+            return False
+        connection.execute(
+            """
+            INSERT INTO agent_session_uses (
+                id, agent_session_id, namespace, owner_subject, run_id,
+                scope_id, invocation_id, attempt_id, idempotency_key, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _new_id("agent_session_use"),
+                session_id,
+                namespace,
+                owner_subject,
+                run_id,
+                scope_id,
+                invocation_id,
+                attempt_id,
+                idempotency_key,
+                _now(),
+            ),
+        )
+        return True
 
     @staticmethod
     def _agent_session_event(
@@ -4017,6 +4432,21 @@ class Ledger:
             );
             CREATE INDEX IF NOT EXISTS agent_sessions_owner
                 ON agent_sessions(namespace, owner_subject, created_at);
+            CREATE TABLE IF NOT EXISTS agent_session_uses (
+                id TEXT PRIMARY KEY,
+                agent_session_id TEXT NOT NULL REFERENCES agent_sessions(id),
+                namespace TEXT NOT NULL,
+                owner_subject TEXT NOT NULL,
+                run_id TEXT NOT NULL REFERENCES runs(id),
+                scope_id TEXT REFERENCES scopes(id),
+                invocation_id TEXT REFERENCES invocations(id),
+                attempt_id TEXT REFERENCES attempts(id),
+                idempotency_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(agent_session_id, idempotency_key)
+            );
+            CREATE INDEX IF NOT EXISTS agent_session_uses_run
+                ON agent_session_uses(namespace, owner_subject, run_id);
             CREATE TABLE IF NOT EXISTS native_session_bindings (
                 id TEXT PRIMARY KEY,
                 agent_session_id TEXT NOT NULL REFERENCES agent_sessions(id),
@@ -4026,6 +4456,7 @@ class Ledger:
                 native_session_id TEXT NOT NULL,
                 provider_version TEXT NOT NULL,
                 capabilities_json TEXT NOT NULL,
+                capability_evidence TEXT NOT NULL DEFAULT 'protocol_declared_unverified',
                 source TEXT NOT NULL,
                 workspace_revision TEXT,
                 policy_revision TEXT,
@@ -4034,11 +4465,28 @@ class Ledger:
                 request_fingerprint TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                UNIQUE(provider_id, installation_id, storage_id, native_session_id),
                 UNIQUE(agent_session_id, idempotency_key)
+            );
+            CREATE TABLE IF NOT EXISTS native_session_turn_leases (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL,
+                installation_id TEXT NOT NULL,
+                storage_id TEXT NOT NULL,
+                native_session_id TEXT NOT NULL,
+                fencing_token INTEGER NOT NULL,
+                owner_attempt_id TEXT NOT NULL,
+                owner_token TEXT NOT NULL,
+                status TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                released_at TEXT
             );
             CREATE INDEX IF NOT EXISTS native_session_bindings_session
                 ON native_session_bindings(agent_session_id, created_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS native_session_bindings_active_identity
+                ON native_session_bindings(
+                    provider_id, installation_id, storage_id, native_session_id
+                )
+                WHERE status = 'active';
             CREATE TABLE IF NOT EXISTS agent_session_events (
                 id TEXT PRIMARY KEY,
                 namespace TEXT NOT NULL,
@@ -4144,6 +4592,16 @@ class Ledger:
             """
         )
         for table, column, definition in (
+            (
+                "native_session_turn_leases",
+                "owner_token",
+                "TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "native_session_bindings",
+                "capability_evidence",
+                "TEXT NOT NULL DEFAULT 'protocol_declared_unverified'",
+            ),
             ("agent_sessions", "run_id", "TEXT"),
             ("agent_sessions", "scope_id", "TEXT"),
             ("agent_sessions", "invocation_id", "TEXT"),
@@ -4166,6 +4624,90 @@ class Ledger:
                 self._connection.execute(
                     f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
                 )
+        binding_table = self._connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='native_session_bindings'"
+        ).fetchone()
+        table_sql = (
+            "".join(str(binding_table["sql"] or "").lower().split())
+            if binding_table is not None
+            else ""
+        )
+        legacy_identity_unique = (
+            "unique(provider_id,installation_id,storage_id,native_session_id)"
+            in table_sql
+        )
+        if not legacy_identity_unique:
+            for index in self._connection.execute(
+                "PRAGMA index_list(native_session_bindings)"
+            ).fetchall():
+                if not index["unique"] or index["partial"]:
+                    continue
+                index_name = str(index["name"]).replace('"', '""')
+                indexed_columns = [
+                    row["name"]
+                    for row in self._connection.execute(
+                        f'PRAGMA index_info("{index_name}")'
+                    ).fetchall()
+                ]
+                if indexed_columns == [
+                    "provider_id",
+                    "installation_id",
+                    "storage_id",
+                    "native_session_id",
+                ]:
+                    legacy_identity_unique = True
+                    break
+        if legacy_identity_unique:
+            self._connection.execute("DROP INDEX IF EXISTS native_session_bindings_session")
+            self._connection.execute("DROP INDEX IF EXISTS native_session_bindings_idempotency")
+            self._connection.executescript(
+                """
+                ALTER TABLE native_session_bindings
+                    RENAME TO native_session_bindings_legacy;
+                CREATE TABLE native_session_bindings (
+                    id TEXT PRIMARY KEY,
+                    agent_session_id TEXT NOT NULL REFERENCES agent_sessions(id),
+                    provider_id TEXT NOT NULL,
+                    installation_id TEXT NOT NULL,
+                    storage_id TEXT NOT NULL,
+                    native_session_id TEXT NOT NULL,
+                    provider_version TEXT NOT NULL,
+                    capabilities_json TEXT NOT NULL,
+                    capability_evidence TEXT NOT NULL DEFAULT 'protocol_declared_unverified',
+                    source TEXT NOT NULL,
+                    workspace_revision TEXT,
+                    policy_revision TEXT,
+                    status TEXT NOT NULL,
+                    idempotency_key TEXT,
+                    request_fingerprint TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(agent_session_id, idempotency_key)
+                );
+                INSERT INTO native_session_bindings (
+                    id, agent_session_id, provider_id, installation_id, storage_id,
+                    native_session_id, provider_version, capabilities_json,
+                    capability_evidence, source, workspace_revision, policy_revision,
+                    status, idempotency_key, request_fingerprint, created_at, updated_at
+                )
+                SELECT id, agent_session_id, provider_id, installation_id, storage_id,
+                    native_session_id, provider_version, capabilities_json,
+                    capability_evidence, source, workspace_revision, policy_revision,
+                    status, idempotency_key, request_fingerprint, created_at, updated_at
+                FROM native_session_bindings_legacy;
+                DROP TABLE native_session_bindings_legacy;
+                """
+            )
+        self._connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS native_session_bindings_active_identity
+            ON native_session_bindings(
+                provider_id, installation_id, storage_id, native_session_id
+            )
+            WHERE status = 'active'
+            """
+        )
         self._connection.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_idempotency
@@ -4178,6 +4720,19 @@ class Ledger:
             CREATE UNIQUE INDEX IF NOT EXISTS native_session_bindings_idempotency
             ON native_session_bindings(agent_session_id, idempotency_key)
             WHERE idempotency_key IS NOT NULL
+            """
+        )
+        self._connection.execute(
+            """
+            INSERT OR IGNORE INTO agent_session_uses (
+                id, agent_session_id, namespace, owner_subject, run_id,
+                scope_id, invocation_id, attempt_id, idempotency_key, created_at
+            )
+            SELECT 'agent_session_use_migrated:' || id, id, namespace, owner_subject,
+                run_id, scope_id, invocation_id, NULL,
+                'migrated:' || id, created_at
+            FROM agent_sessions
+            WHERE run_id IS NOT NULL
             """
         )
         human_decision_columns = {

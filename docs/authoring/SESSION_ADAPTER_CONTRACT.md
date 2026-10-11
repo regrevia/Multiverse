@@ -17,6 +17,7 @@ observation:
       "resume": true,
       "fork": true
     },
+    "capabilityEvidence": "protocol_declared_unverified",
     "source": "new"
   }
 }
@@ -24,7 +25,9 @@ observation:
 
 `providerId`, `installationId`, and `storageId` form part of the native-session
 identity; a native ID alone is never treated as globally unique. `source` is
-one of `new`, `resume`, `fork`, or `handoff`. The adapter must report only
+one of `new`, `resume`, `fork`, or `handoff`. `capabilityEvidence` is
+`protocol_declared_unverified` or `live_verified`; protocol presence alone must
+not be represented as live verification. The adapter must report only
 capabilities it implements for its pinned version. One-shot calls should omit
 `nativeSession`; an ephemeral conversation ID is not a resumable session.
 

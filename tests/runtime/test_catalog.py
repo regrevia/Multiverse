@@ -188,6 +188,18 @@ def test_claude_executor_allows_only_explicit_read_only_tools() -> None:
     }
     assert validator.is_valid({**base, "tools": ["Read", "Glob", "Grep"]})
     assert not validator.is_valid({**base, "tools": ["Bash"]})
+    assert validator.is_valid(
+        {
+            **base,
+            "sessionPersistence": True,
+            "resumeSessionId": "11111111-1111-4111-8111-111111111111",
+            "workspaceRevision": "sha256:workspace",
+            "policyRevision": "sha256:policy",
+            "installationId": "claude-install",
+            "storageId": "claude-store",
+            "profileRevision": "profile-v1",
+        }
+    )
 
 
 def test_unknown_bundled_executor_rejected(directory: Path) -> None:

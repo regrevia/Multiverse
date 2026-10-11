@@ -32,7 +32,7 @@ excluded.
 
 ## Verification
 
-- Full Python suite: `651 passed, 59 skipped`.
+- Full Python suite after publication-boundary review fixes: `658 passed, 59 skipped`.
 - Inspector: `48 passed`; Vite build passed.
 - Ruff and mypy passed.
 - `git diff --check` passed.
@@ -42,3 +42,24 @@ excluded.
 The prior local `dev` branch is preserved separately and is not pushed. This
 report does not claim that the local workflow was removed from that local
 branch.
+
+## Review fixes included before publication
+
+- Native Session binding write failures no longer leave a completed provider
+  turn represented as a running Attempt.
+- Explicit cross-Run resume reuses the same logical AgentSession, records a
+  per-Run use, and requires matching Agent/Profile/Workspace/Policy revisions.
+- A native Session turn lease serializes concurrent writers and carries a
+  fencing token. Unknown provider outcomes retain the lease until explicit
+  reconciliation.
+- Claude one-shot calls omit ephemeral session IDs from durable observations.
+- Resume/fork capabilities are stored separately from the capability map and
+  marked `protocol_declared_unverified` until live verification exists.
+- Legacy SQLite native-session uniqueness constraints migrate to active-only
+  identity uniqueness while preserving superseded binding history.
+- The lease has a per-execution owner token; repeat acquisition by the same
+  durable Attempt from another process is rejected. A stale lease can only be
+  reclaimed after its owner Attempt is terminal, or after explicit
+  reconciliation releases the unknown Attempt's lease.
+- Re-activating the same native identity creates a new binding-history row;
+  superseded rows are retained while the active identity remains unique.
