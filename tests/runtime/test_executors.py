@@ -57,6 +57,9 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
             "workspaceRoot": str(tmp_path),
             "homeDir": str(tmp_path),
             "model": "gpt-5.5",
+            "installationId": "codex-test-install",
+            "storageId": "codex-home",
+            "providerVersion": "0.156.1",
             "approvalPolicy": "on-request",
             "sandboxMode": "read-only",
             "systemPrompt": "Return the deliverable.",
@@ -68,7 +71,21 @@ def test_codex_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
     assert result.output == {"text": "real-shaped output", "artifact_refs": []}
     assert result.generated_artifact is not None
     assert result.generated_artifact.content == b"real-shaped output"
-    assert result.observations == [{"threadId": "thread-1", "turnId": "turn-1"}]
+    assert result.observations == [
+        {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "nativeSession": {
+                "providerId": "codex",
+                "installationId": "codex-test-install",
+                "storageId": "codex-home",
+                "nativeSessionId": "thread-1",
+                "providerVersion": "0.156.1",
+                "capabilities": {"resume": True, "fork": True},
+                "source": "new",
+            },
+        }
+    ]
 
 
 def test_claude_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None:
@@ -104,6 +121,78 @@ def test_claude_executor_registers_agent_artifact(monkeypatch, tmp_path) -> None
     assert result.generated_artifact is not None
     assert result.generated_artifact.content == b"claude-shaped output"
     assert result.observations[0]["provider"] == "claude"
+    assert "nativeSession" not in result.observations[0]
+
+
+def test_claude_executor_passes_configured_read_only_tools(monkeypatch, tmp_path) -> None:
+    class FakeClaude:
+        def __init__(self, **kwargs):
+            assert kwargs["tools"] == ("Read", "Glob", "Grep")
+
+        def run(self, **kwargs):
+            return ClaudeResult(
+                output={"text": "reviewed", "artifact_refs": []},
+                observation={"provider": "claude", "protocol": "json"},
+            )
+
+    monkeypatch.setattr(executors, "ClaudeCli", FakeClaude)
+    result = executors.execute_claude(
+        {"goal": "review source"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "expectedVersion": "fixture",
+            "tools": ["Read", "Glob", "Grep"],
+        },
+    )
+    assert result.output["text"] == "reviewed"
+
+
+def test_claude_persistent_session_emits_generic_native_session_contract(
+    monkeypatch, tmp_path
+) -> None:
+    class PersistentClaude:
+        def __init__(self, **kwargs):
+            assert kwargs["session_persistence"] is True
+
+        def run(self, **kwargs):
+            return ClaudeResult(
+                output={"text": "reviewed", "artifact_refs": []},
+                observation={
+                    "provider": "claude",
+                    "protocol": "json",
+                    "sessionId": "11111111-1111-4111-8111-111111111111",
+                    "sessionPersistence": True,
+                    "status": "completed",
+                },
+            )
+
+    monkeypatch.setattr(executors, "ClaudeCli", PersistentClaude)
+    result = executors.execute_claude(
+        {"goal": "review source"},
+        {
+            "cwd": str(tmp_path),
+            "workspaceRoot": str(tmp_path),
+            "homeDir": str(tmp_path),
+            "expectedVersion": "2.1.197",
+            "sessionPersistence": True,
+            "resumeSessionId": "11111111-1111-4111-8111-111111111111",
+            "forkSession": True,
+            "installationId": "claude-workstation",
+            "storageId": "claude-project-multiverse",
+        },
+    )
+
+    assert result.observations[0]["nativeSession"] == {
+        "providerId": "claude",
+        "installationId": "claude-workstation",
+        "storageId": "claude-project-multiverse",
+        "nativeSessionId": "11111111-1111-4111-8111-111111111111",
+        "providerVersion": "2.1.197",
+        "capabilities": {"resume": True, "fork": True},
+        "source": "fork",
+    }
 
 
 def test_claude_executor_can_inherit_cc_switch_runtime_config(

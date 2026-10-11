@@ -62,6 +62,7 @@ import {
 } from "./graph/runtime";
 import {
   RuntimeClient,
+  type CodexInteractionResponsePayload,
   type RuntimeAgentSession,
   type RuntimeCodexInteraction,
   type HumanDecisionPayload,
@@ -308,6 +309,8 @@ function App() {
   const [runtimeEvents, setRuntimeEvents] = useState<RuntimeEvent[]>([]);
   const [agentSessions, setAgentSessions] = useState<RuntimeAgentSession[]>([]);
   const [nativeInteractions, setNativeInteractions] = useState<RuntimeCodexInteraction[]>([]);
+  const [interactionResponses, setInteractionResponses] = useState<Record<string, string>>({});
+  const [interactionState, setInteractionState] = useState<Record<string, string>>({});
   const [sessionState, setSessionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [humanRequests, setHumanRequests] = useState<RuntimeHumanRequest[]>([]);
   const [artifacts, setArtifacts] = useState<RuntimeArtifact[]>([]);
@@ -676,6 +679,44 @@ function App() {
         kind: "error",
         message: error instanceof Error ? error.message : "人工决定提交失败",
       });
+    }
+  }
+
+  async function respondToCodexInteraction(
+    interaction: RuntimeCodexInteraction,
+    rawResponse: string,
+  ) {
+    if (!connection.baseUrl || !connection.namespace || !connection.runId || !connection.token) {
+      return;
+    }
+    let response: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(rawResponse);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("响应必须是 JSON 对象");
+      }
+      response = parsed as Record<string, unknown>;
+    } catch (error) {
+      setInteractionState((current) => ({
+        ...current,
+        [interaction.id]: error instanceof Error ? error.message : "响应 JSON 无效",
+      }));
+      return;
+    }
+    setInteractionState((current) => ({ ...current, [interaction.id]: "正在提交" }));
+    try {
+      await new RuntimeClient(connection).respondCodexInteraction(
+        interaction.id,
+        { expectedVersion: interaction.version, response } satisfies CodexInteractionResponsePayload,
+        `inspector-codex-interaction:${interaction.id}:${interaction.version}`,
+      );
+      setInteractionState((current) => ({ ...current, [interaction.id]: "已提交" }));
+      setNativeInteractions((current) => current.filter((item) => item.id !== interaction.id));
+    } catch (error) {
+      setInteractionState((current) => ({
+        ...current,
+        [interaction.id]: error instanceof Error ? error.message : "提交失败",
+      }));
     }
   }
 
@@ -1290,6 +1331,12 @@ function App() {
               events={agentEvents}
               sessions={agentSessions}
               nativeInteractions={nativeInteractions}
+              interactionResponses={interactionResponses}
+              setInteractionResponse={(id, value) =>
+                setInteractionResponses((current) => ({ ...current, [id]: value }))
+              }
+              interactionState={interactionState}
+              onRespondInteraction={respondToCodexInteraction}
               sessionState={sessionState}
             />
           )}
@@ -1860,6 +1907,10 @@ function AgentPanel({
   events,
   sessions,
   nativeInteractions,
+  interactionResponses,
+  setInteractionResponse,
+  interactionState,
+  onRespondInteraction,
   sessionState,
 }: {
   patchText: string;
@@ -1870,6 +1921,10 @@ function AgentPanel({
   events: string[];
   sessions: RuntimeAgentSession[];
   nativeInteractions: RuntimeCodexInteraction[];
+  interactionResponses: Record<string, string>;
+  setInteractionResponse: (id: string, value: string) => void;
+  interactionState: Record<string, string>;
+  onRespondInteraction: (interaction: RuntimeCodexInteraction, response: string) => void;
   sessionState: "idle" | "loading" | "ready" | "error";
 }) {
   return (
@@ -1918,6 +1973,25 @@ function AgentPanel({
               <strong>{interaction.kind}</strong>
               <span>线程 {interaction.threadId} · 版本 {interaction.version}</span>
               <code>{JSON.stringify(interaction.payload)}</code>
+              <textarea
+                value={interactionResponses[interaction.id] ?? "{}"}
+                onChange={(event) => setInteractionResponse(interaction.id, event.target.value)}
+                aria-label={`回复 ${interaction.kind}`}
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  onRespondInteraction(
+                    interaction,
+                    interactionResponses[interaction.id] ?? "{}",
+                  )
+                }
+              >
+                <Send size={13} /> 回复
+              </button>
+              {interactionState[interaction.id] && (
+                <span className="session-row-meta">{interactionState[interaction.id]}</span>
+              )}
             </div>
           ))
         )}

@@ -2199,6 +2199,19 @@ class Runner:
                     return None
                 self._fail_scope(run_id, scope_id, node_id, error)
                 return None
+        if any(
+            isinstance(observation, dict)
+            and observation.get("nativeSession") is not None
+            for observation in result.observations or []
+        ):
+            self._persist_agent_session(
+                run_id=run_id,
+                scope_id=scope_id,
+                invocation=invocation,
+                attempt=attempt,
+                binding=binding,
+                observations=result.observations or [],
+            )
         for observation in result.observations or []:
             self.ledger.record_event(
                 run_id,
@@ -2306,6 +2319,106 @@ class Runner:
             )
             return None
         return output
+
+    def _persist_agent_session(
+        self,
+        *,
+        run_id: str,
+        scope_id: str,
+        invocation: dict[str, Any],
+        attempt: dict[str, Any],
+        binding: Any,
+        observations: list[dict[str, object]],
+    ) -> None:
+        for observation in observations:
+            native = observation.get("nativeSession")
+            if not isinstance(native, dict):
+                continue
+            provider_id = native.get("providerId")
+            installation_id = native.get("installationId")
+            storage_id = native.get("storageId")
+            native_session_id = native.get("nativeSessionId")
+            provider_version = native.get("providerVersion")
+            source = native.get("source")
+            capabilities = native.get("capabilities")
+            if (
+                not isinstance(provider_id, str)
+                or not provider_id.strip()
+                or not isinstance(installation_id, str)
+                or not installation_id.strip()
+                or not isinstance(storage_id, str)
+                or not storage_id.strip()
+                or not isinstance(native_session_id, str)
+                or not native_session_id.strip()
+                or not isinstance(provider_version, str)
+                or not provider_version.strip()
+                or not isinstance(source, str)
+                or not source.strip()
+                or not isinstance(capabilities, dict)
+            ):
+                self.ledger.record_event(
+                    run_id,
+                    "agent.session.binding_rejected",
+                    {"reason": "invalid nativeSession observation contract"},
+                    scope_id=scope_id,
+                    invocation_id=invocation["id"],
+                    attempt_id=attempt["id"],
+                )
+                continue
+            config = binding.config
+            agent_id = str(
+                config.get("agentId", native.get("agentId", f"{provider_id}-agent"))
+            )
+            owner_subject = str(config.get("sessionOwnerSubject", "local-user"))
+            profile_revision = str(
+                config.get("profileRevision", native.get("profileRevision", "local-v1"))
+            )
+            session = self.ledger.create_agent_session(
+                namespace=self.namespace,
+                agent_id=agent_id,
+                owner_subject=owner_subject,
+                scope={"providerId": provider_id, "nodeId": invocation["node_id"]},
+                profile_revision=profile_revision,
+                idempotency_key=f"agent-session:{attempt['id']}",
+                run_id=run_id,
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+            )
+            binding_record = self.ledger.bind_native_session(
+                session["id"],
+                expected_version=int(session["version"]),
+                provider_id=provider_id,
+                installation_id=installation_id,
+                storage_id=storage_id,
+                native_session_id=native_session_id,
+                provider_version=provider_version,
+                capabilities=capabilities,
+                source=source,
+                workspace_revision=(
+                    str(config["workspaceRevision"])
+                    if isinstance(config.get("workspaceRevision"), str)
+                    else None
+                ),
+                policy_revision=(
+                    str(config["policyRevision"])
+                    if isinstance(config.get("policyRevision"), str)
+                    else None
+                ),
+                idempotency_key=f"native-binding:{attempt['id']}",
+            )
+            self.ledger.record_event(
+                run_id,
+                "agent.session.bound",
+                {
+                    "agentSessionId": session["id"],
+                    "nativeBindingId": binding_record["id"],
+                    "provider": provider_id,
+                    "nativeSessionId": native_session_id,
+                },
+                scope_id=scope_id,
+                invocation_id=invocation["id"],
+                attempt_id=attempt["id"],
+            )
 
     def _build_http_execution_request(
         self,

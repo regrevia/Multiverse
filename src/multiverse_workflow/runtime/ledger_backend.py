@@ -17,6 +17,8 @@ LEDGER_BACKEND_METHODS: tuple[str, ...] = (
     "create_scope",
     "create_invocation",
     "create_attempt",
+    "create_agent_session",
+    "bind_native_session",
     "get_run",
     "update_run",
     "control_run",

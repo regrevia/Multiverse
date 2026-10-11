@@ -107,6 +107,11 @@ export type HumanDecisionPayload = {
   comment?: string;
 };
 
+export type CodexInteractionResponsePayload = {
+  expectedVersion: number;
+  response: Record<string, unknown>;
+};
+
 export type RunControlOperation = "pause" | "resume" | "cancel";
 
 export type RunControlPayload = {
@@ -185,6 +190,26 @@ export class RuntimeClient {
     return this.request(
       `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/runs/${encodeURIComponent(this.config.runId)}/codex-interactions${query}`,
       { signal },
+    );
+  }
+
+  async respondCodexInteraction(
+    interactionId: string,
+    payload: CodexInteractionResponsePayload,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RuntimeCodexInteraction> {
+    return this.request(
+      `/api/v1/namespaces/${encodeURIComponent(this.config.namespace)}/codex-interactions/${encodeURIComponent(interactionId)}/responses`,
+      {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+      },
     );
   }
 

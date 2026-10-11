@@ -166,7 +166,7 @@ class CodexAppServer:
                 "resume": "thread/resume",
                 "fork": "thread/fork",
             }[self.session_mode]
-            thread_params = {
+            thread_params: dict[str, Any] = {
                 "cwd": str(cwd),
                 "approvalPolicy": self.approval_policy,
                 "sandbox": self.sandbox_mode,

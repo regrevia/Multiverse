@@ -103,6 +103,17 @@ def test_claude_cli_can_start_and_resume_a_persistent_session() -> None:
     assert "--fork-session" in resumed
 
 
+def test_claude_cli_preserves_explicit_read_only_tools() -> None:
+    args = ClaudeCli._with_options(
+        ("claude",),
+        None,
+        "plan",
+        tools=("Read", "Glob", "Grep"),
+    )
+
+    assert args[args.index("--tools") + 1] == "Read,Glob,Grep"
+
+
 def test_claude_cli_rejects_invalid_session_combinations() -> None:
     with pytest.raises(ValueError, match="requires resumeSessionId"):
         ClaudeCli(session_persistence=True, fork_session=True)

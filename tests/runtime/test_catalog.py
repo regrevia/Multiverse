@@ -174,6 +174,22 @@ def test_custom_schema_cannot_bypass_backend_whitelist(directory: Path) -> None:
     assert not Draft202012Validator(descriptor.config_schema()).is_valid({"unknown": True})
 
 
+def test_claude_executor_allows_only_explicit_read_only_tools() -> None:
+    from jsonschema import Draft202012Validator
+
+    descriptor = local_executor_registry().resolve("builtin.claude-deliverable.v1")
+    assert descriptor is not None
+    validator = Draft202012Validator(descriptor.config_schema())
+    base = {
+        "cwd": "/workspace/project",
+        "workspaceRoot": "/workspace",
+        "homeDir": "/home/operator",
+        "expectedVersion": "2.1.0",
+    }
+    assert validator.is_valid({**base, "tools": ["Read", "Glob", "Grep"]})
+    assert not validator.is_valid({**base, "tools": ["Bash"]})
+
+
 def test_unknown_bundled_executor_rejected(directory: Path) -> None:
     value = manifest(directory)
     value["executors"][0]["executorRef"] = "unknown.builtin.v1"

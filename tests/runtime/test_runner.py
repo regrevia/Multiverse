@@ -55,6 +55,62 @@ def test_runner_rejects_incompatible_ledger_factory(tmp_path: Path) -> None:
         )
 
 
+def test_runner_persists_native_agent_session_binding_from_observation(tmp_path: Path) -> None:
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=ROOT / "examples/bindings/content-local.yaml",
+        database_path=tmp_path / "runtime.db",
+    )
+    try:
+        run = runner.start({"goal": "write a release note"})
+        invocation = runner.ledger.list_invocations(run["id"])[0]
+        attempt = runner.ledger.latest_attempt(invocation["id"])
+        assert attempt is not None
+        binding = type(
+            "Binding",
+            (),
+            {
+                "adapter": "hermes",
+                "config": {
+                    "sessionOwnerSubject": "local-user",
+                    "agentId": "hermes-reviewer",
+                    "homeDir": str(tmp_path),
+                },
+            },
+        )()
+
+        runner._persist_agent_session(
+            run_id=run["id"],
+            scope_id=invocation["scope_id"],
+            invocation=invocation,
+            attempt=attempt,
+            binding=binding,
+            observations=[
+                {
+                    "nativeSession": {
+                        "providerId": "hermes",
+                        "installationId": "hermes-host",
+                        "storageId": "hermes-workspace",
+                        "nativeSessionId": "session-visible",
+                        "providerVersion": "1.2.3",
+                        "capabilities": {"resume": True, "fork": False},
+                        "source": "new",
+                    },
+                }
+            ],
+        )
+
+        sessions = runner.ledger.list_agent_sessions(
+            "local", owner_subject="local-user", run_id=run["id"]
+        )
+        assert len(sessions) == 1
+        assert sessions[0]["agent_id"] == "hermes-reviewer"
+        assert sessions[0]["bindings"][0]["provider_id"] == "hermes"
+        assert sessions[0]["bindings"][0]["native_session_id"] == "session-visible"
+    finally:
+        runner.close()
+
+
 def _start_with_unknown_producer_attempt(runner: Runner) -> tuple[dict, dict, dict]:
     drive = runner._drive
     runner._drive = lambda run_id, scope_id, node_id: runner.ledger.get_run(run_id)  # type: ignore[method-assign,return-value]

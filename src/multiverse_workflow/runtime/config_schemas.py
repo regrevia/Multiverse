@@ -49,6 +49,9 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
             "sessionMode": {"enum": ["new", "resume", "fork"]},
             "nativeSessionId": text,
+            "installationId": text,
+            "storageId": text,
+            "providerVersion": text,
             "artifactName": text,
             "artifactMediaType": text,
         }
@@ -74,11 +77,19 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "permissionMode": {
                 "enum": ["default", "dontAsk", "plan", "acceptEdits"]
             },
+            "tools": {
+                "type": "array",
+                "items": {"enum": ["Read", "Glob", "Grep"]},
+                "uniqueItems": True,
+            },
             "outputFormat": {"enum": ["json", "stream-json"]},
             "sessionPersistence": {"type": "boolean"},
             "sessionId": {"type": "string", "format": "uuid"},
             "resumeSessionId": {"type": "string", "format": "uuid"},
             "forkSession": {"type": "boolean"},
+            "installationId": text,
+            "storageId": text,
+            "providerVersion": text,
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
             "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},

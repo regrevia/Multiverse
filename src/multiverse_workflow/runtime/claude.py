@@ -65,6 +65,7 @@ class ClaudeCli:
         expected_version: str | None = None,
         output_format: str = "json",
         environment: Mapping[str, str] | None = None,
+        tools: tuple[str, ...] = (),
         session_persistence: bool = False,
         session_id: str | None = None,
         resume_session_id: str | None = None,
@@ -103,6 +104,7 @@ class ClaudeCli:
         self.expected_version = expected_version
         self.output_format = output_format
         self.environment = dict(environment or {})
+        self.tools = tools
         self.session_persistence = session_persistence
         self.session_id = session_id
         self.resume_session_id = resume_session_id
@@ -129,6 +131,7 @@ class ClaudeCli:
             model,
             permission_mode,
             output_format,
+            tools=tools,
             session_persistence=session_persistence,
             session_id=session_id,
             resume_session_id=resume_session_id,
@@ -142,6 +145,7 @@ class ClaudeCli:
         permission_mode: str,
         output_format: str = "json",
         *,
+        tools: tuple[str, ...] = (),
         session_persistence: bool = False,
         session_id: str | None = None,
         resume_session_id: str | None = None,
@@ -183,7 +187,7 @@ class ClaudeCli:
                 "--output-format",
                 output_format,
                 "--tools",
-                "",
+                ",".join(tools),
                 "--permission-mode",
                 permission_mode,
             ]

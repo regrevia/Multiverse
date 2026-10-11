@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from collections.abc import Callable
@@ -74,6 +75,44 @@ class ExecutionResult:
     human_request: HumanRequestSpec | None = None
     observations: list[dict[str, object]] | None = None
     generated_artifact: GeneratedArtifact | None = None
+
+
+def _native_session_contract(
+    *,
+    provider_id: str,
+    config: dict[str, Any],
+    native_session_id: str,
+    source: str,
+    home_dir: Path,
+    cwd: Path,
+    capabilities: dict[str, object],
+) -> dict[str, object]:
+    storage_identity = f"{home_dir.resolve()}\0{cwd.resolve()}"
+    storage_digest = hashlib.sha256(storage_identity.encode("utf-8")).hexdigest()[:24]
+    installation_id = config.get("installationId")
+    storage_id = config.get("storageId")
+    provider_version = config.get("providerVersion", config.get("expectedVersion"))
+    return {
+        "providerId": provider_id,
+        "installationId": (
+            installation_id
+            if isinstance(installation_id, str) and installation_id.strip()
+            else f"{provider_id}-local"
+        ),
+        "storageId": (
+            storage_id
+            if isinstance(storage_id, str) and storage_id.strip()
+            else f"{provider_id}-store:{storage_digest}"
+        ),
+        "nativeSessionId": native_session_id,
+        "providerVersion": (
+            provider_version
+            if isinstance(provider_version, str) and provider_version.strip()
+            else "unverified"
+        ),
+        "capabilities": capabilities,
+        "source": source,
+    }
 
 
 def execute_local_process(input_value: Any, config: dict[str, Any]) -> ExecutionResult:
@@ -221,6 +260,17 @@ def execute_codex(
     media_type = config.get("artifactMediaType", "text/markdown")
     if not isinstance(artifact_name, str) or not isinstance(media_type, str):
         raise ExecutorError("codex artifact metadata must be strings")
+    thread_id = result.observation.get("threadId")
+    if isinstance(thread_id, str) and thread_id.strip():
+        result.observation["nativeSession"] = _native_session_contract(
+            provider_id="codex",
+            config=config,
+            native_session_id=thread_id,
+            source=str(config.get("sessionMode", "new")),
+            home_dir=home_path,
+            cwd=cwd_path,
+            capabilities={"resume": True, "fork": True},
+        )
     return ExecutionResult(
         output=output,
         observations=[result.observation],
@@ -318,6 +368,9 @@ def execute_claude(
             timeout_seconds=float(config.get("timeoutSeconds", 180)),
             max_output_bytes=int(config.get("maxOutputBytes", 262144)),
             permission_mode=str(config.get("permissionMode", "dontAsk")),
+            tools=tuple(
+                item for item in config.get("tools", []) if isinstance(item, str)
+            ),
             expected_version=expected_version,
             output_format=str(config.get("outputFormat", "json")),
             environment=provider_config.environment if provider_config else None,
@@ -363,6 +416,28 @@ def execute_claude(
         raise ExecutorError("claude artifact metadata must be strings")
     if provider_config is not None:
         result.observation["configSource"] = provider_config.metadata
+    session_id = result.observation.get("sessionId")
+    if (
+        config.get("sessionPersistence") is True
+        and isinstance(session_id, str)
+        and session_id.strip()
+    ):
+        source = (
+            "fork"
+            if config.get("forkSession") is True
+            else "resume"
+            if isinstance(config.get("resumeSessionId"), str)
+            else "new"
+        )
+        result.observation["nativeSession"] = _native_session_contract(
+            provider_id="claude",
+            config=config,
+            native_session_id=session_id,
+            source=source,
+            home_dir=home_path,
+            cwd=cwd_path,
+            capabilities={"resume": True, "fork": True},
+        )
     return ExecutionResult(
         output=output,
         observations=[result.observation],
