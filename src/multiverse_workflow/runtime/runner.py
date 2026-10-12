@@ -2150,6 +2150,53 @@ class Runner:
                             interaction["id"]
                         )
 
+                def record_codex_event(event: dict[str, Any]) -> None:
+                    self.ledger.record_event(
+                        run_id,
+                        "agent.model.event",
+                        event,
+                        scope_id=scope_id,
+                        invocation_id=agent_invocation["id"],
+                        attempt_id=attempt["id"],
+                    )
+
+                codex_event_count = 0
+                codex_event_bytes = 0
+                codex_events_truncated = False
+                codex_event_limits = (2000, 512 * 1024)
+
+                def record_bounded_codex_event(event: dict[str, Any]) -> None:
+                    nonlocal codex_event_count, codex_event_bytes
+                    nonlocal codex_events_truncated
+                    if codex_events_truncated:
+                        return
+                    payload_bytes = len(
+                        json.dumps(
+                            event, ensure_ascii=False, separators=(",", ":")
+                        ).encode("utf-8")
+                    )
+                    if (
+                        payload_bytes > 16384
+                        or codex_event_count >= codex_event_limits[0]
+                        or codex_event_bytes + payload_bytes > codex_event_limits[1]
+                    ):
+                        self.ledger.record_event(
+                            run_id,
+                            "agent.model.events_truncated",
+                            {
+                                "maxEvents": codex_event_limits[0],
+                                "maxBytes": codex_event_limits[1],
+                            },
+                            scope_id=scope_id,
+                            invocation_id=agent_invocation["id"],
+                            attempt_id=attempt["id"],
+                        )
+                        codex_events_truncated = True
+                        return
+                    record_codex_event(event)
+                    codex_event_count += 1
+                    codex_event_bytes += payload_bytes
+
                 configured_native_id: str | None = None
                 if binding.adapter == "codex" and agent_config.get("sessionMode") in {
                     "resume",
@@ -2215,6 +2262,11 @@ class Runner:
                     on_server_response=(
                         confirm_codex_response if binding.adapter == "codex" else None
                     ),
+                    on_event=(
+                        record_bounded_codex_event
+                        if binding.adapter == "codex"
+                        else None
+                    ),
                     should_stop=codex_stop_requested,
                 )
             except ExecutorUnknownError as exc:
@@ -2249,13 +2301,33 @@ class Runner:
                 return self._fail_scope(run_id, scope_id, node_id, error)
             except ExecutorError as exc:
                 release_session_lease()
-                error = {"code": "EXECUTOR_FAILED", "message": str(exc)}
-                self._record_call_failure(attempt, invocation, error)
+                executor_error: dict[str, Any] = {
+                    "code": "EXECUTOR_FAILED",
+                    "message": str(exc),
+                }
+                diagnostics = getattr(exc, "diagnostics", {})
+                if isinstance(diagnostics, dict) and diagnostics:
+                    executor_error["diagnostics"] = diagnostics
+                    self.ledger.record_event(
+                        run_id,
+                        "agent.model.failed",
+                        diagnostics,
+                        scope_id=scope_id,
+                        invocation_id=invocation["id"],
+                        attempt_id=attempt["id"],
+                    )
+                self._record_call_failure(attempt, invocation, executor_error)
                 if self._schedule_retry(
-                    run_id, scope_id, node_id, definition, invocation, attempt, error
+                    run_id,
+                    scope_id,
+                    node_id,
+                    definition,
+                    invocation,
+                    attempt,
+                    executor_error,
                 ):
                     return None
-                self._fail_scope(run_id, scope_id, node_id, error)
+                self._fail_scope(run_id, scope_id, node_id, executor_error)
                 return None
         elif binding.adapter not in {"builtin", "human"}:
             error = {

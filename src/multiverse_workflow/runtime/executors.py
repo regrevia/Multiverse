@@ -40,6 +40,12 @@ from multiverse_workflow.runtime.provider_config import load_cc_switch_claude_co
 class ExecutorError(RuntimeError):
     """A local executor cannot produce a valid protocol result."""
 
+    def __init__(
+        self, message: str, *, diagnostics: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
 
 class ExecutorUnknownError(ExecutorError):
     """The executor may have accepted work, but its result is not knowable."""
@@ -170,6 +176,7 @@ def execute_codex(
     *,
     on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
     on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> ExecutionResult:
     if not isinstance(input_value, dict) or not isinstance(input_value.get("goal"), str):
@@ -240,6 +247,7 @@ def execute_codex(
             output_schema=schema,
             on_server_request=on_server_request,
             on_server_response=on_server_response,
+            on_event=on_event,
             should_stop=should_stop,
         )
     except CodexInterruptedError as exc:
@@ -256,7 +264,9 @@ def execute_codex(
     except CodexRunCancelled as exc:
         raise ExecutorCancelledError(str(exc), code="RUN_CANCELLED") from exc
     except CodexTurnFailed as exc:
-        raise ExecutorError(f"codex turn failed: {exc}") from exc
+        raise ExecutorError(
+            f"codex turn failed: {exc}", diagnostics=exc.diagnostics
+        ) from exc
     except CodexOutputLimitError as exc:
         raise ExecutorError(f"codex output limit exceeded: {exc}") from exc
     except CodexProtocolError as exc:
@@ -468,6 +478,7 @@ def execute_agent(
     *,
     on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
     on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> ExecutionResult:
     if adapter == "codex":
@@ -476,6 +487,7 @@ def execute_agent(
             config,
             on_server_request=on_server_request,
             on_server_response=on_server_response,
+            on_event=on_event,
             should_stop=should_stop,
         )
     if adapter == "claude":

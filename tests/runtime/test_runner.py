@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from ruamel.yaml import YAML
@@ -459,6 +460,87 @@ def test_runner_refuses_a_second_writer_for_an_explicit_native_session(
             fencing_token=held["fencing_token"],
         )
         lease_owner.close()
+        runner.close()
+
+
+def test_runner_persists_codex_events_and_failure_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import multiverse_workflow.runtime.runner as runner_module
+
+    binding_data = YAML(typ="safe").load(
+        (ROOT / "examples/bindings/content-local.yaml").read_text(encoding="utf-8")
+    )
+    binding_data["spec"]["slots"]["producer"].update(
+        {
+            "adapter": "codex",
+            "executorRef": "builtin.codex-deliverable.v1",
+            "config": {
+                "cwd": str(tmp_path),
+                "workspaceRoot": str(tmp_path),
+                "homeDir": str(tmp_path),
+                "model": "fixture",
+                "interactionAuthorizedSubjects": ["local-user"],
+            },
+        }
+    )
+    binding_path = tmp_path / "codex-binding.yaml"
+    with binding_path.open("w", encoding="utf-8") as stream:
+        YAML().dump(binding_data, stream)
+    registry = ExecutorRegistry(
+        [
+            replace(item, verified=True)
+            if item.executor_ref == "builtin.codex-deliverable.v1"
+            else item
+            for item in local_executor_registry().descriptors()
+        ]
+    )
+
+    def fail_with_diagnostics(*args: Any, on_event=None, **kwargs: Any) -> Any:
+        assert on_event is not None
+        for index in range(2100):
+            on_event(
+                {
+                    "method": "item/commandExecution/started",
+                    "params": {"item": {"id": f"item-{index}"}},
+                }
+            )
+        raise ExecutorError(
+            "codex turn failed",
+            diagnostics={
+                "turnStatus": "failed",
+                "turnError": {"message": "workspace operation denied"},
+                "stderr": "denied",
+            },
+        )
+
+    monkeypatch.setattr(runner_module, "execute_agent", fail_with_diagnostics)
+    runner = Runner(
+        ROOT / "presets/content-delivery",
+        binding_path=binding_path,
+        database_path=tmp_path / "runtime.db",
+        executor_registry=registry,
+    )
+    try:
+        run = runner.start({"goal": "produce a release note"})
+        events = runner.ledger.list_events(run["id"])
+        event_types = [event["type"] for event in events]
+        persisted_events = [
+            event for event in events if event["type"] == "agent.model.event"
+        ]
+        assert len(persisted_events) == 2000
+        assert "agent.model.events_truncated" in event_types
+        assert "agent.model.failed" in event_types
+        failure = next(
+            json.loads(event["payload_json"])
+            for event in events
+            if event["type"] == "agent.model.failed"
+        )
+        assert failure["turnError"]["message"] == "workspace operation denied"
+        attempt = runner.ledger.list_attempts(run["id"])[0]
+        assert json.loads(attempt["error_json"])["diagnostics"]["turnStatus"] == "failed"
+    finally:
         runner.close()
 
 

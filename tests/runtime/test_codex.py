@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -11,7 +12,13 @@ from multiverse_workflow.runtime.codex import (
     CodexOutputLimitError,
     CodexProtocolError,
     CodexRunCancelled,
+    CodexTurnFailed,
+    sanitize_codex_diagnostics,
 )
+
+
+def _runtime_event(method: str, item: dict[str, object]) -> dict[str, object]:
+    return {"method": method, "params": {"item": item}}
 
 
 def _write_fake_codex(path: Path, messages: list[dict[str, object]]) -> None:
@@ -66,6 +73,302 @@ def test_codex_app_server_round_trips_structured_output(tmp_path: Path) -> None:
     assert result.output == {"text": "ok", "artifact_refs": []}
     assert result.observation["threadId"] == "thread-1"
     assert result.observation["turnId"] == "turn-1"
+
+
+def test_codex_app_server_forwards_every_runtime_event_in_order(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_codex_many_events.py"
+    runtime_events = [
+        _runtime_event(
+            "item/commandExecution/started",
+            {
+                "id": f"item-{index}",
+                "type": "commandExecution",
+                "command": (
+                    "--api-key=must-not-persist"
+                    if index == 0
+                    else f"pytest {index}"
+                ),
+            },
+        )
+        for index in range(30)
+    ]
+    runtime_events[0] = _runtime_event(
+        "item/fileChange/started",
+        {
+            "id": "file-1",
+            "type": "fileChange",
+            "path": "--api-key=must-not-persist",
+        },
+    )
+    runtime_events[-1] = _runtime_event(
+        "item/commandExecution/completed",
+        {"id": "item-29", "type": "commandExecution"},
+    )
+    fake.write_text(
+        "import json, sys\n"
+        f"runtime_events = {runtime_events!r}\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    request_id = request.get('id')\n"
+        "    if request_id == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request_id == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-events'}}}), flush=True)\n"
+        "    elif request_id == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-events'}}}), flush=True)\n"
+        "        for event in runtime_events:\n"
+        "            print(json.dumps(event), flush=True)\n"
+        "        print(json.dumps({'method': 'item/agentMessage/delta', "
+        "'params': {'delta': '{\\\"text\\\":\\\"ok\\\",\\\"artifact_refs\\\":[]}'} }), "
+        "flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', 'params': "
+        "{'turn': {'status': 'completed'}}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    received: list[dict[str, object]] = []
+
+    CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=2,
+    ).run(
+        prompt="emit events",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+        on_event=received.append,
+    )
+
+    assert [event["method"] for event in received] == [
+        *(event["method"] for event in runtime_events),
+        "item/agentMessage/delta",
+        "turn/completed",
+    ]
+    assert "must-not-persist" not in json.dumps(received)
+
+
+def test_codex_app_server_drops_runtime_events_after_configured_observation_budget(
+    tmp_path: Path,
+) -> None:
+    fake = tmp_path / "fake_codex_event_budget.py"
+    events = [
+        _runtime_event(
+            "item/commandExecution/started",
+            {"id": f"item-{index}", "type": "commandExecution"},
+        )
+        for index in range(2050)
+    ]
+    fake.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if request.get('id') == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request.get('id') == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-budget'}}}), flush=True)\n"
+        "    elif request.get('id') == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-budget'}}}), flush=True)\n"
+        f"        for event in {events!r}:\n"
+        "            print(json.dumps(event), flush=True)\n"
+        "        print(json.dumps({'method': 'item/agentMessage/delta', "
+        "'params': {'delta': '{\\\"text\\\":\\\"ok\\\",\\\"artifact_refs\\\":[]}'} }), "
+        "flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', 'params': "
+        "{'turn': {'status': 'completed'}}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    received: list[dict[str, object]] = []
+    CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=5,
+    ).run(
+        prompt="emit events",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+        on_event=received.append,
+    )
+
+    assert len(received) == 2001
+    assert received[-1]["method"] == "runtime/events_truncated"
+
+
+def test_codex_app_server_truncates_oversized_runtime_event(
+    tmp_path: Path,
+) -> None:
+    fake = tmp_path / "fake_codex_oversized_event.py"
+    _write_fake_codex(
+        fake,
+        [
+            {"id": 1, "result": {}},
+            {"id": 2, "result": {"thread": {"id": "thread-large"}}},
+            {"id": 3, "result": {"turn": {"id": "turn-large"}}},
+            {
+                "method": "item/fileChange/started",
+                "params": {
+                    "item": {
+                        "id": "file-1",
+                        "type": "fileChange",
+                        **{f"change-{index}": "x" * 1500 for index in range(20)},
+                    }
+                },
+            },
+            {
+                "method": "item/agentMessage/delta",
+                "params": {"delta": '{"text":"ok","artifact_refs":[]}'}},
+            {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+        ],
+    )
+    received: list[dict[str, object]] = []
+    CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=3,
+    ).run(
+        prompt="emit event",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+        on_event=received.append,
+    )
+
+    assert received[0] == {
+        "method": "item/fileChange/started",
+        "params": {"truncated": True, "payloadBytes": received[0]["params"]["payloadBytes"]},
+        "receivedAt": received[0]["receivedAt"],
+    }
+    assert received[0]["params"]["payloadBytes"] > 16384
+
+
+def test_codex_failed_turn_preserves_error_events_and_stderr(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_codex_failed_turn.py"
+    fake.write_text(
+        "import json, sys, time\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if request.get('id') == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request.get('id') == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-failed'}}}), flush=True)\n"
+        "    elif request.get('id') == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-failed'}}}), flush=True)\n"
+        "        print(json.dumps({'method': 'item/commandExecution/started', "
+        "'params': {'item': {'id': 'item-1', 'type': 'commandExecution', "
+        "'command': 'pytest -q'}}}), flush=True)\n"
+        "        print('provider stderr detail', file=sys.stderr, flush=True)\n"
+        "        time.sleep(0.02)\n"
+        "        print(json.dumps({'method': 'turn/completed', 'params': "
+        "{'turn': {'id': 'turn-failed', 'status': 'failed', "
+        "'error': {'codexErrorInfo': 'other', "
+        "'message': 'workspace denied token=do-not-store'}}}}), "
+        "flush=True)\n"
+        ,
+        encoding="utf-8",
+    )
+    events: list[dict[str, object]] = []
+
+    with pytest.raises(CodexTurnFailed, match="workspace denied") as raised:
+        CodexAppServer(
+            command=(sys.executable, "-u", str(fake)),
+            timeout_seconds=2,
+        ).run(
+            prompt="perform a workspace task",
+            cwd=tmp_path,
+            home_dir=tmp_path,
+            output_schema={"type": "object"},
+            on_event=events.append,
+        )
+
+    assert raised.value.diagnostics["turnError"] == {
+        "codexErrorInfo": "other",
+        "message": "workspace denied token=[REDACTED]",
+    }
+    assert "do-not-store" not in str(raised.value)
+    assert "do-not-store" not in json.dumps(raised.value.diagnostics)
+    assert raised.value.diagnostics["threadId"] == "thread-failed"
+    assert raised.value.diagnostics["turnId"] == "turn-failed"
+    assert "provider stderr detail" in raised.value.diagnostics["stderr"]
+    assert any(event.get("method") == "item/commandExecution/started" for event in events)
+
+
+def test_codex_diagnostics_redact_secrets_and_bound_payloads() -> None:
+    diagnostics = sanitize_codex_diagnostics(
+        {
+            "apiKey": "top-secret",
+            "stderr": (
+                "Authorization: Bearer abcdefghijklmnop "
+                "request --api-key=another-secret "
+                "https://example.test/?access_token=query-secret "
+                "token=plain-secret api_key:colon-secret"
+            ),
+            "events": [{"method": "event"} for _ in range(30)],
+            "large": "x" * 2000,
+        }
+    )
+
+    assert diagnostics["apiKey"] == "[REDACTED]"
+    assert "abcdefghijklmnop" not in diagnostics["stderr"]
+    assert "another-secret" not in diagnostics["stderr"]
+    assert "query-secret" not in diagnostics["stderr"]
+    assert "plain-secret" not in diagnostics["stderr"]
+    assert "colon-secret" not in diagnostics["stderr"]
+    assert len(diagnostics["events"]) == 20
+    assert len(diagnostics["large"]) == 1500
+
+
+def test_codex_stderr_tail_buffer_is_bounded() -> None:
+    from multiverse_workflow.runtime.codex import _BoundedTail
+
+    tail = _BoundedTail(max_bytes=8)
+    tail.write(b"first-line\n")
+    tail.write(b"last-line\n")
+
+    assert tail.getvalue() == b"st-line\n"
+    assert tail.truncated
+
+
+def test_codex_app_server_drains_large_stderr_without_growing_capture(
+    tmp_path: Path,
+) -> None:
+    fake = tmp_path / "fake_codex_stderr_flood.py"
+    fake.write_text(
+        "import json, sys\n"
+        "sys.stderr.write('x' * (2 * 1024 * 1024) + 'final-marker')\n"
+        "sys.stderr.flush()\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    request_id = request.get('id')\n"
+        "    if request_id == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request_id == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-stderr'}}}), flush=True)\n"
+        "    elif request_id == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-stderr'}}}), flush=True)\n"
+        "        print(json.dumps({'method': 'item/agentMessage/delta', "
+        "'params': {'delta': '{\\\"text\\\":\\\"ok\\\",\\\"artifact_refs\\\":[]}'} }), "
+        "flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', 'params': "
+        "{'turn': {'status': 'completed'}}}), flush=True)\n",
+        encoding="utf-8",
+    )
+
+    result = CodexAppServer(
+        command=(sys.executable, "-u", str(fake)),
+        timeout_seconds=3,
+    ).run(
+        prompt="return JSON",
+        cwd=tmp_path,
+        home_dir=tmp_path,
+        output_schema={"type": "object"},
+    )
+
+    assert result.output == {"text": "ok", "artifact_refs": []}
 
 
 @pytest.mark.parametrize(
@@ -575,12 +878,13 @@ def test_interrupt_preserves_known_failed_terminal_turn(tmp_path: Path) -> None:
         "    elif request_id == 4:\n"
         "        print(json.dumps({'method': 'turn/completed', "
         "'params': {'turn': {'status': 'failed', "
-        "'error': {'codexErrorInfo': 'known-failure'}}}}), flush=True)\n"
+        "'error': {'codexErrorInfo': 'known-failure', "
+        "'message': 'provider token=interrupt-secret'}}}}), flush=True)\n"
         "        print(json.dumps({'id': 4, 'result': {}}), flush=True)\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(CodexProtocolError, match="known-failure"):
+    with pytest.raises(CodexTurnFailed, match="known-failure") as raised:
         CodexAppServer(
             command=(sys.executable, "-u", str(fake)),
             timeout_seconds=2,
@@ -590,6 +894,85 @@ def test_interrupt_preserves_known_failed_terminal_turn(tmp_path: Path) -> None:
             home_dir=tmp_path,
             output_schema={"type": "object"},
             should_stop=turn_started.exists,
+        )
+    assert "interrupt-secret" not in str(raised.value)
+    assert "interrupt-secret" not in json.dumps(raised.value.diagnostics)
+
+
+def test_interrupt_failure_error_code_is_redacted(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_codex_failed_error_code.py"
+    turn_started = tmp_path / "turn-started"
+    fake.write_text(
+        "import json, pathlib, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    request_id = request.get('id')\n"
+        "    if request_id == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request_id == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-1'}}}), flush=True)\n"
+        "    elif request_id == 3:\n"
+        f"        pathlib.Path({str(turn_started)!r}).touch()\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-1'}}}), flush=True)\n"
+        "    elif request_id == 4:\n"
+        "        print('interrupt stderr marker', file=sys.stderr, flush=True)\n"
+        "        print(json.dumps({'method': 'turn/completed', "
+        "'params': {'turn': {'status': 'failed', "
+        "'error': {'codexErrorInfo': 'token=code-secret'}}}}), flush=True)\n"
+        "        print(json.dumps({'id': 4, 'result': {}}), flush=True)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodexTurnFailed) as raised:
+        CodexAppServer(
+            command=(sys.executable, "-u", str(fake)),
+            timeout_seconds=2,
+        ).run(
+            prompt="wait to be cancelled",
+            cwd=tmp_path,
+            home_dir=tmp_path,
+            output_schema={"type": "object"},
+            should_stop=turn_started.exists,
+        )
+
+    assert "code-secret" not in str(raised.value)
+    assert "code-secret" not in json.dumps(raised.value.diagnostics)
+    assert set(
+        ["model", "cwd", "homeDir", "approvalPolicy", "sandboxMode", "events", "stderr"]
+    ).issubset(raised.value.diagnostics)
+    assert "interrupt stderr marker" in raised.value.diagnostics["stderr"]
+
+
+def test_codex_app_server_rejects_an_oversized_protocol_line(tmp_path: Path) -> None:
+    fake = tmp_path / "fake_codex_oversized_line.py"
+    fake.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    request = json.loads(line)\n"
+        "    if request.get('id') == 1:\n"
+        "        print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+        "    elif request.get('id') == 2:\n"
+        "        print(json.dumps({'id': 2, 'result': "
+        "{'thread': {'id': 'thread-large'}}}), flush=True)\n"
+        "    elif request.get('id') == 3:\n"
+        "        print(json.dumps({'id': 3, 'result': "
+        "{'turn': {'id': 'turn-large'}}}), flush=True)\n"
+        "        sys.stdout.write('x' * (1024 * 1024 + 1) + '\\n')\n"
+        "        sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodexProtocolError, match="1 MiB"):
+        CodexAppServer(
+            command=(sys.executable, "-u", str(fake)),
+            timeout_seconds=3,
+        ).run(
+            prompt="return JSON",
+            cwd=tmp_path,
+            home_dir=tmp_path,
+            output_schema={"type": "object"},
         )
 
 

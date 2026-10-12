@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import selectors
 import subprocess
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class CodexProtocolError(RuntimeError):
@@ -63,6 +65,95 @@ class CodexOutputLimitError(CodexProtocolError):
 class CodexTurnFailed(CodexProtocolError):
     """Codex reported a known failed terminal turn."""
 
+    def __init__(
+        self, message: str, *, diagnostics: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
+
+_SENSITIVE_DIAGNOSTIC_KEY = re.compile(
+    r"(authorization|token|secret|password|api[_-]?key|credential|cookie)",
+    re.IGNORECASE,
+)
+_SENSITIVE_DIAGNOSTIC_VALUE = re.compile(
+    r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*"
+    r"|\b(?:sk-ant-|sk-|ghp_|gho_|github_pat_)[A-Za-z0-9_-]{12,}\b"
+    r"|((?:--?|[?&])(?:access[_-]?token|api[_-]?key|token|secret|password)="
+    r")[^&\s]+"
+    r"|((?:access[_-]?token|api[_-]?key|token|secret|password)\s*[:=]\s*)"
+    r"['\"]?[^'\"\s,;]+"
+)
+_CODEX_RUNTIME_EVENT_METHODS = frozenset(
+    {
+        "item/agentMessage/delta",
+        "item/agentMessage/completed",
+        "item/commandExecution/started",
+        "item/commandExecution/completed",
+        "item/fileChange/started",
+        "item/fileChange/completed",
+        "item/started",
+        "item/completed",
+        "turn/started",
+        "turn/completed",
+        "thread/started",
+        "thread/tokenUsage/updated",
+    }
+)
+_MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
+_MAX_EVENT_BYTES = 16 * 1024
+_MAX_EVENT_COUNT = 2000
+_MAX_EVENT_TOTAL_BYTES = 512 * 1024
+
+
+def sanitize_codex_diagnostics(value: Any) -> Any:
+    """Bound and redact provider diagnostics before they enter the Ledger."""
+    if isinstance(value, dict):
+        return {
+            str(key)[:128]: (
+                "[REDACTED]"
+                if _SENSITIVE_DIAGNOSTIC_KEY.search(str(key))
+                else sanitize_codex_diagnostics(item)
+            )
+            for key, item in list(value.items())[:40]
+        }
+    if isinstance(value, list):
+        return [sanitize_codex_diagnostics(item) for item in value[:20]]
+    if isinstance(value, str):
+        redacted = _SENSITIVE_DIAGNOSTIC_VALUE.sub(
+            lambda match: (
+                f"{match.group(1) or match.group(2) or match.group(3)}[REDACTED]"
+                if match.group(1) or match.group(2) or match.group(3)
+                else (
+                    "[REDACTED]"
+                )
+            ),
+            value,
+        )
+        return redacted[:1500]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return f"<{type(value).__name__}>"
+
+
+class _BoundedTail:
+    def __init__(self, max_bytes: int) -> None:
+        self.max_bytes = max_bytes
+        self._buffer = bytearray()
+        self._lock = threading.Lock()
+        self.truncated = False
+
+    def write(self, value: bytes) -> None:
+        with self._lock:
+            self._buffer.extend(value)
+            if len(self._buffer) > self.max_bytes:
+                del self._buffer[: len(self._buffer) - self.max_bytes]
+                self.truncated = True
+
+    def getvalue(self) -> bytes:
+        with self._lock:
+            return bytes(self._buffer)
+
 
 @dataclass(frozen=True)
 class CodexResult:
@@ -112,6 +203,10 @@ class CodexAppServer:
         self._read_buffer = bytearray()
         self._pending_messages: deque[dict[str, Any]] = deque()
         self._last_terminal_error: str | None = None
+        self._recent_events: deque[dict[str, Any]] = deque(maxlen=20)
+        self._stderr_buffer: _BoundedTail | None = None
+        self._stderr_reader: threading.Thread | None = None
+        self._diagnostic_context: dict[str, Any] = {}
 
     def run(
         self,
@@ -122,18 +217,32 @@ class CodexAppServer:
         output_schema: dict[str, Any],
         on_server_request: Callable[[str, str, dict[str, Any]], dict[str, Any]] | None = None,
         on_server_response: Callable[[str, dict[str, Any]], None] | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> CodexResult:
         deadline = time.monotonic() + self.timeout_seconds
         self._read_buffer.clear()
         self._pending_messages.clear()
         self._last_terminal_error = None
+        self._last_terminal_error_payload: dict[str, Any] | None = None
+        self._recent_events.clear()
+        self._diagnostic_context = {
+            "provider": "codex",
+            "protocol": "app-server",
+            "model": self.model,
+            "cwd": str(cwd),
+            "homeDir": str(home_dir),
+            "approvalPolicy": self.approval_policy,
+            "sandboxMode": self.sandbox_mode,
+        }
+        stderr_buffer = _BoundedTail(32768)
+        self._stderr_buffer = stderr_buffer
         process = subprocess.Popen(
             self.command,
             cwd=cwd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=False,
             env={
                 "PATH": os.environ.get("PATH", os.defpath),
@@ -141,6 +250,68 @@ class CodexAppServer:
                 "HOME": str(home_dir),
             },
         )
+        assert process.stderr
+        stderr_reader = threading.Thread(
+            target=self._drain_stderr,
+            args=(process.stderr, stderr_buffer),
+            name="multiverse-codex-stderr",
+            daemon=True,
+        )
+        stderr_reader.start()
+        self._stderr_reader = stderr_reader
+        emitted_event_count = 0
+        emitted_event_bytes = 0
+        event_budget_exhausted = False
+
+        def emit_event(event: dict[str, Any]) -> None:
+            nonlocal emitted_event_count, emitted_event_bytes, event_budget_exhausted
+            if on_event is None or event_budget_exhausted:
+                return
+            safe_event = sanitize_codex_diagnostics(event)
+            serialized = json.dumps(
+                safe_event, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            if len(serialized) > _MAX_EVENT_BYTES:
+                safe_event = {
+                    "method": event["method"],
+                    "params": {
+                        "truncated": True,
+                        "payloadBytes": len(serialized),
+                    },
+                    "receivedAt": event["receivedAt"],
+                }
+                serialized = json.dumps(
+                    safe_event, separators=(",", ":")
+                ).encode("utf-8")
+            if (
+                emitted_event_count >= _MAX_EVENT_COUNT
+                or emitted_event_bytes + len(serialized) > _MAX_EVENT_TOTAL_BYTES
+            ):
+                event_budget_exhausted = True
+                marker = {
+                    "method": "runtime/events_truncated",
+                    "params": {
+                        "maxEvents": _MAX_EVENT_COUNT,
+                        "maxBytes": _MAX_EVENT_TOTAL_BYTES,
+                    },
+                    "receivedAt": time.time(),
+                }
+                on_event(marker)
+                return
+            emitted_event_count += 1
+            emitted_event_bytes += len(serialized)
+            on_event(safe_event)
+
+        def stop_process_and_drain_stderr() -> None:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+            stderr_reader.join(timeout=2)
+
         try:
             request_id = 1
             self._send(
@@ -234,6 +405,26 @@ class CodexAppServer:
                         ):
                             continue
                         raise
+                    method = message.get("method")
+                    if method in _CODEX_RUNTIME_EVENT_METHODS:
+                        event = {
+                            "method": method,
+                            "params": message.get("params", {}),
+                            "receivedAt": time.time(),
+                        }
+                        safe_event = sanitize_codex_diagnostics(event)
+                        if len(
+                            json.dumps(
+                                safe_event, ensure_ascii=False, separators=(",", ":")
+                            ).encode("utf-8")
+                        ) > _MAX_EVENT_BYTES:
+                            safe_event = {
+                                "method": method,
+                                "params": {"truncated": True},
+                                "receivedAt": event["receivedAt"],
+                            }
+                        self._recent_events.append(safe_event)
+                        emit_event(event)
                     if "method" in message and "id" in message:
                         if on_server_request is None:
                             raise CodexProtocolError(
@@ -294,19 +485,59 @@ class CodexAppServer:
                             )
                         if turn_status != "completed":
                             error = turn.get("error")
+                            self._last_terminal_error_payload = (
+                                error if isinstance(error, dict) else None
+                            )
                             error_code = (
                                 error.get("codexErrorInfo")
                                 if isinstance(error, dict)
+                                else None
+                            )
+                            message_text = (
+                                error.get("message", "")
+                                if isinstance(error, dict)
+                                else ""
+                            )
+                            stop_process_and_drain_stderr()
+                            stderr_text = sanitize_codex_diagnostics(
+                                stderr_buffer.getvalue().decode(
+                                    "utf-8", errors="replace"
+                                )
+                            )
+                            safe_error_code = (
+                                sanitize_codex_diagnostics(error_code)
+                                if isinstance(error_code, str)
                                 else None
                             )
                             raise CodexTurnFailed(
                                 "Codex turn ended with "
                                 f"status={turn_status or 'unknown'}"
                                 + (
-                                    f", errorCode={error_code}"
-                                    if isinstance(error_code, str)
+                                    f", errorCode={safe_error_code}"
+                                    if isinstance(safe_error_code, str)
                                     else ""
                                 )
+                                + (
+                                    f": {sanitize_codex_diagnostics(message_text)}"
+                                    if isinstance(message_text, str) and message_text
+                                    else ""
+                                ),
+                                diagnostics=sanitize_codex_diagnostics({
+                                    "provider": "codex",
+                                    "protocol": "app-server",
+                                    "model": self.model,
+                                    "cwd": str(cwd),
+                                    "homeDir": str(home_dir),
+                                    "approvalPolicy": self.approval_policy,
+                                    "sandboxMode": self.sandbox_mode,
+                                    "threadId": thread_id,
+                                    "turnId": turn_id,
+                                    "turnStatus": turn_status,
+                                    "turnError": error,
+                                    "events": list(self._recent_events),
+                                "stderr": stderr_text,
+                                "stderrTruncated": stderr_buffer.truncated,
+                                }),
                             )
                         if not parts:
                             for item in turn.get("items", []):
@@ -360,6 +591,17 @@ class CodexAppServer:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=2)
+            if process.stderr:
+                process.stderr.close()
+            stderr_reader.join(timeout=2)
+
+    @staticmethod
+    def _drain_stderr(stream: Any, tail: _BoundedTail) -> None:
+        try:
+            while chunk := os.read(stream.fileno(), 4096):
+                tail.write(chunk)
+        except OSError:
+            return
 
     @staticmethod
     def interrupt(
@@ -450,6 +692,11 @@ class CodexAppServer:
                 error = turn.get("error")
                 code = error.get("codexErrorInfo") if isinstance(error, dict) else None
                 self._last_terminal_error = code if isinstance(code, str) else None
+                self._last_terminal_error_payload = (
+                    sanitize_codex_diagnostics(error)
+                    if isinstance(error, dict)
+                    else None
+                )
             return status
         return None
 
@@ -471,14 +718,66 @@ class CodexAppServer:
             )
         if status in {"completed", "failed"}:
             if status == "failed":
-                failed_detail = (
-                    f": {self._last_terminal_error}"
+                self._stop_process_and_drain(process)
+                safe_terminal_error = (
+                    sanitize_codex_diagnostics(self._last_terminal_error)
                     if self._last_terminal_error
+                    else None
+                )
+                failed_detail = (
+                    f": {safe_terminal_error}"
+                    if isinstance(safe_terminal_error, str)
                     else ""
                 )
-                raise CodexTurnFailed(f"{message}; Codex reported failed{failed_detail}")
+                raise CodexTurnFailed(
+                    f"{message}; Codex reported failed{failed_detail}",
+                    diagnostics=self._diagnostics_snapshot(
+                        thread_id=thread_id,
+                        turn_id=turn_id,
+                        turn_status=status,
+                    ),
+                )
             return status
         raise CodexProtocolError(f"{message}; Codex stop is unconfirmed")
+
+    def _diagnostics_snapshot(
+        self,
+        *,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+        turn_status: str | None = None,
+    ) -> dict[str, Any]:
+        stderr = self._stderr_buffer
+        return cast(
+            dict[str, Any],
+            sanitize_codex_diagnostics(
+            {
+                **self._diagnostic_context,
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "turnStatus": turn_status,
+                "turnError": self._last_terminal_error_payload,
+                "events": list(self._recent_events),
+                "stderr": (
+                    stderr.getvalue().decode("utf-8", errors="replace")
+                    if stderr is not None
+                    else ""
+                ),
+                "stderrTruncated": stderr.truncated if stderr is not None else False,
+            }
+            ),
+        )
+
+    def _stop_process_and_drain(self, process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
+        if self._stderr_reader is not None:
+            self._stderr_reader.join(timeout=2)
 
     @staticmethod
     def _send(
@@ -641,6 +940,10 @@ class CodexAppServer:
         try:
             deadline = time.monotonic() + max(0.01, timeout)
             while b"\n" not in self._read_buffer:
+                if len(self._read_buffer) > _MAX_PROTOCOL_LINE_BYTES:
+                    raise CodexProtocolError(
+                        "Codex App Server protocol line exceeded 1 MiB"
+                    )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not selector.select(remaining):
                     raise CodexProtocolError("Codex App Server timed out")
@@ -648,6 +951,11 @@ class CodexAppServer:
                 if not chunk:
                     raise CodexProtocolError("Codex App Server closed the connection")
                 self._read_buffer.extend(chunk)
+                newline_at = self._read_buffer.find(b"\n")
+                if newline_at > _MAX_PROTOCOL_LINE_BYTES:
+                    raise CodexProtocolError(
+                        "Codex App Server protocol line exceeded 1 MiB"
+                    )
         finally:
             selector.close()
         line, _, rest = self._read_buffer.partition(b"\n")
