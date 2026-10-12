@@ -23,6 +23,12 @@ _KNOWN_STOP_EVENTS = {
     "policy.denied",
 }
 
+_CODEX_TOOL_REQUESTS = {
+    "commandExecution",
+    "fileChange",
+    "requestUserInput",
+}
+
 
 @dataclass(frozen=True)
 class ExecutorDescriptor:
@@ -257,6 +263,56 @@ class ExecutorRegistry:
                         ),
                     )
                 )
+            if slot.adapter == "codex":
+                config = slot.config
+                approval_policy = config.get("approvalPolicy", "never")
+                sandbox_mode = config.get("sandboxMode", "workspace-write")
+                allowed_tools = config.get("allowedToolRequests", [])
+                if approval_policy == "never" and allowed_tools:
+                    issues.append(
+                        SupportIssue(
+                            code="CODEX_APPROVAL_BOUNDARY",
+                            node_id=node_id,
+                            message=(
+                                "approvalPolicy=never 不得同时声明工具请求白名单；"
+                                "需要工具时请改用受控审批策略。"
+                            ),
+                        )
+                    )
+                if sandbox_mode == "danger-full-access" and config.get(
+                    "trustedLocal"
+                ) is not True:
+                    issues.append(
+                        SupportIssue(
+                            code="CODEX_SANDBOX_BOUNDARY",
+                            node_id=node_id,
+                            message=(
+                                "danger-full-access 必须显式声明 trustedLocal=true；"
+                                "预检不会默认授予宿主机全权限。"
+                            ),
+                        )
+                    )
+                if approval_policy != "never" and not allowed_tools:
+                    issues.append(
+                        SupportIssue(
+                            code="CODEX_TOOL_BOUNDARY",
+                            node_id=node_id,
+                            message=(
+                                "启用 Codex 工具审批时必须显式列出 allowedToolRequests；"
+                                "运行时不会隐式放行未知工具请求。"
+                            ),
+                        )
+                    )
+                if isinstance(allowed_tools, list) and any(
+                    item not in _CODEX_TOOL_REQUESTS for item in allowed_tools
+                ):
+                    issues.append(
+                        SupportIssue(
+                            code="CODEX_TOOL_BOUNDARY",
+                            node_id=node_id,
+                            message="allowedToolRequests 含未注册的 Codex 工具请求类型。",
+                        )
+                    )
             for capability in definition["requires"]["capabilities"]:
                 if capability not in descriptor.capabilities:
                     issues.append(

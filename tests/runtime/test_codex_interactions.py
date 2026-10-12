@@ -219,7 +219,11 @@ def test_native_request_waits_for_persisted_human_reply(tmp_path: Path) -> None:
                     scope_id=scope["id"],
                     invocation=invocation,
                     attempt=attempt,
-                    binding_config={"interactionAuthorizedSubjects": ["operator"]},
+                    binding_config={
+                        "interactionAuthorizedSubjects": ["operator"],
+                        "allowedToolRequests": ["commandExecution"],
+                        "approvalPolicy": "on-request",
+                    },
                     request_id="native-approval-1",
                     kind="item/commandExecution/requestApproval",
                     payload={
@@ -415,18 +419,21 @@ def test_permission_escalation_interaction_is_fail_closed(tmp_path: Path) -> Non
         effect_key=invocation["id"],
     )
 
-    with pytest.raises(Exception, match="unsupported Codex interaction"):
+    with pytest.raises(Exception, match="allowlist"):
         runner._wait_for_codex_interaction(
             run_id=run["id"],
             scope_id=scope["id"],
             invocation=invocation,
             attempt=attempt,
-            binding_config={"interactionAuthorizedSubjects": ["operator"]},
+            binding_config={
+                "interactionAuthorizedSubjects": ["operator"],
+                "allowedToolRequests": ["commandExecution"],
+                "approvalPolicy": "on-request",
+            },
             request_id="native-permission-1",
             kind="item/permissions/requestApproval",
             payload={"threadId": "thread-1", "turnId": "turn-1"},
             expires_at="2099-01-01T00:00:00Z",
         )
 
-    interaction = runner.ledger.list_codex_interactions(run_id=run["id"])[0]
-    assert interaction["status"] == "invalid"
+    assert runner.ledger.list_codex_interactions(run_id=run["id"]) == []

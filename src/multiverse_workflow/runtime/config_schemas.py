@@ -53,6 +53,18 @@ def executor_config_schema(adapter: str, executor_ref: str) -> dict[str, Any]:
             "sandboxMode": {
                 "enum": ["read-only", "workspace-write", "danger-full-access"]
             },
+            "trustedLocal": {"type": "boolean"},
+            "allowedToolRequests": {
+                "type": "array",
+                "items": {
+                    "enum": [
+                        "commandExecution",
+                        "fileChange",
+                        "requestUserInput",
+                    ]
+                },
+                "uniqueItems": True,
+            },
             "command": {"type": "array", "minItems": 1, "items": text},
             "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600},
             "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},

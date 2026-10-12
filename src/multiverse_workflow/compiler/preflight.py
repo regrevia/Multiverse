@@ -23,6 +23,12 @@ _SUGGESTIONS = {
     "LIMIT_NOT_ENFORCEABLE": "更换声明相应 usage/stop 能力的执行器，或将该限制改为仅观察性约束。",
     "STOP_TRIGGER_UNRESOLVED": "使用已注册的停止事件，或先注册对应 Guard/策略扩展。",
     "GUARD_UNRESOLVED": "先在操作者执行器目录注册并验证该 Guard，再运行预检。",
+    "CODEX_APPROVAL_BOUNDARY": "无工具任务才使用 approvalPolicy=never；否则改为受控审批策略。",
+    "CODEX_SANDBOX_BOUNDARY": (
+        "仅在明确可信的本机工作区声明 trustedLocal=true，"
+        "其他情况收紧 sandboxMode。"
+    ),
+    "CODEX_TOOL_BOUNDARY": "显式列出 allowedToolRequests，只放行经过审计的 Codex 工具请求类型。",
 }
 
 

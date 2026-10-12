@@ -216,6 +216,11 @@ button:focus-visible { outline: 2px solid #287d91; outline-offset: 2px; }
 .simulate-button { width: 100%; margin-top: 9px; background: #e8f1f4; color: #285f70; }
 .simulate-button:hover { background: #dcebef; }
 .agent-events { display: grid; gap: 10px; margin-top: 28px; }
+.runtime-evidence { border-top: 1px solid var(--line); padding-top: 18px; }
+.runtime-evidence details { margin: 0; }
+.runtime-evidence summary { cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.runtime-evidence summary small { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.runtime-evidence pre { max-height: 220px; overflow: auto; margin: 8px 0 0 16px; padding: 10px; background: rgba(12, 31, 43, .05); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.5; }
 .agent-event { align-items: flex-start; gap: 8px; color: #607589; font-size: 11px; line-height: 1.35; }
 .agent-event > span { width: 5px; height: 5px; flex: 0 0 auto; margin-top: 5px; border-radius: 50%; background: #47aab3; }
 

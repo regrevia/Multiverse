@@ -3120,6 +3120,22 @@ class Runner:
             "item/fileChange/requestApproval",
             "item/tool/requestUserInput",
         }
+        request_tool = {
+            "item/commandExecution/requestApproval": "commandExecution",
+            "item/fileChange/requestApproval": "fileChange",
+            "item/tool/requestUserInput": "requestUserInput",
+        }.get(kind)
+        allowed_tools = binding_config.get("allowedToolRequests")
+        if not isinstance(allowed_tools, list) or not all(
+            isinstance(tool, str) for tool in allowed_tools
+        ):
+            raise CodexProtocolError(
+                "Codex tool request denied: allowedToolRequests must be explicit"
+            )
+        if kind not in supported or request_tool not in allowed_tools:
+            raise CodexProtocolError(
+                f"Codex tool request denied by allowlist: {kind}"
+            )
         authorized_subjects = binding_config.get("interactionAuthorizedSubjects", [])
         if not isinstance(authorized_subjects, list) or not all(
             isinstance(subject, str) for subject in authorized_subjects
@@ -3144,11 +3160,6 @@ class Runner:
             authorized_subjects=authorized_subjects,
             expires_at=expires_at,
         )
-        if kind not in supported:
-            self.ledger.invalidate_codex_interaction(
-                interaction["id"], reason="unsupported native request kind"
-            )
-            raise CodexProtocolError(f"unsupported Codex interaction kind: {kind}")
         while True:
             if should_stop is not None and should_stop():
                 raise CodexRunCancelled()

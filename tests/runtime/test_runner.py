@@ -262,6 +262,8 @@ def test_session_metadata_failure_does_not_leave_completed_attempt_running(
                 "homeDir": str(tmp_path),
                 "model": "fixture",
                 "interactionAuthorizedSubjects": ["example-reviewer"],
+                "allowedToolRequests": ["commandExecution"],
+                "approvalPolicy": "on-request",
             },
         }
     )
@@ -407,6 +409,8 @@ def test_runner_refuses_a_second_writer_for_an_explicit_native_session(
                 "homeDir": str(tmp_path),
                 "model": "fixture",
                 "interactionAuthorizedSubjects": ["example-reviewer"],
+                "allowedToolRequests": ["commandExecution"],
+                "approvalPolicy": "on-request",
                 "sessionMode": "resume",
                 "nativeSessionId": "thread-single-writer",
                 "installationId": "codex-host",
@@ -482,6 +486,8 @@ def test_runner_persists_codex_events_and_failure_diagnostics(
                 "homeDir": str(tmp_path),
                 "model": "fixture",
                 "interactionAuthorizedSubjects": ["local-user"],
+                "allowedToolRequests": ["commandExecution"],
+                "approvalPolicy": "on-request",
             },
         }
     )

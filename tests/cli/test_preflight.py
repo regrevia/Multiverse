@@ -148,6 +148,98 @@ def test_local_process_catalog_does_not_claim_a_sandbox() -> None:
     assert descriptor.as_catalog_entry()["permissionLevel"] == "trusted_local"
 
 
+def test_codex_preflight_rejects_unbounded_high_risk_runtime_config() -> None:
+    from multiverse_workflow.runtime.registry import RegistryPreflightResult
+
+    binding = BindingSet.model_validate(
+        {
+            "apiVersion": "multiverse/v0.1",
+            "kind": "BindingSet",
+            "metadata": {"name": "codex-test", "version": "0.1.0"},
+            "spec": {
+                "slots": {
+                    "developer": {
+                        "adapter": "codex",
+                        "executorRef": "builtin.codex-deliverable.v1",
+                        "config": {
+                            "cwd": "/tmp/project",
+                            "workspaceRoot": "/tmp/project",
+                            "homeDir": "/tmp/home",
+                            "model": "gpt-6.1-sol",
+                            "systemPrompt": "Return JSON.",
+                            "approvalPolicy": "never",
+                            "sandboxMode": "danger-full-access",
+                            "interactionAuthorizedSubjects": ["local-user"],
+                        },
+                        "secretRefs": {},
+                        "grants": [],
+                    }
+                }
+            },
+        }
+    )
+    nodes = {
+        "develop": {
+            "type": "call",
+            "definition": {
+                "slot": "developer",
+                "requires": {"capabilities": []},
+                "policy": {},
+            },
+        }
+    }
+    result: RegistryPreflightResult = local_executor_registry().preflight_result(
+        nodes=nodes,
+        binding=binding,
+    )
+
+    assert "CODEX_SANDBOX_BOUNDARY" in {issue.code for issue in result.issues}
+
+
+def test_codex_preflight_requires_explicit_tool_allowlist_for_approval_mode() -> None:
+    binding = BindingSet.model_validate(
+        {
+            "apiVersion": "multiverse/v0.1",
+            "kind": "BindingSet",
+            "metadata": {"name": "codex-test", "version": "0.1.0"},
+            "spec": {
+                "slots": {
+                    "developer": {
+                        "adapter": "codex",
+                        "executorRef": "builtin.codex-deliverable.v1",
+                        "config": {
+                            "cwd": "/tmp/project",
+                            "workspaceRoot": "/tmp/project",
+                            "homeDir": "/tmp/home",
+                            "model": "gpt-6.1-sol",
+                            "systemPrompt": "Return JSON.",
+                            "approvalPolicy": "on-request",
+                            "sandboxMode": "read-only",
+                            "interactionAuthorizedSubjects": ["local-user"],
+                        },
+                        "secretRefs": {},
+                        "grants": [],
+                    }
+                }
+            },
+        }
+    )
+    result = local_executor_registry().preflight_result(
+        nodes={
+            "develop": {
+                "type": "call",
+                "definition": {
+                    "slot": "developer",
+                    "requires": {"capabilities": []},
+                    "policy": {},
+                },
+            }
+        },
+        binding=binding,
+    )
+    assert "CODEX_TOOL_BOUNDARY" in {issue.code for issue in result.issues}
+
+
 def test_capability_mismatch_points_to_existing_binding_field(tmp_path: Path) -> None:
     yaml = YAML()
     binding = yaml.load(LOCAL)

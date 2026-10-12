@@ -1338,6 +1338,7 @@ function App() {
               interactionState={interactionState}
               onRespondInteraction={respondToCodexInteraction}
               sessionState={sessionState}
+              runtimeEvents={runtimeEvents}
             />
           )}
         </aside>
@@ -1912,6 +1913,7 @@ function AgentPanel({
   interactionState,
   onRespondInteraction,
   sessionState,
+  runtimeEvents,
 }: {
   patchText: string;
   setPatchText: (value: string) => void;
@@ -1926,6 +1928,7 @@ function AgentPanel({
   interactionState: Record<string, string>;
   onRespondInteraction: (interaction: RuntimeCodexInteraction, response: string) => void;
   sessionState: "idle" | "loading" | "ready" | "error";
+  runtimeEvents: RuntimeEvent[];
 }) {
   return (
     <div className="panel-content agent-panel">
@@ -1997,6 +2000,26 @@ function AgentPanel({
         )}
       </div>
       <div className="agent-events"><div className="detail-label">最近智能体活动</div>{events.map((event) => <div className="agent-event" key={event}><span />{event}</div>)}</div>
+      <div className="agent-events runtime-evidence">
+        <div className="detail-label">Runtime 事件与诊断</div>
+        {runtimeEvents.length === 0 ? (
+          <div className="session-empty">连接真实 Run 后显示事件证据</div>
+        ) : (
+          runtimeEvents.slice(-12).reverse().map((event) => {
+            const display = runtimeEventDisplay(event);
+            return (
+              <details
+                className={`agent-event evidence-${eventTone(event.type)}`}
+                key={event.seq}
+                {...(!display.expandable ? { open: false } : {})}
+              >
+                <summary><span />{event.type}<small>#{event.seq}</small></summary>
+                {display.payload && <pre>{display.payload}</pre>}
+              </details>
+            );
+          })
+        )}
+      </div>
       <div className="panel-callout warning"><AlertCircle size={16} /><span>预览不会发布。</span></div>
     </div>
   );
@@ -2033,10 +2056,27 @@ function formatEventTime(value: string): string {
   return Number.isNaN(date.valueOf()) ? "—" : date.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-function eventTone(type: string): "success" | "active" | "muted" {
+export function eventTone(type: string): "success" | "active" | "muted" {
   if (type.includes("succeeded") || type.includes("completed")) return "success";
   if (type.includes("running") || type.includes("created") || type.includes("waiting")) return "active";
   return "muted";
+}
+
+export function runtimeEventDisplay(event: RuntimeEvent): {
+  expandable: boolean;
+  payload: string | null;
+} {
+  const expandable =
+    event.type === "agent.model.event" || event.type === "agent.model.failed";
+  if (!expandable) return { expandable: false, payload: null };
+  try {
+    return {
+      expandable: true,
+      payload: JSON.stringify(event.payload, null, 2),
+    };
+  } catch {
+    return { expandable: true, payload: "[无法序列化事件详情]" };
+  }
 }
 
 function mergeHumanRequests(
